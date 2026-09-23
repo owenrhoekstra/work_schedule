@@ -1,0 +1,57 @@
+{% extends "base.html" %} {% block title %} Pending Accounts {% endblock %} {%block content %}
+<div class="max-w-3xl mx-auto px-6 py-10">
+    <h1 class="font-display text-2xl font-bold text-brand-indigo mb-6">
+        Pending Accounts
+    </h1>
+
+    {% if pending %}
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+    >
+        <table class="min-w-full border-collapse">
+            <thead>
+                <tr class="bg-brand-indigo">
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-white"
+                    >
+                        Username
+                    </th>
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-white"
+                    >
+                        Email
+                    </th>
+                    <th class="p-3"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in pending %}
+                <tr class="border-t border-gray-200">
+                    <td class="p-3 text-brand-indigo font-medium">
+                        {{ user.username }}
+                    </td>
+                    <td class="p-3 text-gray-500">{{ user.email }}</td>
+                    <td class="p-3 text-right">
+                        <form
+                            method="post"
+                            action="{% url 'approve_account' user.id %}"
+                        >
+                            {% csrf_token %}
+                            <button
+                                type="submit"
+                                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors"
+                            >
+                                Approve
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-gray-500">No accounts waiting on approval.</p>
+    {% endif %}
+</div>
+{% endblock %}

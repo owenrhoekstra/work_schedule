@@ -1,0 +1,139 @@
+{% load tailwind_tags %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Sign up</title>
+        {% tailwind_css %}
+    </head>
+    <body class="min-h-screen flex bg-brand-offwhite font-sans">
+        <div
+            class="hidden md:flex md:w-1/2 bg-brand-indigo relative overflow-hidden flex-col justify-center px-16"
+        >
+            <div
+                class="absolute -bottom-24 -right-24 w-96 h-96 bg-brand-yellow rounded-full opacity-90"
+            ></div>
+            <div
+                class="absolute top-20 -left-10 w-40 h-40 bg-brand-coral rounded-full opacity-60"
+            ></div>
+            <div class="relative z-10">
+                <p class="text-brand-yellow font-display text-sm mb-4">
+                    work schedule
+                </p>
+                <h1
+                    class="font-display text-white text-5xl font-bold leading-tight mb-6"
+                >
+                    Have you been<br />added?<br />Set up access.
+                </h1>
+                <p class="text-[#C7C4E8] text-base max-w-xs">
+                    Create your account using the email your manager added for
+                    you.
+                </p>
+            </div>
+        </div>
+
+        <div
+            class="w-full md:w-1/2 flex items-center justify-center px-6 py-12"
+        >
+            <div class="w-full max-w-sm">
+                <h2
+                    class="font-display text-2xl font-bold text-brand-indigo mb-1"
+                >
+                    Create account
+                </h2>
+                <p class="text-sm text-gray-500 mb-8">
+                    Enter your details to get started.
+                </p>
+
+                {% if form.non_field_errors %}
+                <div
+                    class="mb-6 rounded-lg bg-brand-coral/10 border border-brand-coral/30 px-4 py-3"
+                >
+                    {% for error in form.non_field_errors %}
+                    <p class="text-sm text-brand-coral font-medium">
+                        {{ error }}
+                    </p>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <form method="post" class="space-y-5">
+                    {% csrf_token %}
+
+                    <div>
+                        <label
+                            for="{{ form.username.id_for_label }}"
+                            class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >
+                            Username
+                        </label>
+                        {{ form.username }} {% if form.username.errors %}
+                        <p class="text-sm text-brand-coral mt-1">
+                            {{ form.username.errors.0 }}
+                        </p>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label
+                            for="{{ form.email.id_for_label }}"
+                            class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >
+                            Email
+                        </label>
+                        {{ form.email }} {% if form.email.errors %}
+                        <p class="text-sm text-brand-coral mt-1">
+                            {{ form.email.errors.0 }}
+                        </p>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label
+                            for="{{ form.password1.id_for_label }}"
+                            class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >
+                            Password
+                        </label>
+                        {{ form.password1 }} {% if form.password1.errors %}
+                        <p class="text-sm text-brand-coral mt-1">
+                            {{ form.password1.errors.0 }}
+                        </p>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label
+                            for="{{ form.password2.id_for_label }}"
+                            class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >
+                            Confirm password
+                        </label>
+                        {{ form.password2 }} {% if form.password2.errors %}
+                        <p class="text-sm text-brand-coral mt-1">
+                            {{ form.password2.errors.0 }}
+                        </p>
+                        {% endif %}
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="w-full bg-brand-coral hover:bg-[#e6484d] text-white font-display font-medium text-base py-3 rounded-lg transition-colors"
+                    >
+                        Create account
+                    </button>
+                </form>
+
+                <p class="text-sm text-gray-500 mt-6">
+                    Already have an account?
+                    <a
+                        href="{% url 'login' %}"
+                        class="text-brand-coral font-medium hover:underline"
+                        >Log in</a
+                    >
+                </p>
+            </div>
+        </div>
+    </body>
+</html>

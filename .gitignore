@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python/virtualenvs/
+
+# Django
+django.db.sqlite3.db
+*.sqlite3*
+db.sqlite3
+
+# Environment variables
+.env
+
+# Migrations (optional - uncomment if you want to exclude them)
+# schedule/migrations/*.py
+# accounts/migrations/*.py
+# theme/migrations/*.py
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/

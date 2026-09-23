@@ -1,0 +1,321 @@
+{% extends "base.html" %} {% block title %}Settings{% endblock %} {% block content %}
+<div class="max-w-5xl mx-auto px-6 py-10">
+    <h1 class="font-display text-2xl font-bold text-brand-indigo mb-6">
+        Settings
+    </h1>
+
+    <!-- Employees -->
+    <section
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8"
+    >
+        <div
+            class="flex items-center justify-between p-4 border-b border-gray-200"
+        >
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Employees
+            </h2>
+            <a
+                href="{% url 'home' %}"
+                class="text-sm font-medium text-brand-coral hover:underline"
+                >+ Add Employee</a
+            >
+        </div>
+        <table class="min-w-full border-collapse">
+            <thead>
+                <tr class="bg-brand-offwhite">
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                    >
+                        Name
+                    </th>
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                    >
+                        Role
+                    </th>
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                    >
+                        Email
+                    </th>
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                    >
+                        Joined
+                    </th>
+                    <th class="p-3"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for emp in employees %}
+                <tr
+                    class="border-t border-gray-200 {% if emp.inactivated_on %}bg-brand-coral/5{% endif %}"
+                >
+                    <td class="p-3 text-brand-indigo font-medium">
+                        {{ emp }}
+                        {% if emp.inactivated_on %}
+                        <span
+                            class="ml-2 text-xs font-medium text-brand-coral"
+                        >
+                            Departing {{ emp.inactivated_on|date:"Y-m-d" }}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="p-3 text-gray-500">{{ emp.role }}</td>
+                    <td class="p-3 text-gray-500">{{ emp.email }}</td>
+                    <td class="p-3 text-gray-500 text-sm">
+                        {{ emp.created_at|date:"Y-m-d" }}
+                    </td>
+                    <td class="p-3 text-right whitespace-nowrap">
+                        <a
+                            href="{% url 'settings_edit_employee' emp.id %}"
+                            class="text-sm font-medium text-brand-coral hover:underline mr-4"
+                            >Edit</a
+                        >
+                        {% if emp.inactivated_on %}
+                        <form
+                            method="post"
+                            action="{% url 'settings_cancel_deactivation' emp.id %}"
+                            class="inline"
+                        >
+                            {% csrf_token %}
+                            <button
+                                type="submit"
+                                class="text-sm font-medium text-gray-500 hover:text-brand-indigo"
+                            >
+                                Cancel deactivation
+                            </button>
+                        </form>
+                        {% else %}
+                        <button
+                            type="button"
+                            data-employee-id="{{ emp.id }}"
+                            data-employee-name="{{ emp }}"
+                            onclick="openDeactivateModal(this)"
+                            class="text-sm font-medium text-gray-500 hover:text-brand-coral"
+                        >
+                            Deactivate
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="p-3 text-gray-500 text-center">
+                        No active employees.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <!-- Titles -->
+    <section
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8"
+    >
+        <div class="p-4 border-b border-gray-200">
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Titles
+            </h2>
+        </div>
+        <ul>
+            {% for title in titles %}
+            <li
+                class="flex items-center justify-between p-3 border-t border-gray-200"
+            >
+                <span class="text-brand-indigo">{{ title.name }}</span>
+                <form
+                    method="post"
+                    action="{% url 'settings_delete_title' title.id %}"
+                    onsubmit="return confirm('Delete this title?');"
+                >
+                    {% csrf_token %}
+                    <button
+                        type="submit"
+                        class="text-sm font-medium text-gray-500 hover:text-brand-coral"
+                    >
+                        Delete
+                    </button>
+                </form>
+            </li>
+            {% empty %}
+            <li class="p-3 text-gray-500">No titles yet.</li>
+            {% endfor %}
+        </ul>
+        <form
+            method="post"
+            action="{% url 'settings_add_title' %}"
+            class="flex gap-2 p-3 border-t border-gray-200 bg-brand-offwhite/40"
+        >
+            {% csrf_token %}
+            <input
+                type="text"
+                name="name"
+                placeholder="New title (e.g. Dr.)"
+                required
+                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Add
+            </button>
+        </form>
+    </section>
+
+    <!-- Roles -->
+    <section
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8"
+    >
+        <div class="p-4 border-b border-gray-200">
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Roles
+            </h2>
+        </div>
+        <ul>
+            {% for role in roles %}
+            <li
+                class="flex items-center justify-between p-3 border-t border-gray-200"
+            >
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-gray-400 w-8 text-right"
+                        >{{ role.display_order }}</span
+                    >
+                    <span class="text-brand-indigo">{{ role.name }}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <form
+                        method="post"
+                        action="{% url 'settings_move_role' role.id 'up' %}"
+                        class="inline"
+                    >
+                        {% csrf_token %}
+                        <button
+                            type="submit"
+                            class="text-gray-400 hover:text-brand-indigo px-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                            {% if forloop.first %}disabled{% endif %}
+                        >
+                            ▲
+                        </button>
+                    </form>
+                    <form
+                        method="post"
+                        action="{% url 'settings_move_role' role.id 'down' %}"
+                        class="inline"
+                    >
+                        {% csrf_token %}
+                        <button
+                            type="submit"
+                            class="text-gray-400 hover:text-brand-indigo px-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                            {% if forloop.last %}disabled{% endif %}
+                        >
+                            ▼
+                        </button>
+                    </form>
+                    <form
+                        method="post"
+                        action="{% url 'settings_delete_role' role.id %}"
+                        class="inline"
+                        onsubmit="return confirm('Delete this role?');"
+                    >
+                        {% csrf_token %}
+                        <button
+                            type="submit"
+                            class="text-sm font-medium text-gray-500 hover:text-brand-coral ml-2"
+                        >
+                            Delete
+                        </button>
+                    </form>
+                </div>
+            </li>
+            {% empty %}
+            <li class="p-3 text-gray-500">No roles yet.</li>
+            {% endfor %}
+        </ul>
+        <form
+            method="post"
+            action="{% url 'settings_add_role' %}"
+            class="flex gap-2 p-3 border-t border-gray-200 bg-brand-offwhite/40"
+        >
+            {% csrf_token %}
+            <input
+                type="text"
+                name="name"
+                placeholder="New role (e.g. Manager)"
+                required
+                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Add
+            </button>
+        </form>
+    </section>
+</div>
+
+<dialog
+    id="deactivate-modal"
+    data-url-template="{% url 'settings_deactivate_employee' 0 %}"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form method="post" id="deactivate-form" class="p-6 space-y-4">
+        {% csrf_token %}
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Deactivate Employee
+        </h2>
+        <p class="text-sm text-gray-500">
+            <span id="deactivate-name"></span>
+        </p>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Effective date
+            </label>
+            <input
+                type="date"
+                name="deactivation_date"
+                id="deactivate-date"
+                required
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+                Their last day on schedule is the day before this date. Off from
+                this date onward.
+            </p>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="document.getElementById('deactivate-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Deactivate
+            </button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    function openDeactivateModal(btn) {
+        const d = btn.dataset;
+        const dialog = document.getElementById("deactivate-modal");
+        const template = dialog.dataset.urlTemplate;
+        const form = document.getElementById("deactivate-form");
+        form.action = template.replace("/0/", "/" + d.employeeId + "/");
+        document.getElementById("deactivate-name").textContent = d.employeeName;
+        document.getElementById("deactivate-date").value = new Date()
+            .toISOString()
+            .slice(0, 10);
+        dialog.showModal();
+    }
+</script>
+{% endblock %}

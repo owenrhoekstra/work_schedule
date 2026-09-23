@@ -1,0 +1,77 @@
+{% load tailwind_tags %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{% block title %}Work Schedule{% endblock %}</title>
+        {% tailwind_css %}
+    </head>
+    <body class="min-h-screen bg-brand-offwhite font-sans">
+        <nav
+            class="flex items-center justify-between px-6 py-4 bg-brand-indigo"
+        >
+            <div class="flex items-center gap-3">
+                <a
+                    href="{% url 'home' %}"
+                    class="font-display text-brand-offwhite text-sm font-medium border border-brand-offwhite/40 rounded-lg px-4 py-1.5 shadow-sm hover:text-brand-yellow hover:border-brand-yellow/60 transition-colors"
+                >
+                    Home
+                </a>
+                {% if pending_accounts_count %}
+                <a
+                    href="{% url 'pending_accounts' %}"
+                    class="font-display text-white text-sm font-medium bg-brand-coral rounded-lg px-3 py-1 hover:bg-[#e6484d] transition-colors"
+                >
+                    {{ pending_accounts_count }} Pending Account
+                </a>
+                {% endif %}
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="font-sans text-sm text-brand-offwhite/80 mr-1">
+                    Hello, {% if request.user.employee %}{{ request.user.employee }}{% else %}{{ request.user.username }}{% endif %}!
+                </span>
+                {% if is_management %}
+                <a
+                    href="{% url 'settings_home' %}"
+                    class="font-display text-brand-offwhite text-sm font-medium border border-brand-offwhite/40 rounded-lg px-4 py-1.5 shadow-sm hover:text-brand-yellow hover:border-brand-yellow/60 transition-colors"
+                >
+                    Settings
+                </a>
+                {% endif %}
+                {% if request.user.is_staff %}
+                <a
+                    href="{% url 'admin:index' %}"
+                    class="font-display text-brand-offwhite text-sm font-medium border border-brand-offwhite/40 rounded-lg px-4 py-1.5 shadow-sm hover:text-brand-yellow hover:border-brand-yellow/60 transition-colors"
+                >
+                    Admin
+                </a>
+                {% endif %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button
+                        type="submit"
+                        class="font-display text-brand-offwhite text-sm font-medium border border-brand-offwhite/40 rounded-lg px-4 py-1.5 shadow-sm hover:text-brand-coral hover:border-brand-coral/60 transition-colors"
+                    >
+                        Log out
+                    </button>
+                </form>
+            </div>
+        </nav>
+
+        <main>
+            {% if messages %}
+            <div class="max-w-5xl mx-auto px-6 pt-6">
+                {% for message in messages %}
+                <div
+                    class="rounded-lg px-4 py-3 mb-2 {% if message.tags == 'error' %}bg-brand-coral/10 border border-brand-coral/30 text-brand-coral{% else %}bg-brand-indigo/5 border border-brand-indigo/20 text-brand-indigo{% endif %}"
+                >
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </main>
+    </body>
+</html>

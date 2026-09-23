@@ -1,0 +1,328 @@
+{% extends "base.html" %} {% block title %} Home - Work Schedule {% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-10">
+    <div class="flex items-center justify-between mb-6 gap-4">
+        <div class="flex items-center gap-3">
+            {% if can_go_back %}
+            <a
+                href="?week={{ prev_week|date:'Y-m-d' }}"
+                aria-label="Previous week"
+                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors"
+            >
+                ←
+            </a>
+            {% else %}
+            <span
+                aria-hidden="true"
+                class="font-display text-2xl leading-none text-gray-300 cursor-not-allowed"
+            >
+                ←
+            </span>
+            {% endif %}
+            <h1 class="font-display text-2xl font-bold text-brand-indigo">
+                {% if is_current_week %} This Week's Schedule {% else %}
+                Schedule for {{ week_start|date:'Y-m-d' }} to {{ week_end|date:'Y-m-d' }} {% endif %}
+            </h1>
+            <a
+                href="?week={{ next_week|date:'Y-m-d' }}"
+                aria-label="Next week"
+                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors"
+            >
+                →
+            </a>
+            {% if not is_current_week %}
+            <a
+                href="{% url 'home' %}"
+                class="text-sm font-medium text-brand-coral hover:underline ml-2 whitespace-nowrap"
+            >
+                Back to current week
+            </a>
+            {% endif %}
+        </div>
+        {% if perms.schedule.add_employee %}
+        <button
+            onclick="document.getElementById('add-employee-modal').showModal()"
+            class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
+        >
+            + Add Employee
+        </button>
+        {% endif %}
+    </div>
+
+    {% if perms.schedule.add_employee %}
+    <dialog
+        id="add-employee-modal"
+        class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+    >
+        <form
+            method="post"
+            action="{% url 'add_employee' %}"
+            class="p-6 space-y-4"
+        >
+            {% csrf_token %}
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Add Employee
+            </h2>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Title</label
+                    >
+                    {{ employee_form.title }}
+                </div>
+                <div class="col-span-2">
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >First Name</label
+                    >
+                    {{ employee_form.first_name }}
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Last Name</label
+                >
+                {{ employee_form.last_name }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Role</label
+                >
+                {{ employee_form.role }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Email</label
+                >
+                {{ employee_form.email }}
+            </div>
+            {% if employee_form.email.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ employee_form.email.errors.0 }}
+            </p>
+            {% endif %}
+            <div class="flex justify-end gap-2 pt-2">
+                <button
+                    type="button"
+                    onclick="
+                        document.getElementById('add-employee-modal').close()
+                    "
+                    class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                >
+                    Save
+                </button>
+            </div>
+        </form>
+    </dialog>
+    {% endif %} {% if perms.schedule.add_shift or perms.schedule.delete_shift %}
+    <dialog
+        id="override-modal"
+        class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+    >
+        <form method="post" id="override-form" class="p-6 space-y-4">
+            {% csrf_token %}
+            <h2
+                id="override-title"
+                class="font-display text-lg font-bold text-brand-indigo"
+            >
+                Edit shift
+            </h2>
+            <p id="override-subtitle" class="text-sm text-gray-500"></p>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Start</label
+                    >
+                    <input
+                        type="text"
+                        name="start_time"
+                        id="override-start"
+                        placeholder="HH:MM"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                    />
+                </div>
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >End</label
+                    >
+                    <input
+                        type="text"
+                        name="end_time"
+                        id="override-end"
+                        placeholder="HH:MM"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                    />
+                </div>
+            </div>
+            <p class="text-xs text-gray-500">
+                Use 24-hour time like <code>09:00</code> or 12-hour like
+                <code>9:00 AM</code>.
+            </p>
+            <div class="flex justify-between gap-2 pt-2">
+                <div class="flex gap-2">
+                    {% if perms.schedule.delete_shift %}
+                    <button
+                        type="submit"
+                        name="action"
+                        value="off"
+                        class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                    >
+                        Mark off
+                    </button>
+                    <button
+                        type="submit"
+                        name="action"
+                        value="reset"
+                        id="override-reset-btn"
+                        class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                    >
+                        Reset to default
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        type="button"
+                        onclick="
+                            document.getElementById('override-modal').close()
+                        "
+                        class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                    >
+                        Cancel
+                    </button>
+                    {% if perms.schedule.add_shift %}
+                    <button
+                        type="submit"
+                        name="action"
+                        value="save"
+                        class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                    >
+                        Save
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </form>
+    </dialog>
+    {% endif %}
+
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+    >
+        <table class="min-w-full border-collapse">
+            <thead>
+                <tr class="bg-brand-indigo">
+                    <th
+                        class="text-left p-3 font-display text-sm font-medium text-white"
+                    >
+                        Employee
+                    </th>
+                    {% for header in day_headers %}
+                    <th
+                        class="p-3 text-center font-display text-sm font-medium text-white"
+                    >
+                        <div>{{ header.label }}</div>
+                        <div class="text-xs font-normal opacity-80">
+                            {{ header.date_label }}
+                        </div>
+                    </th>
+                    {% endfor %}
+                    <th
+                        class="p-3 text-center font-display text-sm font-medium text-white"
+                    >
+                        Total Hours
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr
+                    class="border-t border-gray-200 hover:bg-brand-offwhite/60 transition-colors"
+                >
+                    <td class="p-3">
+                        {% if perms.schedule.view_employee %}
+                        <a
+                            href="{% url 'employee_defaults' row.employee.id %}"
+                            class="font-medium text-brand-indigo hover:text-brand-coral transition-colors"
+                        >
+                            {{ row.employee }}
+                        </a>
+                        {% else %}
+                        <div class="font-medium text-brand-indigo">
+                            {{ row.employee }}
+                        </div>
+                        {% endif %}
+                        <div class="text-sm text-gray-500">
+                            {{ row.employee.role }}
+                        </div>
+                    </td>
+                    {% for cell in row.cells %}
+                    <td class="p-3 text-center text-sm">
+                        {% if not cell.is_employed %}
+                        <span class="{{ cell.state_class }}"
+                            >{{ cell.display }}</span
+                        >
+                        {% elif perms.schedule.add_shift or perms.schedule.delete_shift %}
+                        <button
+                            type="button"
+                            class="hover:underline {{ cell.state_class }}"
+                            data-url="{% url 'set_override' row.employee.id cell.date_iso %}"
+                            data-title="{{ row.employee }} — {{ cell.day_label }}"
+                            data-subtitle="{{ cell.date_label }}"
+                            data-start="{{ cell.start|time:'g:i A' }}"
+                            data-end="{{ cell.end|time:'g:i A' }}"
+                            data-has-override="{{ cell.has_override|yesno:'1,0' }}"
+                            onclick="openOverrideModal(this)"
+                        >
+                            {{ cell.display }}
+                        </button>
+                        {% else %}
+                        <span class="{{ cell.state_class }}"
+                            >{{ cell.display }}</span
+                        >
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td
+                        class="p-3 text-center text-sm font-medium text-brand-indigo"
+                    >
+                        {{ row.total_hours }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if show_add_employee_modal %}
+<script>
+    document.getElementById("add-employee-modal").showModal();
+</script>
+{% endif %} {% if perms.schedule.add_shift or perms.schedule.delete_shift %}
+<script>
+    function openOverrideModal(btn) {
+        const d = btn.dataset;
+        const form = document.getElementById("override-form");
+        form.action = d.url;
+        document.getElementById("override-title").textContent = d.title;
+        document.getElementById("override-subtitle").textContent = d.subtitle;
+        document.getElementById("override-start").value = d.start || "";
+        document.getElementById("override-end").value = d.end || "";
+        const resetBtn = document.getElementById("override-reset-btn");
+        if (resetBtn) {
+            resetBtn.style.display = d.hasOverride === "1" ? "" : "none";
+        }
+        document.getElementById("override-modal").showModal();
+    }
+</script>
+{% endif %} {% endblock %}

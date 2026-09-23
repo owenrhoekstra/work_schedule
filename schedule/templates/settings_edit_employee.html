@@ -1,0 +1,94 @@
+{% extends "base.html" %} {% block title %}Edit {{ employee }}{% endblock %} {% block content %}
+<div class="max-w-2xl mx-auto px-6 py-10">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="font-display text-2xl font-bold text-brand-indigo">
+                Edit Employee
+            </h1>
+            <p class="text-sm text-gray-500">{{ employee }}</p>
+        </div>
+        <a
+            href="{% url 'settings_home' %}"
+            class="text-sm font-medium text-brand-coral hover:underline"
+            >Back to settings</a
+        >
+    </div>
+
+    <form
+        method="post"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4"
+    >
+        {% csrf_token %}
+
+        <div class="grid grid-cols-3 gap-3">
+            <div>
+                <label
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Title</label
+                >
+                {{ form.title }} {% if form.title.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ form.title.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+            <div class="col-span-2">
+                <label
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >First Name</label
+                >
+                {{ form.first_name }} {% if form.first_name.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ form.first_name.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Last Name</label
+            >
+            {{ form.last_name }} {% if form.last_name.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ form.last_name.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Role</label
+            >
+            {{ form.role }} {% if form.role.errors %}
+            <p class="text-sm text-brand-coral mt-1">{{ form.role.errors.0 }}</p>
+            {% endif %}
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Email</label
+            >
+            {{ form.email }} {% if form.email.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ form.email.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+            <a
+                href="{% url 'settings_home' %}"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >Cancel</a
+            >
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

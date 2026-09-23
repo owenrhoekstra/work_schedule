@@ -1,0 +1,13 @@
+// Project tasks configuration. See https://zed.dev/docs/tasks for documentation.
+//
+// Example:
+[
+  {
+    "label": "run server",
+    "command": "source ../venv/bin/activate && python manage.py runserver",
+  },
+  {
+    "label": "run tailwind server",
+    "command": "source ../venv/bin/activate && python manage.py tailwind start",
+  },
+]
