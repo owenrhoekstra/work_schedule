@@ -1,21 +1,18 @@
 [project]
 name = "work-schedule"
 version = "0.1.0"
-description = "Add your description here"
+description = "Work schedule app"
 readme = "README.md"
-authors = [
-    { name = "owenrhoekstra", email = "owenhoekstra@icloud.com" }
-]
 requires-python = ">=3.14"
 dependencies = [
     "django>=6.1.1",
     "psycopg[binary]>=3.3.6",
     "python-dotenv>=1.2.3",
+    "argon2-cffi>=25.1.0",
+    "django-tailwind>=4.5.0",
+    "whitenoise>=6.12.0",
+    "django-axes>=8.3.1",
 ]
 
-[project.scripts]
-work-schedule = "work_schedule:main"
-
-[build-system]
-requires = ["uv_build>=0.12.18,<0.13.0"]
-build-backend = "uv_build"
+[tool.uv]
+package = false

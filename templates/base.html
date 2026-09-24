@@ -1,10 +1,12 @@
-{% load tailwind_tags %}
+{% load static tailwind_tags %}
 <!doctype html>
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{% block title %}Work Schedule{% endblock %}</title>
+        <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}" />
+        <link rel="alternate icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
         {% tailwind_css %}
     </head>
     <body class="min-h-screen bg-brand-offwhite font-sans">
@@ -29,7 +31,7 @@
             </div>
             <div class="flex items-center gap-3">
                 <span class="font-sans text-sm text-brand-offwhite/80 mr-1">
-                    Hello, {% if request.user.employee %}{{ request.user.employee }}{% else %}{{ request.user.username }}{% endif %}!
+                    Hello, {% if request.user.employee %}{{request.user.employee }}{% else %}{{ request.user.username}}{% endif %}!
                 </span>
                 {% if is_management %}
                 <a
@@ -38,8 +40,7 @@
                 >
                     Settings
                 </a>
-                {% endif %}
-                {% if request.user.is_staff %}
+                {% endif %} {% if request.user.is_staff %}
                 <a
                     href="{% url 'admin:index' %}"
                     class="font-display text-brand-offwhite text-sm font-medium border border-brand-offwhite/40 rounded-lg px-4 py-1.5 shadow-sm hover:text-brand-yellow hover:border-brand-yellow/60 transition-colors"
@@ -70,8 +71,7 @@
                 </div>
                 {% endfor %}
             </div>
-            {% endif %}
-            {% block content %}{% endblock %}
+            {% endif %} {% block content %}{% endblock %}
         </main>
     </body>
 </html>

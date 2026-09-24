@@ -216,7 +216,7 @@ def _build_schedule_rows(week_start):
 
 def _home_context(week_start):
     """Build the shared context for the home page."""
-    current_week = _week_start(date.today())
+    current_week = _week_start(timezone.localdate())
     rows, day_headers = _build_schedule_rows(week_start)
     min_week = _earliest_week()
     return {
@@ -234,7 +234,7 @@ def _home_context(week_start):
 @login_required
 @permission_required("schedule.view_shift", raise_exception=True)
 def home(request):
-    week_start = _parse_week_param(request) or _week_start(date.today())
+    week_start = _parse_week_param(request) or _week_start(timezone.localdate())
     context = _home_context(week_start)
     if request.user.has_perm("schedule.add_employee"):
         context["employee_form"] = EmployeeForm()
@@ -251,7 +251,7 @@ def add_employee(request):
             return redirect("home")
     else:
         form = EmployeeForm()
-    context = _home_context(_week_start(date.today()))
+    context = _home_context(_week_start(timezone.localdate()))
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
     return render(request, "home.html", context)
@@ -374,7 +374,7 @@ def _is_management(user):
 @login_required
 @management_required
 def settings_home(request):
-    today = date.today()
+    today = timezone.localdate()
     employees = (
         Employee.objects.filter(
             Q(inactivated_on__isnull=True) | Q(inactivated_on__gt=today)
@@ -424,7 +424,7 @@ def settings_deactivate_employee(request, pk):
             messages.error(request, "Please pick a valid date.")
             return redirect("settings_home")
     else:
-        effective = date.today()
+        effective = timezone.localdate()
 
     employee.is_active = False
     employee.inactivated_on = effective

@@ -1,20 +1,15 @@
-"""
-URL configuration for work_schedule project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/6.1/topics/http/urls/
-"""
-
 from django.contrib import admin
 from django.contrib.auth.views import LoginView
 from django.urls import include, path
 from django.views.generic import RedirectView
 
 from accounts.forms import StyledLoginForm
+from work_schedule import views as project_views
 
 urlpatterns = [
+    path("healthz/", project_views.healthz, name="healthz"),
     path("", RedirectView.as_view(url="/schedule/home/")),
-    path("admin/", admin.site.urls),
+    path("back-panel01294/", admin.site.urls),
     path(
         "accounts/login/",
         LoginView.as_view(

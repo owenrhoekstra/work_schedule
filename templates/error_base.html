@@ -1,0 +1,34 @@
+{% load static tailwind_tags %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{% block title %}Error{% endblock %}</title>
+        <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
+        {% tailwind_css %}
+    </head>
+    <body
+        class="min-h-screen bg-brand-offwhite font-sans flex items-center justify-center px-6"
+    >
+        <div class="max-w-2xl text-center">
+            <p
+                class="font-display text-brand-coral text-sm font-medium tracking-wide mb-3"
+            >
+                {% block code %}{% endblock %}
+            </p>
+            <h1 class="font-display text-4xl font-bold text-brand-indigo mb-4">
+                {% block heading %}{% endblock %}
+            </h1>
+            <p class="text-gray-500 mb-8 max-w-md mx-auto">
+                {% block message %}{% endblock %}
+            </p>
+            <a
+                href="/"
+                class="inline-block font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-5 py-2.5 transition-colors"
+            >
+                Back to schedule
+            </a>
+        </div>
+    </body>
+</html>

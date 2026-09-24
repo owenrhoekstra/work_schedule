@@ -4,10 +4,10 @@
 [
   {
     "label": "run server",
-    "command": "source ../venv/bin/activate && python manage.py runserver",
+    "command": "uv run python manage.py runserver",
   },
   {
     "label": "run tailwind server",
-    "command": "source ../venv/bin/activate && python manage.py tailwind start",
+    "command": "uv run python manage.py tailwind start",
   },
 ]

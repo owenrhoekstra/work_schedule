@@ -1,0 +1,7 @@
+{% extends "error_base.html" %}
+{% block title %}Temporarily Locked Out{% endblock %}
+{% block code %}429{% endblock %}
+{% block heading %}Too many attempts{% endblock %}
+{% block message %}
+Too many failed login attempts. Please wait an hour before trying again.
+{% endblock %}
