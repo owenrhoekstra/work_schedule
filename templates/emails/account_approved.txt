@@ -1,0 +1,13 @@
+{% autoescape off %}You're all set
+
+{% if employee_name %}{{ employee_name }}, your{% else %}Your{% endif %} account has been approved. You can log in with the username and password you chose during signup.
+
+Log in:
+{{ login_url }}
+
+If you didn't create this account, please reply to this email and let us know.
+
+—
+
+Work Schedule
+{{ site_url }}{% endautoescape %}

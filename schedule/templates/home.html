@@ -1,39 +1,60 @@
 {% extends "base.html" %} {% block title %} Home - Work Schedule {% endblock %}
 {% block content %}
-<div class="max-w-5xl mx-auto px-6 py-10">
-    <div class="flex items-center justify-between mb-6 gap-4">
-        <div class="flex items-center gap-3">
-            {% if can_go_back %}
-            <a
-                href="?week={{ prev_week|date:'Y-m-d' }}"
-                aria-label="Previous week"
-                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors"
+<div class="max-w-7xl mx-auto px-6 py-10">
+    <div
+        class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3 sm:gap-4"
+    >
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+            <!-- Title with invisible date picker overlay -->
+            <div
+                class="relative inline-block self-center sm:self-auto sm:order-2"
             >
-                ←
-            </a>
-            {% else %}
-            <span
-                aria-hidden="true"
-                class="font-display text-2xl leading-none text-gray-300 cursor-not-allowed"
-            >
-                ←
-            </span>
-            {% endif %}
-            <h1 class="font-display text-2xl font-bold text-brand-indigo">
-                {% if is_current_week %} This Week's Schedule {% else %}
-                Schedule for {{ week_start|date:'Y-m-d' }} to {{ week_end|date:'Y-m-d' }} {% endif %}
-            </h1>
-            <a
-                href="?week={{ next_week|date:'Y-m-d' }}"
-                aria-label="Next week"
-                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors"
-            >
-                →
-            </a>
+                <h1
+                    class="font-display text-2xl font-bold text-brand-indigo whitespace-nowrap pointer-events-none"
+                >
+                    {% if is_current_week %} This Week's Schedule {% else %} {{ week_title }} {% endif %}
+                </h1>
+                <input
+                    type="date"
+                    value="{{ week_start|date:'Y-m-d' }}"
+                    aria-label="Jump to week"
+                    class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    onchange="window.location.href = '{% url 'home' %}?week=' + this.value"
+                />
+            </div>
+
+            <!-- Arrows: below title on mobile, flanking on desktop -->
+            <div class="flex items-center justify-between sm:contents">
+                {% if can_go_back %}
+                <a
+                    href="?week={{ prev_week|date:'Y-m-d' }}"
+                    aria-label="Previous week"
+                    class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors sm:order-1"
+                >
+                    ←
+                </a>
+                {% else %}
+                <span
+                    aria-hidden="true"
+                    class="font-display text-2xl leading-none text-gray-300 cursor-not-allowed sm:order-1"
+                >
+                    ←
+                </span>
+                {% endif %}
+                <a
+                    href="?week={{ next_week|date:'Y-m-d' }}"
+                    aria-label="Next week"
+                    class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors sm:order-3"
+                >
+                    →
+                </a>
+            </div>
+
+            <!-- Back to current week -->
             {% if not is_current_week %}
             <a
                 href="{% url 'home' %}"
-                class="text-sm font-medium text-brand-coral hover:underline ml-2 whitespace-nowrap"
+                class="text-sm font-medium text-brand-coral hover:underline whitespace-nowrap text-center sm:text-left sm:order-4"
             >
                 Back to current week
             </a>
@@ -42,7 +63,7 @@
         {% if perms.schedule.add_employee %}
         <button
             onclick="document.getElementById('add-employee-modal').showModal()"
-            class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
+            class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap self-center sm:self-auto"
         >
             + Add Employee
         </button>
@@ -96,12 +117,23 @@
                     >Email</label
                 >
                 {{ employee_form.email }}
+                {% if employee_form.email.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ employee_form.email.errors.0 }}
+                </p>
+                {% endif %}
             </div>
-            {% if employee_form.email.errors %}
-            <p class="text-sm text-brand-coral mt-1">
-                {{ employee_form.email.errors.0 }}
-            </p>
-            {% endif %}
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Start Date</label
+                >
+                {{ employee_form.start_date }}
+                {% if employee_form.start_date.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ employee_form.start_date.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button
                     type="button"
@@ -213,31 +245,111 @@
             </div>
         </form>
     </dialog>
+    {% endif %} {% if perms.schedule.change_shift %}
+    <dialog
+        id="day-modal"
+        data-url-template="{% url 'set_day_override' 'PLACEHOLDER' %}"
+        class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+    >
+        <form method="post" id="day-form" class="p-6 space-y-4">
+            {% csrf_token %}
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Mark day as closed
+            </h2>
+            <p id="day-modal-subtitle" class="text-sm text-gray-500"></p>
+
+            <div class="space-y-2 pt-2">
+                <button
+                    type="submit"
+                    name="action"
+                    value="closed"
+                    class="w-full font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2.5 transition-colors"
+                >
+                    Mark as Closed
+                </button>
+                <button
+                    type="submit"
+                    name="action"
+                    value="holiday"
+                    class="w-full font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-4 py-2.5 transition-colors"
+                >
+                    Mark as Holiday
+                </button>
+                <button
+                    type="submit"
+                    name="action"
+                    value="clear"
+                    id="day-clear-btn"
+                    class="w-full text-sm font-medium text-gray-500 hover:text-brand-coral px-4 py-2 transition-colors"
+                >
+                    Clear
+                </button>
+            </div>
+
+            <div class="flex justify-end pt-2 border-t border-gray-200">
+                <button
+                    type="button"
+                    onclick="document.getElementById('day-modal').close()"
+                    class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </dialog>
     {% endif %}
 
     <div
-        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto"
     >
-        <table class="min-w-full border-collapse">
+        <table class="w-max min-w-full border-collapse">
             <thead>
                 <tr class="bg-brand-indigo">
                     <th
-                        class="text-left p-3 font-display text-sm font-medium text-white"
+                        class="text-left p-3 font-display text-sm font-medium text-white whitespace-nowrap"
                     >
                         Employee
                     </th>
                     {% for header in day_headers %}
                     <th
-                        class="p-3 text-center font-display text-sm font-medium text-white"
+                        class="p-3 text-center font-display text-sm font-medium text-white whitespace-nowrap"
                     >
+                        {% if perms.schedule.change_shift %}
+                        <button
+                            type="button"
+                            class="w-full hover:opacity-80 transition-opacity"
+                            data-date="{{ header.date_iso }}"
+                            data-date-label="{{ header.label }}, {{ header.date_label }}"
+                            data-current-status="{{ header.day_status }}"
+                            onclick="openDayModal(this)"
+                        >
+                            <div>{{ header.label }}</div>
+                            <div class="text-xs font-normal opacity-80">
+                                {{ header.date_label }}
+                            </div>
+                            {% if header.day_status %}
+                            <div
+                                class="text-xs mt-0.5 text-brand-yellow font-medium"
+                            >
+                                {{ header.day_status }}
+                            </div>
+                            {% endif %}
+                        </button>
+                        {% else %}
                         <div>{{ header.label }}</div>
                         <div class="text-xs font-normal opacity-80">
                             {{ header.date_label }}
                         </div>
+                        {% if header.day_status %}
+                        <div class="text-xs mt-0.5 text-brand-yellow font-medium">
+                            {{ header.day_status }}
+                        </div>
+                        {% endif %}
+                        {% endif %}
                     </th>
                     {% endfor %}
                     <th
-                        class="p-3 text-center font-display text-sm font-medium text-white"
+                        class="p-3 text-center font-display text-sm font-medium text-white whitespace-nowrap"
                     >
                         Total Hours
                     </th>
@@ -252,21 +364,30 @@
                         {% if perms.schedule.view_employee %}
                         <a
                             href="{% url 'employee_defaults' row.employee.id %}"
-                            class="font-medium text-brand-indigo hover:text-brand-coral transition-colors"
+                            class="font-medium text-brand-indigo hover:text-brand-coral transition-colors whitespace-nowrap"
                         >
                             {{ row.employee }}
                         </a>
                         {% else %}
-                        <div class="font-medium text-brand-indigo">
+                        <div class="font-medium text-brand-indigo whitespace-nowrap">
                             {{ row.employee }}
                         </div>
                         {% endif %}
-                        <div class="text-sm text-gray-500">
+                        <div class="text-sm text-gray-500 whitespace-nowrap">
                             {{ row.employee.role }}
                         </div>
+                        {% if row.cycle_label %}
+                        <div class="mt-1">
+                            <span
+                                class="inline-block text-xs font-medium text-brand-indigo bg-brand-indigo/10 rounded px-1.5 py-0.5"
+                            >
+                                Week {{ row.cycle_label }}
+                            </span>
+                        </div>
+                        {% endif %}
                     </td>
                     {% for cell in row.cells %}
-                    <td class="p-3 text-center text-sm">
+                    <td class="p-3 text-center text-sm whitespace-nowrap">
                         {% if not cell.is_employed %}
                         <span class="{{ cell.state_class }}"
                             >{{ cell.display }}</span
@@ -293,7 +414,7 @@
                     </td>
                     {% endfor %}
                     <td
-                        class="p-3 text-center text-sm font-medium text-brand-indigo"
+                        class="p-3 text-center text-sm font-medium text-brand-indigo whitespace-nowrap"
                     >
                         {{ row.total_hours }}
                     </td>
@@ -323,6 +444,21 @@
             resetBtn.style.display = d.hasOverride === "1" ? "" : "none";
         }
         document.getElementById("override-modal").showModal();
+    }
+</script>
+{% endif %} {% if perms.schedule.change_shift %}
+<script>
+    function openDayModal(btn) {
+        const d = btn.dataset;
+        const dialog = document.getElementById("day-modal");
+        const template = dialog.dataset.urlTemplate;
+        const form = document.getElementById("day-form");
+        form.action = template.replace("PLACEHOLDER", d.date);
+        document.getElementById("day-modal-subtitle").textContent =
+            d.dateLabel;
+        const clearBtn = document.getElementById("day-clear-btn");
+        clearBtn.style.display = d.currentStatus ? "" : "none";
+        dialog.showModal();
     }
 </script>
 {% endif %} {% endblock %}

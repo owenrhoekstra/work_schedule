@@ -1,8 +1,10 @@
 from datetime import date, datetime, timedelta
 from functools import wraps
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db.models import Min, Q
 from django.http import Http404
@@ -12,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import EmployeeForm
-from .models import Employee, Role, Shift, ShiftOverride, Title
+from .models import DayOverride, Employee, Role, Shift, ShiftOverride, Title
 
 
 def management_required(view):
@@ -75,6 +77,15 @@ def _format_time_12(t):
     return s[1:] if s.startswith("0") else s
 
 
+def _ordinal(n):
+    """1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th', 11 -> '11th', ..."""
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _week_start(d):
     """Return the Monday of the week containing d."""
     return d - timedelta(days=d.weekday())
@@ -93,42 +104,65 @@ def _parse_week_param(request):
 
 
 def _earliest_week():
-    """Monday of the week containing the oldest employee's created_at, or None."""
-    earliest = Employee.objects.aggregate(d=Min("created_at"))["d"]
+    """Monday of the week containing the oldest employee's start date."""
+    earliest = Employee.objects.aggregate(d=Min("start_date"))["d"]
     if earliest is None:
         return None
-    return _week_start(earliest.date())
+    return _week_start(earliest)
+
+
+def _week_offset_for(week_start, employee):
+    """Which week of this employee's cycle the given week falls on."""
+    if employee.cycle_weeks <= 1:
+        return 0
+    weeks_since_epoch = (week_start - settings.CYCLE_EPOCH).days // 7
+    return weeks_since_epoch % employee.cycle_weeks
 
 
 def _employees_for_week(week_start):
-    """Employees who should appear in the week starting week_start (Mon–Sat).
-
-    Includes anyone created on or before this week's Saturday, unless they
-    were deactivated before this week's Monday. Per-day visibility is
-    handled in _build_schedule_rows.
-    """
+    """Employees who should appear in the week starting week_start (Mon–Sat)."""
     week_end = week_start + timedelta(days=5)
     return (
-        Employee.objects.filter(created_at__date__lte=week_end)
+        Employee.objects.filter(start_date__lte=week_end)
         .filter(Q(inactivated_on__isnull=True) | Q(inactivated_on__gte=week_start))
         .select_related("title", "role")
         .prefetch_related("shifts")
-        .order_by("role__display_order", "role__name", "created_at")
+        .order_by("role__display_order", "role__name", "start_date")
     )
 
 
 def _build_schedule_rows(week_start):
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
     employees = _employees_for_week(week_start)
+    day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
     rows = []
     for emp in employees:
-        defaults = {s.day: s for s in emp.shifts.all()}
+        offset = _week_offset_for(week_start, emp)
+        defaults = {s.day: s for s in emp.shifts.all() if s.week_offset == offset}
         overrides = {o.date: o for o in emp.overrides.filter(date__in=week_dates)}
         cells = []
         total = timedelta()
 
         for day, d in zip(DAYS, week_dates):
-            not_employed = emp.created_at.date() > d or (
+            day_override = day_overrides.get(d)
+
+            if day_override:
+                cells.append(
+                    {
+                        "date_iso": d.isoformat(),
+                        "day_label": DAY_LABELS_FULL[day],
+                        "date_label": f"{d.strftime('%b')} {d.day}",
+                        "start": None,
+                        "end": None,
+                        "state_class": "text-brand-indigo font-medium",
+                        "display": day_override.get_status_display(),
+                        "has_override": False,
+                        "is_employed": False,
+                    }
+                )
+                continue
+
+            not_employed = emp.start_date > d or (
                 emp.inactivated_on is not None and emp.inactivated_on <= d
             )
 
@@ -201,6 +235,7 @@ def _build_schedule_rows(week_start):
                 "employee": emp,
                 "cells": cells,
                 "total_hours": _format_duration(total),
+                "cycle_label": (WEEK_LABELS[offset] if emp.cycle_weeks > 1 else None),
             }
         )
 
@@ -208,6 +243,10 @@ def _build_schedule_rows(week_start):
         {
             "label": DAY_LABELS_FULL[i],
             "date_label": f"{d.strftime('%b')} {d.day}",
+            "date_iso": d.isoformat(),
+            "day_status": (
+                day_overrides[d].get_status_display() if d in day_overrides else ""
+            ),
         }
         for i, d in enumerate(week_dates)
     ]
@@ -219,16 +258,38 @@ def _home_context(week_start):
     current_week = _week_start(timezone.localdate())
     rows, day_headers = _build_schedule_rows(week_start)
     min_week = _earliest_week()
+
+    day_with_ordinal = _ordinal(week_start.day)
+    if week_start.year == current_week.year:
+        week_title = f"Week of {week_start.strftime('%B')} {day_with_ordinal}"
+    else:
+        week_title = (
+            f"Week of {week_start.strftime('%B')} {day_with_ordinal}, {week_start.year}"
+        )
+
     return {
         "rows": rows,
         "day_headers": day_headers,
         "week_start": week_start,
-        "week_end": week_start + timedelta(days=5),
+        "week_title": week_title,
         "prev_week": week_start - timedelta(days=7),
         "next_week": week_start + timedelta(days=7),
         "is_current_week": week_start == current_week,
         "can_go_back": min_week is None or week_start > min_week,
     }
+
+
+def shift_display(shift):
+    """Human-readable shift times, or None if shift is None or has no times."""
+    if shift is None:
+        return None
+    if hasattr(shift, "is_off") and shift.is_off:
+        return "OFF"
+    if shift.start_time and shift.end_time:
+        return (
+            f"{_format_time_12(shift.start_time)} – {_format_time_12(shift.end_time)}"
+        )
+    return None
 
 
 @login_required
@@ -247,14 +308,30 @@ def add_employee(request):
     if request.method == "POST":
         form = EmployeeForm(request.POST)
         if form.is_valid():
-            form.save()
+            employee = form.save(commit=False)
+
+            # If a User already exists with this email and isn't linked
+            # to another Employee, link them now.
+            matching_user = User.objects.filter(email__iexact=employee.email).first()
+            if (
+                matching_user
+                and not Employee.objects.filter(user=matching_user).exists()
+            ):
+                employee.user = matching_user
+
+            employee.save()
             return redirect("home")
     else:
         form = EmployeeForm()
+
     context = _home_context(_week_start(timezone.localdate()))
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
     return render(request, "home.html", context)
+
+
+WEEK_LABELS = ["A", "B", "C", "D"]
+MAX_CYCLE_WEEKS = 4
 
 
 @login_required
@@ -266,50 +343,102 @@ def employee_defaults(request, pk):
     if request.method == "POST":
         if not can_change:
             raise PermissionDenied
-        for day in DAYS:
-            raw_start = request.POST.get(f"day_{day}_start", "")
-            raw_end = request.POST.get(f"day_{day}_end", "")
-            try:
-                start = _parse_time(raw_start)
-                end = _parse_time(raw_end)
-            except ValueError as exc:
-                messages.error(request, f"{DAY_LABELS_FULL[day]}: {exc}")
-                return redirect("employee_defaults", pk=pk)
-            if (start is None) != (end is None):
-                messages.error(
-                    request,
-                    f"{DAY_LABELS_FULL[day]}: set both start and end, or leave both empty.",
-                )
-                return redirect("employee_defaults", pk=pk)
-            if start and end:
-                if end <= start:
+
+        # Cycle length — clamp to 1-4
+        try:
+            cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
+        except TypeError, ValueError:
+            cycle_weeks = employee.cycle_weeks
+        cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
+
+        if cycle_weeks != employee.cycle_weeks:
+            employee.cycle_weeks = cycle_weeks
+            employee.save(update_fields=["cycle_weeks"])
+
+        # Process ALL four weeks' posted data. Shrinking is non-destructive:
+        # we don't touch weeks outside the active range.
+        for week_offset in range(MAX_CYCLE_WEEKS):
+            for day in DAYS:
+                raw_start = request.POST.get(f"week_{week_offset}_day_{day}_start", "")
+                raw_end = request.POST.get(f"week_{week_offset}_day_{day}_end", "")
+
+                # If neither field was submitted at all, skip — means the
+                # panel wasn't rendered.
+                if (
+                    f"week_{week_offset}_day_{day}_start" not in request.POST
+                    and f"week_{week_offset}_day_{day}_end" not in request.POST
+                ):
+                    continue
+
+                try:
+                    start = _parse_time(raw_start)
+                    end = _parse_time(raw_end)
+                except ValueError as exc:
                     messages.error(
                         request,
-                        f"{DAY_LABELS_FULL[day]}: end time must be after start time.",
+                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}",
                     )
                     return redirect("employee_defaults", pk=pk)
-                Shift.objects.update_or_create(
-                    employee=employee,
-                    day=day,
-                    defaults={"start_time": start, "end_time": end},
-                )
-            else:
-                Shift.objects.filter(employee=employee, day=day).delete()
+
+                if (start is None) != (end is None):
+                    messages.error(
+                        request,
+                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: "
+                        f"set both start and end, or leave both empty.",
+                    )
+                    return redirect("employee_defaults", pk=pk)
+
+                if start and end:
+                    if end <= start:
+                        messages.error(
+                            request,
+                            f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: "
+                            f"end time must be after start time.",
+                        )
+                        return redirect("employee_defaults", pk=pk)
+                    Shift.objects.update_or_create(
+                        employee=employee,
+                        week_offset=week_offset,
+                        day=day,
+                        defaults={"start_time": start, "end_time": end},
+                    )
+                else:
+                    Shift.objects.filter(
+                        employee=employee,
+                        week_offset=week_offset,
+                        day=day,
+                    ).delete()
+
         return redirect("home")
 
-    shifts_by_day = {s.day: s for s in employee.shifts.all()}
-    rows = [
-        {
-            "day": day,
-            "label": DAY_LABELS_FULL[day],
-            "shift": shifts_by_day.get(day),
-        }
-        for day in DAYS
-    ]
+    # GET — render all four weeks, populated from DB
+    shifts_by_key = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    weeks = []
+    for week_offset in range(MAX_CYCLE_WEEKS):
+        rows = [
+            {
+                "day": day,
+                "label": DAY_LABELS_FULL[day],
+                "shift": shifts_by_key.get((week_offset, day)),
+            }
+            for day in DAYS
+        ]
+        weeks.append(
+            {
+                "offset": week_offset,
+                "label": WEEK_LABELS[week_offset],
+                "rows": rows,
+            }
+        )
+
     return render(
         request,
         "employee_defaults.html",
-        {"employee": employee, "rows": rows, "can_change": can_change},
+        {
+            "employee": employee,
+            "weeks": weeks,
+            "can_change": can_change,
+        },
     )
 
 
@@ -364,6 +493,26 @@ def set_override(request, employee_pk, date_iso):
             date=override_date,
             defaults={"is_off": False, "start_time": start, "end_time": end},
         )
+    return redirect(back)
+
+
+@login_required
+@permission_required("schedule.change_shift", raise_exception=True)
+@require_POST
+def set_day_override(request, date_iso):
+    try:
+        d = date.fromisoformat(date_iso)
+    except ValueError:
+        raise Http404
+
+    action = request.POST.get("action")
+    back = _home_url_for(d)
+
+    if action == "clear":
+        DayOverride.objects.filter(date=d).delete()
+    elif action in ("closed", "holiday"):
+        DayOverride.objects.update_or_create(date=d, defaults={"status": action})
+
     return redirect(back)
 
 

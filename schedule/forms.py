@@ -1,8 +1,4 @@
-from datetime import date
-
 from django import forms
-from django.core.exceptions import ValidationError
-from django.db.models import Q
 
 from .models import Employee, Role, Title
 
@@ -15,13 +11,16 @@ _INPUT_CLASS = (
 class EmployeeForm(forms.ModelForm):
     class Meta:
         model = Employee
-        fields = ["title", "first_name", "last_name", "role", "email"]
+        fields = ["title", "first_name", "last_name", "role", "email", "start_date"]
         widgets = {
             "title": forms.Select(attrs={"class": _INPUT_CLASS}),
             "first_name": forms.TextInput(attrs={"class": _INPUT_CLASS}),
             "last_name": forms.TextInput(attrs={"class": _INPUT_CLASS}),
             "role": forms.Select(attrs={"class": _INPUT_CLASS}),
             "email": forms.EmailInput(attrs={"class": _INPUT_CLASS}),
+            "start_date": forms.DateInput(
+                attrs={"class": _INPUT_CLASS, "type": "date"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -32,6 +31,11 @@ class EmployeeForm(forms.ModelForm):
         self.fields["title"].empty_label = "—"
 
     def clean_email(self):
+        from datetime import date
+
+        from django.core.exceptions import ValidationError
+        from django.db.models import Q
+
         email = self.cleaned_data["email"]
         today = date.today()
         qs = Employee.objects.filter(email=email).filter(

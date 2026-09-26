@@ -1,0 +1,17 @@
+{% autoescape off %}Your verification code
+
+{% if purpose %}{{ purpose }}. {% endif %}Enter this code to continue:
+
+    {{ code }}
+
+The code expires in {{ expiry_minutes }} minutes. If it expires, you can
+request a new one.
+
+If you didn't request this code, you can safely ignore this email.
+
+—
+
+Work Schedule
+{{ site_url }}
+
+@{{ site_domain }} #{{ code }}{% endautoescape %}

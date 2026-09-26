@@ -259,7 +259,7 @@
 
 <dialog
     id="deactivate-modal"
-    data-url-template="{% url 'settings_deactivate_employee' 0 %}"
+    data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
     class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form method="post" id="deactivate-form" class="p-6 space-y-4">
@@ -310,7 +310,10 @@
         const dialog = document.getElementById("deactivate-modal");
         const template = dialog.dataset.urlTemplate;
         const form = document.getElementById("deactivate-form");
-        form.action = template.replace("/0/", "/" + d.employeeId + "/");
+        form.action = template.replace(
+            "00000000-0000-0000-0000-000000000000",
+            d.employeeId
+        );
         document.getElementById("deactivate-name").textContent = d.employeeName;
         document.getElementById("deactivate-date").value = new Date()
             .toISOString()

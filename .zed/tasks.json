@@ -8,6 +8,10 @@
   },
   {
     "label": "run tailwind server",
-    "command": "uv run python manage.py tailwind start",
+    "command": ".venv/lib/python3.14/site-packages/pytailwindcss/bin/latest/tailwindcss --input theme/static_src/src/styles.css --output theme/static/css/dist/styles.css --watch",
+  },
+  {
+    "label": "tailscale serve",
+    "command": "tailscale serve 8000",
   },
 ]

@@ -14,9 +14,9 @@ db.sqlite3
 .env
 
 # Migrations (optional - uncomment if you want to exclude them)
-# schedule/migrations/*.py
-# accounts/migrations/*.py
-# theme/migrations/*.py
+schedule/migrations/*.py
+accounts/migrations/*.py
+theme/migrations/*.py
 
 # IDE
 .idea/

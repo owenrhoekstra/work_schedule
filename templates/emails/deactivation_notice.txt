@@ -1,0 +1,12 @@
+{% autoescape off %}A note about your schedule
+
+{{ employee_name }}, your last day on the schedule is {{ last_day|date:"F j, Y" }}. After that, you'll no longer appear on upcoming weeks.
+
+{% if reason %}{{ reason }}
+
+{% endif %}If you have questions, please reach out to your manager directly.
+
+—
+
+Work Schedule
+{{ site_url }}{% endautoescape %}

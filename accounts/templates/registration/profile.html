@@ -1,0 +1,88 @@
+{% extends "base.html" %} {% block title %}My Profile{% endblock %} {% block content %}
+<div class="max-w-2xl mx-auto px-6 py-10">
+    <h1 class="font-display text-2xl font-bold text-brand-indigo mb-6">
+        My Profile
+    </h1>
+
+    <form
+        method="post"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4"
+    >
+        {% csrf_token %}
+
+        <div>
+            <label
+                for="{{ form.username.id_for_label }}"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+                >Username</label
+            >
+            {{ form.username }} {% if form.username.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ form.username.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label
+                    for="{{ form.first_name.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >First Name</label
+                >
+                {{ form.first_name }} {% if form.first_name.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ form.first_name.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+            <div>
+                <label
+                    for="{{ form.last_name.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Last Name</label
+                >
+                {{ form.last_name }} {% if form.last_name.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ form.last_name.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if not employee %}
+        <p class="text-sm text-gray-500">
+            Your account isn't linked to an employee record yet, so name changes
+            won't appear on the schedule. Ask a manager to check your setup.
+        </p>
+        {% endif %}
+
+        <div class="flex justify-end pt-2">
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save
+            </button>
+        </div>
+    </form>
+
+    <!-- Password section -->
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6"
+    >
+        <h2 class="font-display text-lg font-bold text-brand-indigo mb-1">
+            Password
+        </h2>
+        <p class="text-sm text-gray-500 mb-4">
+            Keep your account secure with a strong password.
+        </p>
+        <a
+            href="{% url 'password_change' %}"
+            class="inline-block font-display text-sm font-medium text-brand-coral border border-brand-coral hover:bg-brand-coral hover:text-white rounded-lg px-4 py-2 transition-colors"
+        >
+            Change password
+        </a>
+    </div>
+</div>
+{% endblock %}

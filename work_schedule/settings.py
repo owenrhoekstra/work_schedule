@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -41,6 +42,8 @@ LOGOUT_REDIRECT_URL = "login"
 
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_AGE = 1800
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
 
 TAILWIND_APP_NAME = "theme"
 
@@ -57,6 +60,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "tailwind",
     "theme",
+    "anymail",
     "axes",
     "accounts",
     "schedule",
@@ -175,15 +179,28 @@ STORAGES = {
     },
 }
 
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.environ["REDIS_URL"],
+        "KEY_PREFIX": "ws",
+        "TIMEOUT": 300,
+    },
+}
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
-    },
-}
+if os.environ.get("RESEND_API_KEY"):
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+    ANYMAIL = {"RESEND_API_KEY": os.environ["RESEND_API_KEY"]}
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "Work Schedule <noreply@principiasystem.ca>"
+)
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # django-axes — rate limiting. Applies in every environment.
 AXES_FAILURE_LIMIT = 5
@@ -192,6 +209,15 @@ AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 AXES_RESET_ON_SUCCESS = True
 AXES_LOCKOUT_TEMPLATE = "axes_lockout.html"
 
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
+
+SITE_URL = os.environ.get("SITE_URL", "https://work-schedule.principiasystems.ca")
+
+CYCLE_EPOCH = date(2026, 1, 5)  # Monday
 
 # Production-only security hardening.
 SECURE = os.environ.get("DJANGO_SECURE", "False").lower() in ("true", "1", "yes")
@@ -205,8 +231,6 @@ if SECURE:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-
-    CSRF_TRUSTED_ORIGINS = ["https://work-schedule.principiasystems.ca"]
 
     ADMINS = [("Owen Hoekstra", "owenrhoekstra@principiasystems.ca")]
     LOGGING = {

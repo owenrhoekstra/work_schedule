@@ -1,0 +1,18 @@
+{% autoescape off %}Welcome to the team
+
+{{ employee_name }}, your manager has added you to the team schedule. To
+view your shifts, set up your account using this email address.
+
+Set up your account:
+{{ signup_url }}
+
+Choose any username and password you like — just make sure you sign up
+with {{ employee_email }}.
+
+Once you sign up, a manager will approve your account. You'll get another
+email when it's ready.
+
+—
+
+Work Schedule
+{{ site_url }}{% endautoescape %}

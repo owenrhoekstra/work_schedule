@@ -1,8 +1,13 @@
+from datetime import date
+
 from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models.functions import UUID7
 
 
 class Title(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     name = models.CharField(max_length=20, unique=True)
     display_order = models.PositiveIntegerField(default=0)
     show_in_name = models.BooleanField(
@@ -18,6 +23,7 @@ class Title(models.Model):
 
 
 class Role(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     name = models.CharField(max_length=100, unique=True)
     display_order = models.PositiveIntegerField(default=0)
 
@@ -29,6 +35,7 @@ class Role(models.Model):
 
 
 class Employee(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     title = models.ForeignKey(
         Title,
         null=True,
@@ -38,20 +45,21 @@ class Employee(models.Model):
     )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    role = models.ForeignKey(
-        Role,
-        on_delete=models.PROTECT,
-        related_name="employees",
-    )
+    role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="employees")
     email = models.EmailField()
     user = models.OneToOneField(
-        User,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="employee",
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="employee"
     )
     is_active = models.BooleanField(default=True)
+    start_date = models.DateField(
+        default=date.today,
+        help_text="First day on the schedule. Can be in the past.",
+    )
+    cycle_weeks = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(4)],
+        help_text="Length of the repeating schedule pattern, in weeks (1–4).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     inactivated_on = models.DateField(null=True, blank=True)
 
@@ -71,6 +79,8 @@ class Employee(models.Model):
 
 
 class Shift(models.Model):
+    """Default shift for one day of one cycle week."""
+
     DAY_CHOICES = [
         (0, "Monday"),
         (1, "Tuesday"),
@@ -83,15 +93,20 @@ class Shift(models.Model):
     employee = models.ForeignKey(
         Employee, on_delete=models.CASCADE, related_name="shifts"
     )
+    week_offset = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Which week of the employee's cycle this shift belongs to (0-indexed).",
+    )
     day = models.IntegerField(choices=DAY_CHOICES)
     start_time = models.TimeField()
     end_time = models.TimeField()
 
     class Meta:
-        unique_together = ("employee", "day")
+        unique_together = ("employee", "week_offset", "day")
 
 
 class ShiftOverride(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     employee = models.ForeignKey(
         Employee, on_delete=models.CASCADE, related_name="overrides"
     )
@@ -102,3 +117,21 @@ class ShiftOverride(models.Model):
 
     class Meta:
         unique_together = ("employee", "date")
+
+
+class DayOverride(models.Model):
+    STATUS_CLOSED = "closed"
+    STATUS_HOLIDAY = "holiday"
+    STATUS_CHOICES = [
+        (STATUS_CLOSED, "Closed"),
+        (STATUS_HOLIDAY, "Holiday"),
+    ]
+
+    date = models.DateField(unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+
+    class Meta:
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.date} — {self.get_status_display()}"

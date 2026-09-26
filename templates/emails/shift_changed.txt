@@ -1,0 +1,17 @@
+{% autoescape off %}{{ headline }}
+
+{% if subheadline %}{{ subheadline }}
+{% endif %}
+Previous: {{ old_display|default:"—" }}
+New:      {{ new_display|default:"—" }}
+
+View schedule:
+{{ schedule_url }}
+
+If something looks wrong, reply to this email or reach out to your
+manager.
+
+—
+
+Work Schedule
+{{ site_url }}{% endautoescape %}

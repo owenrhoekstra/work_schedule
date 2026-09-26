@@ -75,6 +75,16 @@
             </p>
             {% endif %}
         </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Start Date</label
+            >
+            {{ form.start_date }} {% if form.start_date.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ form.start_date.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
 
         <div class="flex justify-end gap-2 pt-2">
             <a

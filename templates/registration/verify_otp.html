@@ -1,0 +1,59 @@
+{% extends "base.html" %} {% block title %}Verify Your Identity{% endblock %} {% block content %}
+<div class="max-w-2xl mx-auto px-6 py-10">
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-6"
+    >
+        <h1 class="font-display text-2xl font-bold text-brand-indigo mb-2">
+            Verify your identity
+        </h1>
+        <p class="text-sm text-gray-500 mb-6">
+            We've emailed a 6-digit code to
+            <strong class="text-brand-indigo">{{ masked_email }}</strong>. Enter
+            it below to continue.
+        </p>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}" />
+
+            <div>
+                <label
+                    for="code"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Verification code</label
+                >
+                <input
+                    type="text"
+                    name="code"
+                    id="code"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    maxlength="6"
+                    autocomplete="one-time-code"
+                    autofocus
+                    required
+                    class="w-full border border-gray-300 rounded-lg px-4 py-3 tracking-[0.3em] text-center font-mono text-xl focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+
+            <div class="flex items-center justify-between gap-3 pt-2">
+                <button
+                    type="submit"
+                    name="action"
+                    value="resend"
+                    formnovalidate
+                    class="text-sm font-medium text-brand-coral hover:underline"
+                >
+                    Send a new code
+                </button>
+                <button
+                    type="submit"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                >
+                    Verify
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
