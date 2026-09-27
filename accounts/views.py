@@ -10,6 +10,8 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from schedule.models import Employee
+
 from . import otp as otp_service
 from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
 
