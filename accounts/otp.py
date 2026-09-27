@@ -6,11 +6,24 @@ from django.core.cache import cache
 
 from accounts.emails import send_email
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 OTP_TTL = 600  # 10 minutes
 MAX_VERIFY_ATTEMPTS = 3
 SEND_WINDOW = 3600  # 1 hour
 SEND_COOLDOWNS = [60, 180, 600]  # seconds; index = send number - 1
 MAX_SENDS = 4
+
+SIGNUP_OTP_PREFIX = "signup-otp"
+SIGNUP_WINDOW = 3600  # 1 hour
+SIGNUP_MAX_PER_IP = 5
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 
 def _hash(code):
@@ -19,6 +32,16 @@ def _hash(code):
 
 def _generate():
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _email_identifier(email):
+    """Stable, non-reversible identifier for an email address."""
+    return hashlib.sha256(email.lower().strip().encode()).hexdigest()[:32]
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
 
 
 def user_email(user):
@@ -37,6 +60,11 @@ def mask_email(email):
     else:
         masked = local[0] + "*" * (len(local) - 2) + local[-1]
     return f"{masked}@{domain}"
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting for sends
+# ---------------------------------------------------------------------------
 
 
 def send_status(identifier):
@@ -64,15 +92,32 @@ def _record_send(identifier):
     cache.set(f"otp-last-sent:{identifier}", time.time(), timeout=SEND_WINDOW)
 
 
+# ---------------------------------------------------------------------------
+# Password-change OTP (keyed by user ID)
+# ---------------------------------------------------------------------------
+
+
 def issue_otp(user, purpose="Use this to confirm your password change"):
+    """Generate, store, and email a fresh OTP. Returns True on success."""
     email = user_email(user)
     if not email:
         return False
+
     code = _generate()
     cache.set(f"otp:{user.id}", _hash(code), timeout=OTP_TTL)
     cache.delete(f"otp-attempts:{user.id}")
     _record_send(user.id)
-    send_email(...)
+
+    send_email(
+        template="emails/otp.html",
+        subject="Your verification code",
+        context={
+            "code": code,
+            "expiry_minutes": OTP_TTL // 60,
+            "purpose": purpose,
+        },
+        to=email,
+    )
     return True
 
 
@@ -100,37 +145,13 @@ def clear(user):
     cache.delete(f"otp-attempts:{user.id}")
 
 
-SIGNUP_WINDOW = 3600  # 1 hour
-SIGNUP_MAX_PER_IP = 5
-
-
-def check_signup_rate_limit(ip):
-    """Return True if this IP is allowed to submit another signup.
-
-    Allows up to SIGNUP_MAX_PER_IP attempts per SIGNUP_WINDOW, keyed by IP.
-    """
-    if not ip:
-        return True  # no IP available, don't block
-    key = f"signup-rate:{ip}"
-    count = cache.get(key, 0)
-    if count >= SIGNUP_MAX_PER_IP:
-        return False
-    if count == 0:
-        cache.set(key, 1, timeout=SIGNUP_WINDOW)
-    else:
-        cache.incr(key)
-    return True
-
-
-SIGNUP_OTP_PREFIX = "signup-otp"
-
-
-def _email_identifier(email):
-    """Stable, non-reversible identifier for an email address."""
-    return hashlib.sha256(email.lower().strip().encode()).hexdigest()[:32]
+# ---------------------------------------------------------------------------
+# Signup OTP (keyed by email, since no User exists yet)
+# ---------------------------------------------------------------------------
 
 
 def issue_signup_otp(email, purpose="Verify your email to finish signing up"):
+    """Generate, store, and email a signup OTP keyed by email."""
     ident = _email_identifier(email)
     code = _generate()
     cache.set(f"{SIGNUP_OTP_PREFIX}:{ident}", _hash(code), timeout=OTP_TTL)
@@ -174,3 +195,31 @@ def clear_signup_otp(email):
     ident = _email_identifier(email)
     cache.delete(f"{SIGNUP_OTP_PREFIX}:{ident}")
     cache.delete(f"{SIGNUP_OTP_PREFIX}-attempts:{ident}")
+
+
+def signup_otp_exists(email):
+    ident = _email_identifier(email)
+    return cache.get(f"{SIGNUP_OTP_PREFIX}:{ident}") is not None
+
+
+# ---------------------------------------------------------------------------
+# Signup rate limiting (per IP)
+# ---------------------------------------------------------------------------
+
+
+def check_signup_rate_limit(ip):
+    """Return True if this IP is allowed to submit another signup.
+
+    Allows up to SIGNUP_MAX_PER_IP attempts per SIGNUP_WINDOW, keyed by IP.
+    """
+    if not ip:
+        return True  # no IP available, don't block
+    key = f"signup-rate:{ip}"
+    count = cache.get(key, 0)
+    if count >= SIGNUP_MAX_PER_IP:
+        return False
+    if count == 0:
+        cache.set(key, 1, timeout=SIGNUP_WINDOW)
+    else:
+        cache.incr(key)
+    return True
