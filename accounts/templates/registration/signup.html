@@ -1,164 +1,160 @@
-{% load static tailwind_tags %}
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Sign up</title>
-        <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
-        {% tailwind_css %}
-    </head>
-    <body class="min-h-screen flex flex-col md:flex-row bg-brand-offwhite font-sans">
-        <!-- Desktop-only: full split panel -->
+{% extends "registration/auth_base.html" %}
+{% block title %}Sign up{% endblock %}
+{% block content %}
+<div class="min-h-screen flex flex-col md:flex-row">
+    <!-- Desktop hero -->
+    <div
+        class="hidden md:flex md:w-1/2 bg-brand-indigo relative overflow-hidden flex-col justify-center px-16"
+    >
         <div
-            class="hidden md:flex md:w-1/2 bg-brand-indigo relative overflow-hidden flex-col justify-center px-16"
-        >
-            <div
-                class="absolute -bottom-24 -right-24 w-96 h-96 bg-brand-yellow rounded-full opacity-90"
-            ></div>
-            <div
-                class="absolute top-20 -left-10 w-40 h-40 bg-brand-coral rounded-full opacity-60"
-            ></div>
-            <div class="relative z-10">
-                <p class="text-brand-yellow font-display text-sm mb-4">
-                    work schedule
-                </p>
-                <h1
-                    class="font-display text-white text-5xl font-bold leading-tight mb-6"
-                >
-                    Have you been<br />added?<br />Set up access.
-                </h1>
-                <p class="text-[#C7C4E8] text-base max-w-xs">
-                    Create your account using the email your manager added for
-                    you.
-                </p>
-            </div>
+            class="absolute -bottom-24 -right-24 w-96 h-96 bg-brand-yellow rounded-full opacity-90"
+        ></div>
+        <div
+            class="absolute top-20 -left-10 w-40 h-40 bg-brand-coral rounded-full opacity-60"
+        ></div>
+        <div class="relative z-10">
+            <p class="text-brand-yellow font-display text-sm mb-4">
+                work schedule
+            </p>
+            <h1
+                class="font-display text-white text-5xl font-bold leading-tight mb-6"
+            >
+                Have you been<br />added?<br />Set up access.
+            </h1>
+            <p class="text-[#C7C4E8] text-base max-w-xs">
+                Create your account using the email your manager added for you.
+            </p>
         </div>
+    </div>
 
-        <!-- Mobile-only: compact banner -->
+    <!-- Mobile hero -->
+    <div class="md:hidden bg-brand-indigo relative overflow-hidden px-6 py-10">
         <div
-            class="md:hidden bg-brand-indigo relative overflow-hidden px-6 py-10"
-        >
-            <div
-                class="absolute -bottom-16 -right-16 w-48 h-48 bg-brand-yellow rounded-full opacity-90"
-            ></div>
-            <div
-                class="absolute top-8 -left-10 w-24 h-24 bg-brand-coral rounded-full opacity-60"
-            ></div>
-            <div class="relative z-10">
-                <p class="text-brand-yellow font-display text-xs mb-2">
-                    work schedule
-                </p>
-                <h1
-                    class="font-display text-white text-2xl font-bold leading-tight"
-                >
-                    Have you been added? Set up access.
-                </h1>
-            </div>
+            class="absolute -bottom-16 -right-16 w-48 h-48 bg-brand-yellow rounded-full opacity-90"
+        ></div>
+        <div
+            class="absolute top-8 -left-10 w-24 h-24 bg-brand-coral rounded-full opacity-60"
+        ></div>
+        <div class="relative z-10">
+            <p class="text-brand-yellow font-display text-xs mb-2">
+                work schedule
+            </p>
+            <h1 class="font-display text-white text-2xl font-bold leading-tight">
+                Have you been added? Set up access.
+            </h1>
         </div>
+    </div>
 
-        <!-- Form -->
-        <div
-            class="w-full md:w-1/2 flex items-start md:items-center justify-center px-6 py-8 md:py-12"
-        >
-            <div class="w-full max-w-sm">
-                <h2
-                    class="font-display text-2xl font-bold text-brand-indigo mb-1"
+    <!-- Form column -->
+    <div
+        class="w-full md:w-1/2 flex items-start md:items-center justify-center px-6 py-8 md:py-12"
+    >
+        <div class="w-full max-w-sm">
+            {% if rate_limited %}
+            <h2 class="font-display text-2xl font-bold text-brand-indigo mb-1">
+                Signup unavailable
+            </h2>
+            <p class="text-sm text-gray-500 mb-6">
+                Too many signup attempts from this network. Please try again in
+                an hour.
+            </p>
+            <a
+                href="{% url 'login' %}"
+                class="inline-block text-sm font-medium text-brand-coral hover:underline"
+            >
+                Back to login
+            </a>
+            {% else %}
+            <h2 class="font-display text-2xl font-bold text-brand-indigo mb-1">
+                Create account
+            </h2>
+            <p class="text-sm text-gray-500 mb-8">
+                Enter your details to get started.
+            </p>
+
+            {% if form.non_field_errors %}
+            <div
+                class="mb-6 rounded-lg bg-brand-coral/10 border border-brand-coral/30 px-4 py-3"
+            >
+                {% for error in form.non_field_errors %}
+                <p class="text-sm text-brand-coral font-medium">{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <form method="post" class="space-y-5">
+                {% csrf_token %}
+
+                <div>
+                    <label
+                        for="{{ form.username.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >Username</label
+                    >
+                    {{ form.username }} {% if form.username.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ form.username.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        for="{{ form.email.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >Email</label
+                    >
+                    {{ form.email }} {% if form.email.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ form.email.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        for="{{ form.password1.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >Password</label
+                    >
+                    {{ form.password1 }} {% if form.password1.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ form.password1.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        for="{{ form.password2.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1.5"
+                        >Confirm password</label
+                    >
+                    {{ form.password2 }} {% if form.password2.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ form.password2.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <button
+                    type="submit"
+                    class="w-full bg-brand-coral hover:bg-[#e6484d] text-white font-display font-medium text-base py-3 rounded-lg transition-colors"
                 >
                     Create account
-                </h2>
-                <p class="text-sm text-gray-500 mb-8">
-                    Enter your details to get started.
-                </p>
+                </button>
+            </form>
 
-                {% if form.non_field_errors %}
-                <div
-                    class="mb-6 rounded-lg bg-brand-coral/10 border border-brand-coral/30 px-4 py-3"
+            <p class="text-sm text-gray-500 mt-6">
+                Already have an account?
+                <a
+                    href="{% url 'login' %}"
+                    class="text-brand-coral font-medium hover:underline"
+                    >Log in</a
                 >
-                    {% for error in form.non_field_errors %}
-                    <p class="text-sm text-brand-coral font-medium">
-                        {{ error }}
-                    </p>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                <form method="post" class="space-y-5">
-                    {% csrf_token %}
-
-                    <div>
-                        <label
-                            for="{{ form.username.id_for_label }}"
-                            class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >
-                            Username
-                        </label>
-                        {{ form.username }} {% if form.username.errors %}
-                        <p class="text-sm text-brand-coral mt-1">
-                            {{ form.username.errors.0 }}
-                        </p>
-                        {% endif %}
-                    </div>
-
-                    <div>
-                        <label
-                            for="{{ form.email.id_for_label }}"
-                            class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >
-                            Email
-                        </label>
-                        {{ form.email }} {% if form.email.errors %}
-                        <p class="text-sm text-brand-coral mt-1">
-                            {{ form.email.errors.0 }}
-                        </p>
-                        {% endif %}
-                    </div>
-
-                    <div>
-                        <label
-                            for="{{ form.password1.id_for_label }}"
-                            class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >
-                            Password
-                        </label>
-                        {{ form.password1 }} {% if form.password1.errors %}
-                        <p class="text-sm text-brand-coral mt-1">
-                            {{ form.password1.errors.0 }}
-                        </p>
-                        {% endif %}
-                    </div>
-
-                    <div>
-                        <label
-                            for="{{ form.password2.id_for_label }}"
-                            class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >
-                            Confirm password
-                        </label>
-                        {{ form.password2 }} {% if form.password2.errors %}
-                        <p class="text-sm text-brand-coral mt-1">
-                            {{ form.password2.errors.0 }}
-                        </p>
-                        {% endif %}
-                    </div>
-
-                    <button
-                        type="submit"
-                        class="w-full bg-brand-coral hover:bg-[#e6484d] text-white font-display font-medium text-base py-3 rounded-lg transition-colors"
-                    >
-                        Create account
-                    </button>
-                </form>
-
-                <p class="text-sm text-gray-500 mt-6">
-                    Already have an account?
-                    <a
-                        href="{% url 'login' %}"
-                        class="text-brand-coral font-medium hover:underline"
-                        >Log in</a
-                    >
-                </p>
-            </div>
+            </p>
+            {% endif %}
         </div>
-    </body>
-</html>
+    </div>
+</div>
+{% endblock %}

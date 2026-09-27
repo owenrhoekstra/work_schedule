@@ -23,12 +23,14 @@
             <p class="text-gray-500 mb-8 max-w-md mx-auto">
                 {% block message %}{% endblock %}
             </p>
+            {% block action %}
             <a
                 href="/"
                 class="inline-block font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-5 py-2.5 transition-colors"
             >
                 Back to schedule
             </a>
+            {% endblock %}
         </div>
     </body>
 </html>

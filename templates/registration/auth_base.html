@@ -1,0 +1,26 @@
+{% load static tailwind_tags %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
+        <title>{% block title %}Work Schedule{% endblock %}</title>
+        {% tailwind_css %}
+    </head>
+    <body class="min-h-screen bg-brand-offwhite font-sans">
+        {% if messages %}
+        <div
+            class="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4"
+        >
+            {% for message in messages %}
+            <div
+                class="rounded-lg px-4 py-3 mb-2 text-sm shadow-md {% if message.tags == 'error' %}bg-brand-coral text-white{% else %}bg-brand-indigo text-white{% endif %}"
+            >
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %} {% block content %}{% endblock %}
+    </body>
+</html>

@@ -31,17 +31,32 @@
                         {{ user.username }}
                     </td>
                     <td class="p-3 text-gray-500">{{ user.email }}</td>
-                    <td class="p-3 text-right">
+                    <td class="p-3 text-right whitespace-nowrap">
                         <form
                             method="post"
                             action="{% url 'approve_account' user.id %}"
+                            class="inline mr-2"
                         >
                             {% csrf_token %}
                             <button
                                 type="submit"
-                                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors"
+                                class="text-sm font-medium text-gray-500 hover:text-brand-indigo px-3 py-1.5"
                             >
                                 Approve
+                            </button>
+                        </form>
+                        <form
+                            method="post"
+                            action="{% url 'approve_account' user.id %}"
+                            class="inline"
+                        >
+                            {% csrf_token %}
+                            <input type="hidden" name="notify" value="1" />
+                            <button
+                                type="submit"
+                                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors"
+                            >
+                                Approve &amp; notify
                             </button>
                         </form>
                     </td>

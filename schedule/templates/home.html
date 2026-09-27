@@ -134,6 +134,15 @@
                 </p>
                 {% endif %}
             </div>
+            <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+                <input
+                    type="checkbox"
+                    name="notify"
+                    value="1"
+                    class="accent-brand-coral"
+                />
+                Send welcome email
+            </label>
             <div class="flex justify-end gap-2 pt-2">
                 <button
                     type="button"
@@ -199,6 +208,15 @@
                 Use 24-hour time like <code>09:00</code> or 12-hour like
                 <code>9:00 AM</code>.
             </p>
+            <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+                <input
+                    type="checkbox"
+                    name="notify"
+                    value="1"
+                    class="accent-brand-coral"
+                />
+                Notify employee
+            </label>
             <div class="flex justify-between gap-2 pt-2">
                 <div class="flex gap-2">
                     {% if perms.schedule.delete_shift %}
@@ -454,8 +472,7 @@
         const template = dialog.dataset.urlTemplate;
         const form = document.getElementById("day-form");
         form.action = template.replace("PLACEHOLDER", d.date);
-        document.getElementById("day-modal-subtitle").textContent =
-            d.dateLabel;
+        document.getElementById("day-modal-subtitle").textContent = d.dateLabel;
         const clearBtn = document.getElementById("day-clear-btn");
         clearBtn.style.display = d.currentStatus ? "" : "none";
         dialog.showModal();

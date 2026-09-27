@@ -2,14 +2,19 @@
 
 {% if subheadline %}{{ subheadline }}
 {% endif %}
-Previous: {{ old_display|default:"—" }}
-New:      {{ new_display|default:"—" }}
+{% if cycle_change %}Rotation: {{ cycle_change.old_cycle }} weeks → {{ cycle_change.new_cycle }} weeks
 
-View schedule:
+{% for week in cycle_change.new_weeks %}{{ week.label }} (new)
+{% for row in week.rows %}  {{ row.day }}: {{ row.time }}
+{% endfor %}
+{% endfor %}{% endif %}{% for change in changes %}{% if change.label %}{{ change.label }}
+{% endif %}  Previous: {{ change.old|default:"—" }}
+  New:      {{ change.new|default:"—" }}
+
+{% endfor %}View schedule:
 {{ schedule_url }}
 
-If something looks wrong, reply to this email or reach out to your
-manager.
+If something looks wrong, reach out to your manager.
 
 —
 

@@ -13,8 +13,52 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from . import notifications
 from .forms import EmployeeForm
-from .models import DayOverride, Employee, Role, Shift, ShiftOverride, Title
+from .models import (
+    DayOverride,
+    Employee,
+    EmploymentPeriod,
+    Role,
+    Shift,
+    ShiftOverride,
+    Title,
+)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+DAYS = [0, 1, 2, 3, 4, 5]
+DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+DAY_LABELS_FULL = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
+WEEK_LABELS = ["A", "B", "C", "D"]
+MAX_CYCLE_WEEKS = 4
+
+_TIME_FORMATS = (
+    "%H:%M",
+    "%H:%M:%S",
+    "%H%M",
+    "%I:%M %p",
+    "%I:%M%p",
+    "%I %p",
+    "%I%p",
+    "%I:%M:%S %p",
+    "%I:%M:%S%p",
+    "%I",
+)
+
+
+# ---------------------------------------------------------------------------
+# Decorators
+# ---------------------------------------------------------------------------
 
 
 def management_required(view):
@@ -30,22 +74,9 @@ def management_required(view):
     return wrapper
 
 
-DAYS = [0, 1, 2, 3, 4, 5]
-DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-DAY_LABELS_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-
-_TIME_FORMATS = (
-    "%H:%M",
-    "%H:%M:%S",
-    "%H%M",
-    "%I:%M %p",
-    "%I:%M%p",
-    "%I %p",
-    "%I%p",
-    "%I:%M:%S %p",
-    "%I:%M:%S%p",
-    "%I",
-)
+# ---------------------------------------------------------------------------
+# Parsing and formatting helpers
+# ---------------------------------------------------------------------------
 
 
 def _parse_time(value):
@@ -86,6 +117,11 @@ def _ordinal(n):
     return f"{n}{suffix}"
 
 
+# ---------------------------------------------------------------------------
+# Week and cycle helpers
+# ---------------------------------------------------------------------------
+
+
 def _week_start(d):
     """Return the Monday of the week containing d."""
     return d - timedelta(days=d.weekday())
@@ -104,8 +140,8 @@ def _parse_week_param(request):
 
 
 def _earliest_week():
-    """Monday of the week containing the oldest employee's start date."""
-    earliest = Employee.objects.aggregate(d=Min("start_date"))["d"]
+    """Monday of the week containing the oldest employment period start."""
+    earliest = EmploymentPeriod.objects.aggregate(d=Min("start_date"))["d"]
     if earliest is None:
         return None
     return _week_start(earliest)
@@ -120,15 +156,132 @@ def _week_offset_for(week_start, employee):
 
 
 def _employees_for_week(week_start):
-    """Employees who should appear in the week starting week_start (Mon–Sat)."""
+    """Employees with any employment period overlapping this week."""
     week_end = week_start + timedelta(days=5)
     return (
-        Employee.objects.filter(start_date__lte=week_end)
-        .filter(Q(inactivated_on__isnull=True) | Q(inactivated_on__gte=week_start))
+        Employee.objects.filter(periods__start_date__lte=week_end)
+        .filter(Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
+        .distinct()
         .select_related("title", "role")
-        .prefetch_related("shifts")
+        .prefetch_related("shifts", "periods")
         .order_by("role__display_order", "role__name", "start_date")
     )
+
+
+def _employed_dates(employee, week_dates):
+    """Set of dates in week_dates covered by any employment period.
+
+    A period covers d if start_date <= d < end_date (end_date exclusive).
+    end_date=None means currently employed.
+    """
+    covered = set()
+    for period in employee.periods.all():
+        for d in week_dates:
+            if period.start_date <= d and (
+                period.end_date is None or period.end_date > d
+            ):
+                covered.add(d)
+    return covered
+
+
+def _home_url_for(date_):
+    """Redirect to home, scrolled to the week containing date_."""
+    return f"{reverse('home')}?week={_week_start(date_).isoformat()}"
+
+
+# ---------------------------------------------------------------------------
+# Shift display helpers
+# ---------------------------------------------------------------------------
+
+
+def _shift_display(shift):
+    """Human-readable shift display, or None."""
+    if shift is None:
+        return None
+    return f"{_format_time_12(shift.start_time)} – {_format_time_12(shift.end_time)}"
+
+
+def _cell_display(employee, d):
+    """What the schedule cell shows for this employee on this date."""
+    override = employee.overrides.filter(date=d).first()
+    if override:
+        if override.is_off:
+            return "OFF"
+        return (
+            f"{_format_time_12(override.start_time)} – "
+            f"{_format_time_12(override.end_time)}"
+        )
+
+    week_start = _week_start(d)
+    offset = _week_offset_for(week_start, employee)
+    day = d.weekday()
+    default = employee.shifts.filter(week_offset=offset, day=day).first()
+    if default:
+        return (
+            f"{_format_time_12(default.start_time)} – "
+            f"{_format_time_12(default.end_time)}"
+        )
+    return "OFF"
+
+
+def _diff_default_changes(employee, old_shifts):
+    """List change dicts for default shifts that changed.
+
+    `old_shifts` is a dict keyed by (week_offset, day). Compares against
+    the current DB state. Only offsets within the active cycle_weeks.
+    """
+    new_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    cycle = employee.cycle_weeks
+
+    changes = []
+    keys = sorted(set(old_shifts) | set(new_shifts), key=lambda k: (k[0], k[1]))
+    for key in keys:
+        week_offset, day = key
+        if week_offset >= cycle:
+            continue
+
+        old = old_shifts.get(key)
+        new = new_shifts.get(key)
+        old_display = _shift_display(old) or "OFF"
+        new_display = _shift_display(new) or "OFF"
+
+        if old_display == new_display:
+            continue
+
+        if cycle == 1:
+            label = DAY_LABELS_FULL[day]
+        else:
+            label = f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}"
+
+        changes.append({"label": label, "old": old_display, "new": new_display})
+
+    return changes
+
+
+def _new_week_details(employee, old_cycle, new_cycle):
+    """Build rows for weeks that become active when the cycle increases.
+
+    Returns an empty list when the cycle didn't grow.
+    """
+    if new_cycle <= old_cycle:
+        return []
+    shifts_by_key = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    weeks = []
+    for offset in range(old_cycle, new_cycle):
+        rows = [
+            {
+                "day": DAY_LABELS_FULL[day],
+                "time": _shift_display(shifts_by_key.get((offset, day))) or "OFF",
+            }
+            for day in DAYS
+        ]
+        weeks.append({"label": f"Week {WEEK_LABELS[offset]}", "rows": rows})
+    return weeks
+
+
+# ---------------------------------------------------------------------------
+# Schedule building
+# ---------------------------------------------------------------------------
 
 
 def _build_schedule_rows(week_start):
@@ -140,6 +293,7 @@ def _build_schedule_rows(week_start):
         offset = _week_offset_for(week_start, emp)
         defaults = {s.day: s for s in emp.shifts.all() if s.week_offset == offset}
         overrides = {o.date: o for o in emp.overrides.filter(date__in=week_dates)}
+        employed = _employed_dates(emp, week_dates)
         cells = []
         total = timedelta()
 
@@ -162,11 +316,7 @@ def _build_schedule_rows(week_start):
                 )
                 continue
 
-            not_employed = emp.start_date > d or (
-                emp.inactivated_on is not None and emp.inactivated_on <= d
-            )
-
-            if not_employed:
+            if d not in employed:
                 cells.append(
                     {
                         "date_iso": d.isoformat(),
@@ -279,17 +429,9 @@ def _home_context(week_start):
     }
 
 
-def shift_display(shift):
-    """Human-readable shift times, or None if shift is None or has no times."""
-    if shift is None:
-        return None
-    if hasattr(shift, "is_off") and shift.is_off:
-        return "OFF"
-    if shift.start_time and shift.end_time:
-        return (
-            f"{_format_time_12(shift.start_time)} – {_format_time_12(shift.end_time)}"
-        )
-    return None
+# ---------------------------------------------------------------------------
+# Views — schedule
+# ---------------------------------------------------------------------------
 
 
 @login_required
@@ -320,6 +462,22 @@ def add_employee(request):
                 employee.user = matching_user
 
             employee.save()
+
+            if request.POST.get("notify"):
+                ok, error = notifications.send_welcome_email(employee)
+                if ok:
+                    messages.success(
+                        request,
+                        f"{employee} added. Welcome email sent to {employee.email}.",
+                    )
+                else:
+                    messages.warning(
+                        request,
+                        f"{employee} added, but the email failed: {error}",
+                    )
+            else:
+                messages.success(request, f"{employee} added.")
+
             return redirect("home")
     else:
         form = EmployeeForm()
@@ -328,10 +486,6 @@ def add_employee(request):
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
     return render(request, "home.html", context)
-
-
-WEEK_LABELS = ["A", "B", "C", "D"]
-MAX_CYCLE_WEEKS = 4
 
 
 @login_required
@@ -344,7 +498,11 @@ def employee_defaults(request, pk):
         if not can_change:
             raise PermissionDenied
 
-        # Cycle length — clamp to 1-4
+        # Snapshot before any writes, for the notification diff
+        old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+        old_cycle = employee.cycle_weeks
+
+        # Cycle length — clamp to 1..MAX_CYCLE_WEEKS
         try:
             cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
         except TypeError, ValueError:
@@ -355,20 +513,17 @@ def employee_defaults(request, pk):
             employee.cycle_weeks = cycle_weeks
             employee.save(update_fields=["cycle_weeks"])
 
-        # Process ALL four weeks' posted data. Shrinking is non-destructive:
-        # we don't touch weeks outside the active range.
         for week_offset in range(MAX_CYCLE_WEEKS):
             for day in DAYS:
-                raw_start = request.POST.get(f"week_{week_offset}_day_{day}_start", "")
-                raw_end = request.POST.get(f"week_{week_offset}_day_{day}_end", "")
+                start_key = f"week_{week_offset}_day_{day}_start"
+                end_key = f"week_{week_offset}_day_{day}_end"
 
-                # If neither field was submitted at all, skip — means the
-                # panel wasn't rendered.
-                if (
-                    f"week_{week_offset}_day_{day}_start" not in request.POST
-                    and f"week_{week_offset}_day_{day}_end" not in request.POST
-                ):
+                # Skip weeks/days that weren't rendered
+                if start_key not in request.POST and end_key not in request.POST:
                     continue
+
+                raw_start = request.POST.get(start_key, "")
+                raw_end = request.POST.get(end_key, "")
 
                 try:
                     start = _parse_time(raw_start)
@@ -376,15 +531,17 @@ def employee_defaults(request, pk):
                 except ValueError as exc:
                     messages.error(
                         request,
-                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}",
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: {exc}",
                     )
                     return redirect("employee_defaults", pk=pk)
 
                 if (start is None) != (end is None):
                     messages.error(
                         request,
-                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: "
-                        f"set both start and end, or leave both empty.",
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                        f"or leave both empty.",
                     )
                     return redirect("employee_defaults", pk=pk)
 
@@ -392,8 +549,9 @@ def employee_defaults(request, pk):
                     if end <= start:
                         messages.error(
                             request,
-                            f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: "
-                            f"end time must be after start time.",
+                            f"Week {WEEK_LABELS[week_offset]} "
+                            f"{DAY_LABELS_FULL[day]}: end time must be after "
+                            f"start time.",
                         )
                         return redirect("employee_defaults", pk=pk)
                     Shift.objects.update_or_create(
@@ -408,6 +566,29 @@ def employee_defaults(request, pk):
                         week_offset=week_offset,
                         day=day,
                     ).delete()
+
+        # Notify if requested and something actually changed
+        if request.POST.get("notify"):
+            changes = _diff_default_changes(employee, old_shifts)
+
+            cycle_change = None
+            if cycle_weeks != old_cycle:
+                cycle_change = {
+                    "old_cycle": old_cycle,
+                    "new_cycle": cycle_weeks,
+                    "new_weeks": _new_week_details(employee, old_cycle, cycle_weeks),
+                }
+
+            if changes or cycle_change:
+                notifications.send_shift_changes_email(
+                    employee,
+                    changes,
+                    kind="default",
+                    cycle_change=cycle_change,
+                )
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.info(request, "No changes to notify.")
 
         return redirect("home")
 
@@ -442,11 +623,6 @@ def employee_defaults(request, pk):
     )
 
 
-def _home_url_for(date_):
-    """Redirect to home, scrolled to the week containing date_."""
-    return f"{reverse('home')}?week={_week_start(date_).isoformat()}"
-
-
 @login_required
 @require_POST
 def set_override(request, employee_pk, date_iso):
@@ -466,6 +642,9 @@ def set_override(request, employee_pk, date_iso):
         raise Http404
 
     back = _home_url_for(override_date)
+
+    # Capture "before" state for the notification diff
+    old_display = _cell_display(employee, override_date)
 
     if action == "reset":
         ShiftOverride.objects.filter(employee=employee, date=override_date).delete()
@@ -493,6 +672,25 @@ def set_override(request, employee_pk, date_iso):
             date=override_date,
             defaults={"is_off": False, "start_time": start, "end_time": end},
         )
+
+    # Capture "after" state and notify if requested
+    if request.POST.get("notify"):
+        new_display = _cell_display(employee, override_date)
+        if old_display != new_display:
+            notifications.send_shift_changes_email(
+                employee,
+                [
+                    {
+                        "label": override_date.strftime("%A, %B ")
+                        + _ordinal(override_date.day),
+                        "old": old_display,
+                        "new": new_display,
+                    }
+                ],
+                kind="override",
+            )
+            messages.success(request, f"Notification sent to {employee.email}.")
+
     return redirect(back)
 
 
@@ -516,28 +714,52 @@ def set_day_override(request, date_iso):
     return redirect(back)
 
 
-def _is_management(user):
-    return user.groups.filter(name="Management").exists()
+# ---------------------------------------------------------------------------
+# Views — settings
+# ---------------------------------------------------------------------------
 
 
 @login_required
 @management_required
 def settings_home(request):
     today = timezone.localdate()
-    employees = (
+
+    active_employees = (
         Employee.objects.filter(
             Q(inactivated_on__isnull=True) | Q(inactivated_on__gt=today)
         )
         .select_related("title", "role")
         .order_by("role__display_order", "role__name", "created_at")
     )
+
+    former_employees = (
+        Employee.objects.filter(inactivated_on__lte=today)
+        .select_related("title", "role")
+        .order_by("-inactivated_on")
+    )
+
     context = {
-        "employees": employees,
+        "employees": active_employees,
+        "former_employees": former_employees,
+        "former_count": former_employees.count(),
         "titles": Title.objects.all(),
         "roles": Role.objects.all(),
         "today": today,
     }
     return render(request, "settings.html", context)
+
+
+@login_required
+@permission_required("schedule.add_employee", raise_exception=True)
+@require_POST
+def send_welcome(request, pk):
+    employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    ok, error = notifications.send_welcome_email(employee)
+    if ok:
+        messages.success(request, f"Welcome email sent to {employee.email}.")
+    else:
+        messages.error(request, error)
+    return redirect("settings_home")
 
 
 @login_required
@@ -573,15 +795,24 @@ def settings_deactivate_employee(request, pk):
             messages.error(request, "Please pick a valid date.")
             return redirect("settings_home")
     else:
-        effective = timezone.localdate()
+        effective = date.today()
 
     employee.is_active = False
     employee.inactivated_on = effective
     employee.save(update_fields=["is_active", "inactivated_on"])
 
+    # Close the currently open employment period
+    current = employee.periods.filter(end_date__isnull=True).first()
+    if current:
+        current.end_date = effective
+        current.save(update_fields=["end_date"])
+
     if employee.user:
         employee.user.is_active = False
         employee.user.save(update_fields=["is_active"])
+
+    if request.POST.get("notify"):
+        notifications.send_deactivation_email(employee)
 
     messages.success(
         request, f"{employee} will be off schedule from {effective} onward."
@@ -594,13 +825,75 @@ def settings_deactivate_employee(request, pk):
 @require_POST
 def settings_cancel_deactivation(request, pk):
     employee = get_object_or_404(Employee, pk=pk)
+
+    # Reopen the closed period — restore it to end_date=None
+    current = (
+        employee.periods.filter(end_date__isnull=False).order_by("-end_date").first()
+    )
+    if current:
+        current.end_date = None
+        current.save(update_fields=["end_date"])
+
     employee.is_active = True
     employee.inactivated_on = None
     employee.save(update_fields=["is_active", "inactivated_on"])
+
     if employee.user:
         employee.user.is_active = True
         employee.user.save(update_fields=["is_active"])
+
     messages.success(request, f"{employee}'s deactivation was cancelled.")
+    return redirect("settings_home")
+
+
+@login_required
+@management_required
+@require_POST
+def settings_reactivate_employee(request, pk):
+    employee = get_object_or_404(Employee, pk=pk)
+
+    raw = request.POST.get("reactivation_date", "").strip()
+    if raw:
+        try:
+            effective = date.fromisoformat(raw)
+        except ValueError:
+            messages.error(request, "Please pick a valid date.")
+            return redirect("settings_home")
+    else:
+        effective = date.today()
+
+    # Open a new employment period
+    EmploymentPeriod.objects.create(
+        employee=employee,
+        start_date=effective,
+        end_date=None,
+    )
+
+    employee.is_active = True
+    employee.inactivated_on = None
+    employee.save(update_fields=["is_active", "inactivated_on"])
+
+    if employee.user:
+        employee.user.is_active = True
+        employee.user.save(update_fields=["is_active"])
+
+    if request.POST.get("notify"):
+        ok, error = notifications.send_welcome_email(employee)
+        if ok:
+            messages.success(
+                request,
+                f"{employee} reactivated as of {effective}. "
+                f"Welcome email sent to {employee.email}.",
+            )
+        else:
+            messages.warning(
+                request,
+                f"{employee} reactivated as of {effective}, "
+                f"but the email failed: {error}",
+            )
+    else:
+        messages.success(request, f"{employee} reactivated as of {effective}.")
+
     return redirect("settings_home")
 
 

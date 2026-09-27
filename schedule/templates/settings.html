@@ -72,6 +72,21 @@
                             class="text-sm font-medium text-brand-coral hover:underline mr-4"
                             >Edit</a
                         >
+                        {% if not emp.inactivated_on %}
+                        <form
+                            method="post"
+                            action="{% url 'send_welcome' emp.id %}"
+                            class="inline mr-4"
+                        >
+                            {% csrf_token %}
+                            <button
+                                type="submit"
+                                class="text-sm font-medium text-brand-coral hover:underline"
+                            >
+                                Send welcome email
+                            </button>
+                        </form>
+                        {% endif %}
                         {% if emp.inactivated_on %}
                         <form
                             method="post"
@@ -109,6 +124,71 @@
             </tbody>
         </table>
     </section>
+
+    <!-- Former Employees -->
+    {% if former_count %}
+    <section
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8"
+    >
+        <details>
+            <summary
+                class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
+            >
+                <h2 class="font-display text-lg font-bold text-brand-indigo">
+                    Former Employees
+                    <span class="text-sm font-normal text-gray-500 ml-2"
+                        >({{ former_count }})</span
+                    >
+                </h2>
+                <span class="text-gray-400 text-sm">▾</span>
+            </summary>
+            <table class="min-w-full border-collapse border-t border-gray-200">
+                <thead>
+                    <tr class="bg-brand-offwhite">
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Name
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Role
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Deactivated
+                        </th>
+                        <th class="p-3"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in former_employees %}
+                    <tr class="border-t border-gray-200">
+                        <td class="p-3 text-brand-indigo">{{ emp }}</td>
+                        <td class="p-3 text-gray-500">{{ emp.role }}</td>
+                        <td class="p-3 text-gray-500 text-sm">
+                            {{ emp.inactivated_on|date:"Y-m-d" }}
+                        </td>
+                        <td class="p-3 text-right whitespace-nowrap">
+                            <button
+                                type="button"
+                                data-employee-id="{{ emp.id }}"
+                                data-employee-name="{{ emp }}"
+                                onclick="openReactivateModal(this)"
+                                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors"
+                            >
+                                Reactivate
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+    </section>
+    {% endif %}
 
     <!-- Titles -->
     <section
@@ -257,6 +337,7 @@
     </section>
 </div>
 
+<!-- Deactivate modal -->
 <dialog
     id="deactivate-modal"
     data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
@@ -286,6 +367,15 @@
                 this date onward.
             </p>
         </div>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee of this change
+        </label>
         <div class="flex justify-end gap-2 pt-2">
             <button
                 type="button"
@@ -304,6 +394,63 @@
     </form>
 </dialog>
 
+<!-- Reactivate modal -->
+<dialog
+    id="reactivate-modal"
+    data-url-template="{% url 'settings_reactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form method="post" id="reactivate-form" class="p-6 space-y-4">
+        {% csrf_token %}
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Reactivate Employee
+        </h2>
+        <p class="text-sm text-gray-500">
+            <span id="reactivate-name"></span>
+        </p>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Reactivation date
+            </label>
+            <input
+                type="date"
+                name="reactivation_date"
+                id="reactivate-date"
+                required
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+                They return to the schedule on this date.
+            </p>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                checked
+                class="accent-brand-coral"
+            />
+            Send welcome-back email
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="document.getElementById('reactivate-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Reactivate
+            </button>
+        </div>
+    </form>
+</dialog>
+
 <script>
     function openDeactivateModal(btn) {
         const d = btn.dataset;
@@ -316,6 +463,22 @@
         );
         document.getElementById("deactivate-name").textContent = d.employeeName;
         document.getElementById("deactivate-date").value = new Date()
+            .toISOString()
+            .slice(0, 10);
+        dialog.showModal();
+    }
+
+    function openReactivateModal(btn) {
+        const d = btn.dataset;
+        const dialog = document.getElementById("reactivate-modal");
+        const template = dialog.dataset.urlTemplate;
+        const form = document.getElementById("reactivate-form");
+        form.action = template.replace(
+            "00000000-0000-0000-0000-000000000000",
+            d.employeeId
+        );
+        document.getElementById("reactivate-name").textContent = d.employeeName;
+        document.getElementById("reactivate-date").value = new Date()
             .toISOString()
             .slice(0, 10);
         dialog.showModal();

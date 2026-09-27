@@ -1,5 +1,5 @@
 {% extends "registration/auth_base.html" %}
-{% block title %}Login{% endblock %}
+{% block title %}Verify Your Email{% endblock %}
 {% block content %}
 <div class="min-h-screen flex flex-col md:flex-row">
     <!-- Desktop hero -->
@@ -19,10 +19,11 @@
             <h1
                 class="font-display text-white text-5xl font-bold leading-tight mb-6"
             >
-                Know your<br />next shift<br />at a glance.
+                One quick<br />step.
             </h1>
             <p class="text-[#C7C4E8] text-base max-w-xs">
-                Sign in to see what's coming up and keep your week sorted.
+                We just need to confirm the email address before we finish your
+                account.
             </p>
         </div>
     </div>
@@ -40,7 +41,7 @@
                 work schedule
             </p>
             <h1 class="font-display text-white text-2xl font-bold leading-tight">
-                Know your next shift at a glance.
+                One quick step.
             </h1>
         </div>
     </div>
@@ -50,68 +51,64 @@
         class="w-full md:w-1/2 flex items-start md:items-center justify-center px-6 py-8 md:py-12"
     >
         <div class="w-full max-w-sm">
-            <h2 class="font-display text-2xl font-bold text-brand-indigo mb-1">
-                Log in
+            <h2 class="font-display text-2xl font-bold text-brand-indigo mb-2">
+                Verify your email
             </h2>
-            <p class="text-sm text-gray-500 mb-8">
-                Enter your details to continue.
+            <p class="text-sm text-gray-500 mb-6">
+                We've sent a 6-digit code to
+                <strong class="text-brand-indigo">{{ masked_email }}</strong>.
+                Enter it below to finish creating your account.
             </p>
 
-            {% if form.non_field_errors %}
-            <div
-                class="mb-6 rounded-lg bg-brand-coral/10 border border-brand-coral/30 px-4 py-3"
-            >
-                {% for error in form.non_field_errors %}
-                <p class="text-sm text-brand-coral font-medium">{{ error }}</p>
-                {% endfor %}
-            </div>
-            {% endif %}
-
-            <form method="post" action="{% url 'login' %}" class="space-y-5">
+            <form method="post" class="space-y-5">
                 {% csrf_token %}
 
                 <div>
                     <label
-                        for="{{ form.username.id_for_label }}"
+                        for="code"
                         class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >Username</label
+                        >Verification code</label
                     >
-                    {{ form.username }} {% if form.username.errors %}
-                    <p class="text-sm text-brand-coral mt-1">
-                        {{ form.username.errors.0 }}
-                    </p>
-                    {% endif %}
+                    <input
+                        type="text"
+                        name="code"
+                        id="code"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="6"
+                        autocomplete="one-time-code"
+                        autofocus
+                        required
+                        class="w-full border border-gray-300 rounded-lg px-4 py-3 tracking-[0.3em] text-center font-mono text-xl focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                    />
                 </div>
-
-                <div>
-                    <label
-                        for="{{ form.password.id_for_label }}"
-                        class="block text-sm font-medium text-brand-indigo mb-1.5"
-                        >Password</label
-                    >
-                    {{ form.password }} {% if form.password.errors %}
-                    <p class="text-sm text-brand-coral mt-1">
-                        {{ form.password.errors.0 }}
-                    </p>
-                    {% endif %}
-                </div>
-
-                <input type="hidden" name="next" value="{{ next }}" />
 
                 <button
                     type="submit"
                     class="w-full bg-brand-coral hover:bg-[#e6484d] text-white font-display font-medium text-base py-3 rounded-lg transition-colors"
                 >
-                    Log in
+                    Verify
                 </button>
+
+                <div class="text-center pt-2 border-t border-gray-200">
+                    <button
+                        type="submit"
+                        name="action"
+                        value="resend"
+                        formnovalidate
+                        class="text-sm font-medium text-brand-coral hover:underline"
+                    >
+                        Send a new code
+                    </button>
+                </div>
             </form>
 
             <p class="text-sm text-gray-500 mt-6">
-                New here?
+                Wrong email?
                 <a
                     href="{% url 'signup' %}"
                     class="text-brand-coral font-medium hover:underline"
-                    >Create an account</a
+                    >Start over</a
                 >
             </p>
         </div>

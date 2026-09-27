@@ -78,6 +78,22 @@ class Employee(models.Model):
         return f"{self.first_name} {self.last_name}"
 
 
+class EmploymentPeriod(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="periods"
+    )
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)  # null = currently employed
+
+    class Meta:
+        ordering = ["start_date"]
+
+    def __str__(self):
+        end = self.end_date.isoformat() if self.end_date else "present"
+        return f"{self.employee} {self.start_date} → {end}"
+
+
 class Shift(models.Model):
     """Default shift for one day of one cycle week."""
 
@@ -90,6 +106,7 @@ class Shift(models.Model):
         (5, "Saturday"),
     ]
 
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     employee = models.ForeignKey(
         Employee, on_delete=models.CASCADE, related_name="shifts"
     )
@@ -127,6 +144,7 @@ class DayOverride(models.Model):
         (STATUS_HOLIDAY, "Holiday"),
     ]
 
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
     date = models.DateField(unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
 

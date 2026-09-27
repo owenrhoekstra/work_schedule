@@ -39,14 +39,14 @@ def mask_email(email):
     return f"{masked}@{domain}"
 
 
-def send_status(user_id):
+def send_status(identifier):
     """Returns (can_send, seconds_until_allowed)."""
-    count = cache.get(f"otp-send-count:{user_id}", 0)
-    last_sent = cache.get(f"otp-last-sent:{user_id}", 0)
+    count = cache.get(f"otp-send-count:{identifier}", 0)
+    last_sent = cache.get(f"otp-last-sent:{identifier}", 0)
     if count == 0:
         return True, 0
     if count >= MAX_SENDS:
-        return False, 0  # blocked for the rest of the window
+        return False, 0
     cooldown = SEND_COOLDOWNS[count - 1]
     elapsed = time.time() - last_sent
     if elapsed >= cooldown:
@@ -54,37 +54,25 @@ def send_status(user_id):
     return False, int(cooldown - elapsed) + 1
 
 
-def _record_send(user_id):
-    count_key = f"otp-send-count:{user_id}"
+def _record_send(identifier):
+    count_key = f"otp-send-count:{identifier}"
     count = cache.get(count_key, 0)
     if count == 0:
         cache.set(count_key, 1, timeout=SEND_WINDOW)
     else:
         cache.incr(count_key)
-    cache.set(f"otp-last-sent:{user_id}", time.time(), timeout=SEND_WINDOW)
+    cache.set(f"otp-last-sent:{identifier}", time.time(), timeout=SEND_WINDOW)
 
 
 def issue_otp(user, purpose="Use this to confirm your password change"):
-    """Generate, store, and email a fresh OTP. Returns True on success."""
     email = user_email(user)
     if not email:
         return False
-
     code = _generate()
     cache.set(f"otp:{user.id}", _hash(code), timeout=OTP_TTL)
     cache.delete(f"otp-attempts:{user.id}")
     _record_send(user.id)
-
-    send_email(
-        template="emails/otp.html",
-        subject="Your verification code",
-        context={
-            "code": code,
-            "expiry_minutes": OTP_TTL // 60,
-            "purpose": purpose,
-        },
-        to=email,
-    )
+    send_email(...)
     return True
 
 
@@ -110,3 +98,79 @@ def record_failed_attempt(user):
 def clear(user):
     cache.delete(f"otp:{user.id}")
     cache.delete(f"otp-attempts:{user.id}")
+
+
+SIGNUP_WINDOW = 3600  # 1 hour
+SIGNUP_MAX_PER_IP = 5
+
+
+def check_signup_rate_limit(ip):
+    """Return True if this IP is allowed to submit another signup.
+
+    Allows up to SIGNUP_MAX_PER_IP attempts per SIGNUP_WINDOW, keyed by IP.
+    """
+    if not ip:
+        return True  # no IP available, don't block
+    key = f"signup-rate:{ip}"
+    count = cache.get(key, 0)
+    if count >= SIGNUP_MAX_PER_IP:
+        return False
+    if count == 0:
+        cache.set(key, 1, timeout=SIGNUP_WINDOW)
+    else:
+        cache.incr(key)
+    return True
+
+
+SIGNUP_OTP_PREFIX = "signup-otp"
+
+
+def _email_identifier(email):
+    """Stable, non-reversible identifier for an email address."""
+    return hashlib.sha256(email.lower().strip().encode()).hexdigest()[:32]
+
+
+def issue_signup_otp(email, purpose="Verify your email to finish signing up"):
+    ident = _email_identifier(email)
+    code = _generate()
+    cache.set(f"{SIGNUP_OTP_PREFIX}:{ident}", _hash(code), timeout=OTP_TTL)
+    cache.delete(f"{SIGNUP_OTP_PREFIX}-attempts:{ident}")
+    _record_send(f"signup:{email}")
+
+    send_email(
+        template="emails/otp.html",
+        subject="Your verification code",
+        context={
+            "code": code,
+            "expiry_minutes": OTP_TTL // 60,
+            "purpose": purpose,
+        },
+        to=email,
+    )
+    return True
+
+
+def verify_signup_otp(email, submitted):
+    ident = _email_identifier(email)
+    stored = cache.get(f"{SIGNUP_OTP_PREFIX}:{ident}")
+    if not stored:
+        return False
+    return secrets.compare_digest(stored, _hash(submitted.strip()))
+
+
+def record_failed_signup_attempt(email):
+    """Returns remaining attempts, or 0 if invalidated."""
+    ident = _email_identifier(email)
+    key = f"{SIGNUP_OTP_PREFIX}-attempts:{ident}"
+    attempts = cache.get(key, 0) + 1
+    if attempts >= MAX_VERIFY_ATTEMPTS:
+        clear_signup_otp(email)
+        return 0
+    cache.set(key, attempts, timeout=OTP_TTL)
+    return MAX_VERIFY_ATTEMPTS - attempts
+
+
+def clear_signup_otp(email):
+    ident = _email_identifier(email)
+    cache.delete(f"{SIGNUP_OTP_PREFIX}:{ident}")
+    cache.delete(f"{SIGNUP_OTP_PREFIX}-attempts:{ident}")

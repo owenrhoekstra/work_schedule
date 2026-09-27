@@ -1,3 +1,5 @@
+from datetime import date
+
 from django import forms
 
 from .models import Employee, Role, Title
@@ -31,21 +33,19 @@ class EmployeeForm(forms.ModelForm):
         self.fields["title"].empty_label = "—"
 
     def clean_email(self):
-        from datetime import date
-
-        from django.core.exceptions import ValidationError
-        from django.db.models import Q
-
         email = self.cleaned_data["email"]
-        today = date.today()
-        qs = Employee.objects.filter(email=email).filter(
-            Q(inactivated_on__isnull=True) | Q(inactivated_on__gt=today)
-        )
+        qs = Employee.objects.filter(email__iexact=email)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise ValidationError(
-                "Another employee (active or scheduled to depart) already "
-                "uses this email."
+
+        existing = qs.first()
+        if not existing:
+            return email
+
+        if existing.inactivated_on and existing.inactivated_on <= date.today():
+            raise forms.ValidationError(
+                f"This email belongs to a former employee ({existing}). "
+                f"Reactivate them from Settings → Former employees instead."
             )
-        return email
+
+        raise forms.ValidationError("Another employee already uses this email.")

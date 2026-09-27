@@ -61,4 +61,14 @@ urlpatterns = [
         views.set_day_override,
         name="set_day_override",
     ),
+    path(
+        "employees/<uuid:pk>/send-welcome/",
+        views.send_welcome,
+        name="send_welcome",
+    ),
+    path(
+        "settings/employees/<uuid:pk>/reactivate/",
+        views.settings_reactivate_employee,
+        name="settings_reactivate_employee",
+    ),
 ]

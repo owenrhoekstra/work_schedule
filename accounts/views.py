@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import PasswordChangeView
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,15 +14,141 @@ from . import otp as otp_service
 from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
 
 
+def _client_ip(request):
+    """Best-effort client IP behind Cloudflare Tunnel."""
+    cf = request.META.get("HTTP_CF_CONNECTING_IP")
+    if cf:
+        return cf.strip()
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
 def signup(request):
     if request.method == "POST":
+        ip = _client_ip(request)
+        if not otp_service.check_signup_rate_limit(ip):
+            return render(
+                request,
+                "registration/signup.html",
+                {"form": SignUpForm(), "rate_limited": True},
+            )
+
         form = SignUpForm(request.POST)
         if form.is_valid():
-            form.save()
-            return render(request, "registration/signup_pending.html")
+            email = form.cleaned_data["email"]
+            employee = Employee.objects.get(
+                email__iexact=email, is_active=True, user__isnull=True
+            )
+
+            # Stash pending signup in the session — nothing is created until
+            # the OTP is verified.
+            request.session["pending_signup"] = {
+                "username": form.cleaned_data["username"],
+                "email": email,
+                "password_hash": make_password(form.cleaned_data["password1"]),
+                "employee_id": str(employee.id),
+            }
+
+            otp_service.issue_signup_otp(email)
+            return redirect("verify_signup_otp")
     else:
         form = SignUpForm()
     return render(request, "registration/signup.html", {"form": form})
+
+
+def verify_signup_otp(request):
+    pending = request.session.get("pending_signup")
+    if not pending:
+        messages.error(
+            request,
+            "Your signup session has expired. Please start again.",
+        )
+        return redirect("signup")
+
+    email = pending["email"]
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "resend":
+            # Rate-limit resends per email
+            can_send, wait = otp_service.send_status(f"signup:{email}")
+            if can_send:
+                otp_service.issue_signup_otp(email)
+                messages.success(request, "A new code has been sent.")
+            elif wait > 0:
+                messages.warning(
+                    request,
+                    f"Please wait {wait} seconds before requesting another code.",
+                )
+            else:
+                messages.error(request, "Too many requests. Try again later.")
+            return redirect("verify_signup_otp")
+
+        code = (request.POST.get("code") or "").strip()
+        if not code:
+            messages.error(request, "Enter the code from your email.")
+            return render(
+                request,
+                "registration/signup_verify_otp.html",
+                {"masked_email": otp_service.mask_email(email)},
+            )
+
+        if otp_service.verify_signup_otp(email, code):
+            # Success — create the User and link to the Employee
+            employee = Employee.objects.get(pk=pending["employee_id"])
+
+            # Guard: another session may have completed first
+            if employee.user_id is not None:
+                messages.error(
+                    request,
+                    "This account has already been completed. Try logging in.",
+                )
+                request.session.pop("pending_signup", None)
+                return redirect("login")
+
+            user = User(
+                username=pending["username"],
+                email=email,
+                password=pending["password_hash"],
+                first_name=employee.first_name,
+                last_name=employee.last_name,
+                is_active=False,
+            )
+            user.save()
+            employee.user = user
+            employee.save(update_fields=["user"])
+
+            otp_service.clear_signup_otp(email)
+            request.session.pop("pending_signup", None)
+            return render(request, "registration/signup_pending.html")
+
+        remaining = otp_service.record_failed_signup_attempt(email)
+        if remaining == 0:
+            messages.error(
+                request,
+                "Too many incorrect codes. Request a new one to continue.",
+            )
+            # Still on the page; the user can hit "Send a new code"
+        else:
+            plural = "s" if remaining != 1 else ""
+            messages.error(
+                request,
+                f"Incorrect code. {remaining} attempt{plural} remaining.",
+            )
+        return render(
+            request,
+            "registration/signup_verify_otp.html",
+            {"masked_email": otp_service.mask_email(email)},
+        )
+
+    return render(
+        request,
+        "registration/signup_verify_otp.html",
+        {"masked_email": otp_service.mask_email(email)},
+    )
 
 
 def _pending_users():
@@ -34,6 +161,9 @@ def pending_accounts(request):
     return render(request, "pending_accounts.html", {"pending": _pending_users()})
 
 
+from schedule import notifications
+
+
 @login_required
 @permission_required("auth.change_user", raise_exception=True)
 def approve_account(request, user_id):
@@ -43,6 +173,16 @@ def approve_account(request, user_id):
         user.save()
         staff_group, _ = Group.objects.get_or_create(name="Staff")
         user.groups.add(staff_group)
+
+        if request.POST.get("notify"):
+            employee = getattr(user, "employee", None)
+            ok, error = notifications.send_account_approved_email(user, employee)
+            if ok:
+                messages.success(request, f"Approved and notified {user.username}.")
+            else:
+                messages.warning(request, f"Approved, but email failed: {error}")
+        else:
+            messages.success(request, f"Approved {user.username}.")
     return redirect("pending_accounts")
 
 

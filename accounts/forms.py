@@ -1,3 +1,5 @@
+import logging
+
 from django import forms
 from django.contrib.auth.forms import (
     AuthenticationForm,
@@ -7,6 +9,8 @@ from django.contrib.auth.forms import (
 from django.contrib.auth.models import User
 
 from schedule.models import Employee
+
+logger = logging.getLogger(__name__)
 
 
 class StyledLoginForm(AuthenticationForm):
@@ -57,8 +61,10 @@ class SignUpForm(UserCreationForm):
         if not Employee.objects.filter(
             email__iexact=email, user__isnull=True, is_active=True
         ).exists():
+            logger.warning("Signup rejected: no active unlinked employee for %s", email)
             raise forms.ValidationError(
-                "This email hasn't been added by management yet."
+                "We couldn't create an account with those details. "
+                "Contact management if you think this is a mistake."
             )
         return email
 
