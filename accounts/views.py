@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 
 from django.contrib import messages
@@ -16,6 +17,7 @@ from . import otp as otp_service
 from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
 
 logger = logging.getLogger(__name__)
+
 
 def _client_ip(request):
     """Best-effort client IP behind Cloudflare Tunnel."""
