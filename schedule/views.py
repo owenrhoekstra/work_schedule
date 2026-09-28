@@ -155,6 +155,16 @@ def _week_offset_for(week_start, employee):
     return weeks_since_epoch % employee.cycle_weeks
 
 
+def _current_or_future_employees():
+    """Employees who are current or scheduled for future departure.
+
+    Uses `last_day` — an employee is current through the end of their
+    last day, so `last_day >= today` means they're still on the roster.
+    """
+    today = timezone.localdate()
+    return Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
+
+
 def _employees_for_week(week_start):
     """Employees with any employment period overlapping this week."""
     week_end = week_start + timedelta(days=5)
@@ -386,6 +396,7 @@ def _build_schedule_rows(week_start):
                 "cells": cells,
                 "total_hours": _format_duration(total),
                 "cycle_label": (WEEK_LABELS[offset] if emp.cycle_weeks > 1 else None),
+                "last_day": emp.last_day,
             }
         )
 
@@ -452,8 +463,6 @@ def add_employee(request):
         if form.is_valid():
             employee = form.save(commit=False)
 
-            # If a User already exists with this email and isn't linked
-            # to another Employee, link them now.
             matching_user = User.objects.filter(email__iexact=employee.email).first()
             if (
                 matching_user
@@ -488,111 +497,13 @@ def add_employee(request):
     return render(request, "home.html", context)
 
 
-@login_required
-@permission_required("schedule.view_employee", raise_exception=True)
-def employee_defaults(request, pk):
-    employee = get_object_or_404(Employee, pk=pk, is_active=True)
-    can_change = request.user.has_perm("schedule.change_shift")
+# ---------------------------------------------------------------------------
+# Employee page — merged identity + defaults
+# ---------------------------------------------------------------------------
 
-    if request.method == "POST":
-        if not can_change:
-            raise PermissionDenied
 
-        # Snapshot before any writes, for the notification diff
-        old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
-        old_cycle = employee.cycle_weeks
-
-        # Cycle length — clamp to 1..MAX_CYCLE_WEEKS
-        try:
-            cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
-        except TypeError, ValueError:
-            cycle_weeks = employee.cycle_weeks
-        cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
-
-        if cycle_weeks != employee.cycle_weeks:
-            employee.cycle_weeks = cycle_weeks
-            employee.save(update_fields=["cycle_weeks"])
-
-        for week_offset in range(MAX_CYCLE_WEEKS):
-            for day in DAYS:
-                start_key = f"week_{week_offset}_day_{day}_start"
-                end_key = f"week_{week_offset}_day_{day}_end"
-
-                # Skip weeks/days that weren't rendered
-                if start_key not in request.POST and end_key not in request.POST:
-                    continue
-
-                raw_start = request.POST.get(start_key, "")
-                raw_end = request.POST.get(end_key, "")
-
-                try:
-                    start = _parse_time(raw_start)
-                    end = _parse_time(raw_end)
-                except ValueError as exc:
-                    messages.error(
-                        request,
-                        f"Week {WEEK_LABELS[week_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: {exc}",
-                    )
-                    return redirect("employee_defaults", pk=pk)
-
-                if (start is None) != (end is None):
-                    messages.error(
-                        request,
-                        f"Week {WEEK_LABELS[week_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
-                        f"or leave both empty.",
-                    )
-                    return redirect("employee_defaults", pk=pk)
-
-                if start and end:
-                    if end <= start:
-                        messages.error(
-                            request,
-                            f"Week {WEEK_LABELS[week_offset]} "
-                            f"{DAY_LABELS_FULL[day]}: end time must be after "
-                            f"start time.",
-                        )
-                        return redirect("employee_defaults", pk=pk)
-                    Shift.objects.update_or_create(
-                        employee=employee,
-                        week_offset=week_offset,
-                        day=day,
-                        defaults={"start_time": start, "end_time": end},
-                    )
-                else:
-                    Shift.objects.filter(
-                        employee=employee,
-                        week_offset=week_offset,
-                        day=day,
-                    ).delete()
-
-        # Notify if requested and something actually changed
-        if request.POST.get("notify"):
-            changes = _diff_default_changes(employee, old_shifts)
-
-            cycle_change = None
-            if cycle_weeks != old_cycle:
-                cycle_change = {
-                    "old_cycle": old_cycle,
-                    "new_cycle": cycle_weeks,
-                    "new_weeks": _new_week_details(employee, old_cycle, cycle_weeks),
-                }
-
-            if changes or cycle_change:
-                notifications.send_shift_changes_email(
-                    employee,
-                    changes,
-                    kind="default",
-                    cycle_change=cycle_change,
-                )
-                messages.success(request, f"Notification sent to {employee.email}.")
-            else:
-                messages.info(request, "No changes to notify.")
-
-        return redirect("home")
-
-    # GET — render all four weeks, populated from DB
+def _build_default_weeks(employee):
+    """Assemble the week/row structure for the defaults editor."""
     shifts_by_key = {(s.week_offset, s.day): s for s in employee.shifts.all()}
     weeks = []
     for week_offset in range(MAX_CYCLE_WEEKS):
@@ -611,16 +522,174 @@ def employee_defaults(request, pk):
                 "rows": rows,
             }
         )
+    return weeks
 
+
+def _render_employee_page(request, employee, identity_form=None, can_change=True):
+    """Render the merged employee page. Used by both handlers on error."""
     return render(
         request,
         "employee_defaults.html",
         {
             "employee": employee,
-            "weeks": weeks,
+            "identity_form": identity_form or EmployeeForm(instance=employee),
+            "weeks": _build_default_weeks(employee),
             "can_change": can_change,
+            "last_day": employee.last_day,
         },
     )
+
+
+def _handle_identity_post(request, employee):
+    """Save the identity form. Sync EmploymentPeriod when start_date changes."""
+    old_start = employee.start_date
+    form = EmployeeForm(request.POST, instance=employee)
+
+    if not form.is_valid():
+        return _render_employee_page(request, employee, identity_form=form)
+
+    new_start = form.cleaned_data["start_date"]
+
+    if new_start != old_start:
+        earliest = employee.periods.order_by("start_date").first()
+        if earliest and earliest.end_date and new_start > earliest.end_date:
+            form.add_error(
+                "start_date",
+                f"Start date can't be after this period's end date "
+                f"({earliest.end_date - timedelta(days=1):%Y-%m-%d}).",
+            )
+            return _render_employee_page(request, employee, identity_form=form)
+
+    form.save()
+
+    if new_start != old_start:
+        earliest = employee.periods.order_by("start_date").first()
+        if earliest:
+            earliest.start_date = new_start
+            earliest.save(update_fields=["start_date"])
+
+    messages.success(request, f"Saved {employee}.")
+    return redirect("employee_defaults", pk=employee.pk)
+
+
+def _handle_defaults_post(request, employee):
+    """Save default hour shifts. Handles cycle changes and notification."""
+    old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    old_cycle = employee.cycle_weeks
+
+    try:
+        cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
+    except TypeError, ValueError:
+        cycle_weeks = employee.cycle_weeks
+    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
+
+    if cycle_weeks != employee.cycle_weeks:
+        employee.cycle_weeks = cycle_weeks
+        employee.save(update_fields=["cycle_weeks"])
+
+    for week_offset in range(MAX_CYCLE_WEEKS):
+        for day in DAYS:
+            start_key = f"week_{week_offset}_day_{day}_start"
+            end_key = f"week_{week_offset}_day_{day}_end"
+
+            if start_key not in request.POST and end_key not in request.POST:
+                continue
+
+            raw_start = request.POST.get(start_key, "")
+            raw_end = request.POST.get(end_key, "")
+
+            try:
+                start = _parse_time(raw_start)
+                end = _parse_time(raw_end)
+            except ValueError as exc:
+                messages.error(
+                    request,
+                    f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}",
+                )
+                return redirect("employee_defaults", pk=employee.pk)
+
+            if (start is None) != (end is None):
+                messages.error(
+                    request,
+                    f"Week {WEEK_LABELS[week_offset]} "
+                    f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                    f"or leave both empty.",
+                )
+                return redirect("employee_defaults", pk=employee.pk)
+
+            if start and end:
+                if end <= start:
+                    messages.error(
+                        request,
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: end time must be after "
+                        f"start time.",
+                    )
+                    return redirect("employee_defaults", pk=employee.pk)
+                Shift.objects.update_or_create(
+                    employee=employee,
+                    week_offset=week_offset,
+                    day=day,
+                    defaults={"start_time": start, "end_time": end},
+                )
+            else:
+                Shift.objects.filter(
+                    employee=employee,
+                    week_offset=week_offset,
+                    day=day,
+                ).delete()
+
+    if request.POST.get("notify"):
+        changes = _diff_default_changes(employee, old_shifts)
+        cycle_change = None
+        if cycle_weeks != old_cycle:
+            cycle_change = {
+                "old_cycle": old_cycle,
+                "new_cycle": cycle_weeks,
+                "new_weeks": _new_week_details(employee, old_cycle, cycle_weeks),
+            }
+
+        if changes or cycle_change:
+            notifications.send_shift_changes_email(
+                employee, changes, kind="default", cycle_change=cycle_change
+            )
+            messages.success(request, f"Notification sent to {employee.email}.")
+        else:
+            messages.info(request, "No changes to notify.")
+
+    messages.success(request, "Default hours saved.")
+    return redirect("employee_defaults", pk=employee.pk)
+
+
+@login_required
+@permission_required("schedule.view_employee", raise_exception=True)
+def employee_defaults(request, pk):
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=pk,
+    )
+    can_change = request.user.has_perm("schedule.change_shift")
+
+    if request.method == "POST":
+        if not can_change:
+            raise PermissionDenied
+
+        form_type = request.POST.get("form")
+        if form_type == "identity":
+            return _handle_identity_post(request, employee)
+        if form_type == "defaults":
+            return _handle_defaults_post(request, employee)
+
+        messages.error(request, "Unknown form submission.")
+        return redirect("employee_defaults", pk=pk)
+
+    return _render_employee_page(request, employee, can_change=can_change)
+
+
+# ---------------------------------------------------------------------------
+# Overrides
+# ---------------------------------------------------------------------------
 
 
 @login_required
@@ -635,7 +704,11 @@ def set_override(request, employee_pk, date_iso):
         if not request.user.has_perm("schedule.add_shift"):
             raise PermissionDenied
 
-    employee = get_object_or_404(Employee, pk=employee_pk, is_active=True)
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=employee_pk,
+    )
     try:
         override_date = date.fromisoformat(date_iso)
     except ValueError:
@@ -643,7 +716,6 @@ def set_override(request, employee_pk, date_iso):
 
     back = _home_url_for(override_date)
 
-    # Capture "before" state for the notification diff
     old_display = _cell_display(employee, override_date)
 
     if action == "reset":
@@ -654,7 +726,7 @@ def set_override(request, employee_pk, date_iso):
             date=override_date,
             defaults={"is_off": True, "start_time": None, "end_time": None},
         )
-    else:  # save
+    else:
         try:
             start = _parse_time(request.POST.get("start_time"))
             end = _parse_time(request.POST.get("end_time"))
@@ -673,7 +745,6 @@ def set_override(request, employee_pk, date_iso):
             defaults={"is_off": False, "start_time": start, "end_time": end},
         )
 
-    # Capture "after" state and notify if requested
     if request.POST.get("notify"):
         new_display = _cell_display(employee, override_date)
         if old_display != new_display:
@@ -725,17 +796,15 @@ def settings_home(request):
     today = timezone.localdate()
 
     active_employees = (
-        Employee.objects.filter(
-            Q(inactivated_on__isnull=True) | Q(inactivated_on__gt=today)
-        )
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
         .select_related("title", "role")
         .order_by("role__display_order", "role__name", "created_at")
     )
 
     former_employees = (
-        Employee.objects.filter(inactivated_on__lte=today)
+        Employee.objects.filter(last_day__lt=today)
         .select_related("title", "role")
-        .order_by("-inactivated_on")
+        .order_by("-last_day")
     )
 
     context = {
@@ -764,59 +833,46 @@ def send_welcome(request, pk):
 
 @login_required
 @management_required
-def settings_edit_employee(request, pk):
-    employee = get_object_or_404(Employee, pk=pk)
-    if request.method == "POST":
-        form = EmployeeForm(request.POST, instance=employee)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f"Saved {employee}.")
-            return redirect("settings_home")
-    else:
-        form = EmployeeForm(instance=employee)
-    return render(
-        request,
-        "settings_edit_employee.html",
-        {"form": form, "employee": employee},
-    )
-
-
-@login_required
-@management_required
 @require_POST
 def settings_deactivate_employee(request, pk):
+    """Mark a last day. Internally, "off" begins the following day."""
     employee = get_object_or_404(Employee, pk=pk)
 
-    raw = request.POST.get("deactivation_date", "").strip()
+    raw = request.POST.get("last_day", "").strip()
     if raw:
         try:
-            effective = date.fromisoformat(raw)
+            last_day = date.fromisoformat(raw)
         except ValueError:
             messages.error(request, "Please pick a valid date.")
             return redirect("settings_home")
     else:
-        effective = date.today()
+        last_day = date.today()
 
+    today = timezone.localdate()
+    is_immediate = last_day < today
+
+    # Employee row: mark inactive immediately (frees the email for reuse)
+    # and record the last_day the manager entered.
     employee.is_active = False
-    employee.inactivated_on = effective
-    employee.save(update_fields=["is_active", "inactivated_on"])
+    employee.last_day = last_day
+    employee.save(update_fields=["is_active", "last_day"])
 
-    # Close the currently open employment period
+    # Employment period: end_date is exclusive, so it's the day after.
     current = employee.periods.filter(end_date__isnull=True).first()
     if current:
-        current.end_date = effective
+        current.end_date = last_day + timedelta(days=1)
         current.save(update_fields=["end_date"])
 
-    if employee.user:
+    # User account: only flip off if the departure already happened.
+    # Future deactivations are enforced by middleware when the day arrives.
+    if employee.user and is_immediate:
         employee.user.is_active = False
         employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         notifications.send_deactivation_email(employee)
 
-    messages.success(
-        request, f"{employee} will be off schedule from {effective} onward."
-    )
+    messages.success(request, f"{employee}'s last day will be {last_day}.")
     return redirect("settings_home")
 
 
@@ -826,7 +882,6 @@ def settings_deactivate_employee(request, pk):
 def settings_cancel_deactivation(request, pk):
     employee = get_object_or_404(Employee, pk=pk)
 
-    # Reopen the closed period — restore it to end_date=None
     current = (
         employee.periods.filter(end_date__isnull=False).order_by("-end_date").first()
     )
@@ -835,8 +890,8 @@ def settings_cancel_deactivation(request, pk):
         current.save(update_fields=["end_date"])
 
     employee.is_active = True
-    employee.inactivated_on = None
-    employee.save(update_fields=["is_active", "inactivated_on"])
+    employee.last_day = None
+    employee.save(update_fields=["is_active", "last_day"])
 
     if employee.user:
         employee.user.is_active = True
@@ -862,7 +917,6 @@ def settings_reactivate_employee(request, pk):
     else:
         effective = date.today()
 
-    # Open a new employment period
     EmploymentPeriod.objects.create(
         employee=employee,
         start_date=effective,
@@ -870,8 +924,8 @@ def settings_reactivate_employee(request, pk):
     )
 
     employee.is_active = True
-    employee.inactivated_on = None
-    employee.save(update_fields=["is_active", "inactivated_on"])
+    employee.last_day = None
+    employee.save(update_fields=["is_active", "last_day"])
 
     if employee.user:
         employee.user.is_active = True

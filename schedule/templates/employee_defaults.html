@@ -1,29 +1,161 @@
-{% extends "base.html" %} {% block title %}{{ employee }} — Default Hours{% endblock %}
+{% extends "base.html" %} {% block title %}{{ employee }} — Employee{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto px-6 py-10">
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-start justify-between mb-6 gap-3 flex-wrap">
         <div>
             <h1 class="font-display text-2xl font-bold text-brand-indigo">
                 {{ employee }}
             </h1>
             <p class="text-sm text-gray-500">
-                Default hours · {{ employee.role }}
+                {{ employee.role }} · Started {{ employee.start_date|date:"F j, Y" }}
+                {% if is_management and last_day %}
+                ·
+                <span class="text-brand-coral font-medium"
+                    >Last day {{ last_day|date:"F j, Y" }}</span
+                >
+                {% endif %}
             </p>
         </div>
-        <a
-            href="{% url 'home' %}"
-            class="text-sm font-medium text-brand-coral hover:underline"
-            >Back to schedule</a
-        >
+        <div class="flex items-center gap-3 text-sm">
+            <a
+                href="{% url 'settings_home' %}"
+                class="font-medium text-brand-coral hover:underline"
+                >← Settings</a
+            >
+            <a
+                href="{% url 'home' %}"
+                class="font-medium text-brand-coral hover:underline"
+                >← Schedule</a
+            >
+        </div>
     </div>
 
+    <!-- Employee details (collapsed by default) -->
+    <details
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
+        {% if identity_form.errors %}open{% endif %}
+    >
+        <summary
+            class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
+        >
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Employee Details
+            </h2>
+            <span class="text-gray-400 text-sm">▾</span>
+        </summary>
+        <form method="post" class="border-t border-gray-200">
+            {% csrf_token %}
+            <input type="hidden" name="form" value="identity" />
+
+            <div class="p-6 space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label
+                            class="block text-sm font-medium text-brand-indigo mb-1"
+                            >Title</label
+                        >
+                        {{ identity_form.title }}
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label
+                            class="block text-sm font-medium text-brand-indigo mb-1"
+                            >First Name</label
+                        >
+                        {{ identity_form.first_name }} {% if identity_form.first_name.errors %}
+                        <p class="text-sm text-brand-coral mt-1">
+                            {{ identity_form.first_name.errors.0 }}
+                        </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Last Name</label
+                    >
+                    {{ identity_form.last_name }} {% if identity_form.last_name.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ identity_form.last_name.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Role</label
+                    >
+                    {{ identity_form.role }} {% if identity_form.role.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ identity_form.role.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Email</label
+                    >
+                    {{ identity_form.email }} {% if identity_form.email.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ identity_form.email.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Start Date</label
+                    >
+                    {{ identity_form.start_date }}
+                    <p class="text-xs text-gray-500 mt-1">
+                        First day on the schedule. Can be in the past.
+                    </p>
+                    {% if identity_form.start_date.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ identity_form.start_date.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if can_change %}
+            <div
+                class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
+            >
+                {% if is_management %}
+                <button
+                    type="button"
+                    onclick="openDeactivateModal()"
+                    class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
+                >
+                    Set Last Day
+                </button>
+                {% else %}
+                <span></span>
+                {% endif %}
+                <button
+                    type="submit"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                >
+                    Save details
+                </button>
+            </div>
+            {% endif %}
+        </form>
+    </details>
+
+    <!-- Default hours -->
     <form
         method="post"
         class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
     >
         {% csrf_token %}
+        <input type="hidden" name="form" value="defaults" />
 
-        <!-- Cycle length selector -->
         <div
             class="flex items-center justify-between p-4 border-b border-gray-200 bg-brand-offwhite/40"
         >
@@ -54,7 +186,6 @@
             </select>
         </div>
 
-        <!-- Tabs -->
         <div class="flex border-b border-gray-200" id="week-tabs" role="tablist">
             {% for week in weeks %}
             <button
@@ -68,7 +199,6 @@
             {% endfor %}
         </div>
 
-        <!-- Week panels -->
         {% for week in weeks %}
         <div class="week-panel" data-week="{{ week.offset }}">
             <table class="min-w-full border-collapse">
@@ -137,11 +267,6 @@
             Notify employee of these changes
         </label>
         <div class="flex justify-end gap-2 p-4">
-            <a
-                href="{% url 'home' %}"
-                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
-                >Cancel</a
-            >
             <button
                 type="submit"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
@@ -159,7 +284,71 @@
     </p>
 </div>
 
-{% if can_change %}
+{% if can_change %} {% if is_management %}
+<dialog
+    id="deactivate-modal"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form
+        method="post"
+        action="{% url 'settings_deactivate_employee' employee.id %}"
+        class="p-6 space-y-4"
+    >
+        {% csrf_token %}
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Set Last Day
+        </h2>
+        <p class="text-sm text-gray-500">{{ employee }}</p>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Last day
+            </label>
+            <input
+                type="date"
+                name="last_day"
+                id="deactivate-date"
+                required
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+                Their final day on the schedule. Off from the following day.
+            </p>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee of this change
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="document.getElementById('deactivate-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Set Last Day
+            </button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    function openDeactivateModal() {
+        const input = document.getElementById("deactivate-date");
+        input.value = new Date().toISOString().slice(0, 10);
+        document.getElementById("deactivate-modal").showModal();
+    }
+</script>
+{% endif %} {% if can_change %}
 <script>
     (function () {
         const cycleSelect = document.getElementById("cycle-weeks-select");
@@ -207,4 +396,4 @@
         applyCycleVisibility();
     })();
 </script>
-{% endif %} {% endblock %}
+{% endif %} {% endif %} {% endblock %}

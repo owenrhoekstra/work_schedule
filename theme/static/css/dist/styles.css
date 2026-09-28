@@ -572,6 +572,12 @@
       border-color: color-mix(in oklab, var(--color-brand-coral) 30%, transparent);
     }
   }
+  .border-brand-coral\/40 {
+    border-color: color-mix(in srgb, #ff5a5f 40%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-brand-coral) 40%, transparent);
+    }
+  }
   .border-brand-indigo\/20 {
     border-color: color-mix(in srgb, #1e1b4b 20%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -930,6 +936,16 @@
       }
     }
   }
+  .hover\:bg-brand-coral\/10 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: color-mix(in srgb, #ff5a5f 10%, transparent);
+        @supports (color: color-mix(in lab, red, red)) {
+          background-color: color-mix(in oklab, var(--color-brand-coral) 10%, transparent);
+        }
+      }
+    }
+  }
   .hover\:bg-brand-indigo\/5 {
     &:hover {
       @media (hover: hover) {
@@ -1061,6 +1077,11 @@
       order: 4;
     }
   }
+  .sm\:col-span-2 {
+    @media (width >= 40rem) {
+      grid-column: span 2 / span 2;
+    }
+  }
   .sm\:mr-1 {
     @media (width >= 40rem) {
       margin-right: calc(var(--spacing) * 1);
@@ -1079,6 +1100,11 @@
   .sm\:grid-cols-2 {
     @media (width >= 40rem) {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .sm\:grid-cols-3 {
+    @media (width >= 40rem) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
   .sm\:flex-row {

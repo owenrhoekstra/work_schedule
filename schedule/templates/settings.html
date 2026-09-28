@@ -41,7 +41,7 @@
                     <th
                         class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
                     >
-                        Joined
+                        Started
                     </th>
                     <th class="p-3"></th>
                 </tr>
@@ -49,30 +49,28 @@
             <tbody>
                 {% for emp in employees %}
                 <tr
-                    class="border-t border-gray-200 {% if emp.inactivated_on %}bg-brand-coral/5{% endif %}"
+                    class="border-t border-gray-200 {% if emp.last_day %}bg-brand-coral/5{% endif %}"
                 >
                     <td class="p-3 text-brand-indigo font-medium">
                         {{ emp }}
-                        {% if emp.inactivated_on %}
-                        <span
-                            class="ml-2 text-xs font-medium text-brand-coral"
-                        >
-                            Departing {{ emp.inactivated_on|date:"Y-m-d" }}
+                        {% if emp.last_day %}
+                        <span class="ml-2 text-xs font-medium text-brand-coral">
+                            Last day {{ emp.last_day|date:"Y-m-d" }}
                         </span>
                         {% endif %}
                     </td>
                     <td class="p-3 text-gray-500">{{ emp.role }}</td>
                     <td class="p-3 text-gray-500">{{ emp.email }}</td>
                     <td class="p-3 text-gray-500 text-sm">
-                        {{ emp.created_at|date:"Y-m-d" }}
+                        {{ emp.start_date|date:"Y-m-d" }}
                     </td>
                     <td class="p-3 text-right whitespace-nowrap">
                         <a
-                            href="{% url 'settings_edit_employee' emp.id %}"
+                            href="{% url 'employee_defaults' emp.id %}"
                             class="text-sm font-medium text-brand-coral hover:underline mr-4"
                             >Edit</a
                         >
-                        {% if not emp.inactivated_on %}
+                        {% if not emp.last_day %}
                         <form
                             method="post"
                             action="{% url 'send_welcome' emp.id %}"
@@ -87,7 +85,7 @@
                             </button>
                         </form>
                         {% endif %}
-                        {% if emp.inactivated_on %}
+                        {% if emp.last_day %}
                         <form
                             method="post"
                             action="{% url 'settings_cancel_deactivation' emp.id %}"
@@ -158,7 +156,7 @@
                         <th
                             class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
                         >
-                            Deactivated
+                            Last day
                         </th>
                         <th class="p-3"></th>
                     </tr>
@@ -169,7 +167,7 @@
                         <td class="p-3 text-brand-indigo">{{ emp }}</td>
                         <td class="p-3 text-gray-500">{{ emp.role }}</td>
                         <td class="p-3 text-gray-500 text-sm">
-                            {{ emp.inactivated_on|date:"Y-m-d" }}
+                            {{ emp.last_day|date:"Y-m-d" }}
                         </td>
                         <td class="p-3 text-right whitespace-nowrap">
                             <button
@@ -346,25 +344,24 @@
     <form method="post" id="deactivate-form" class="p-6 space-y-4">
         {% csrf_token %}
         <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Deactivate Employee
+            Set Last Day
         </h2>
         <p class="text-sm text-gray-500">
             <span id="deactivate-name"></span>
         </p>
         <div>
             <label class="block text-sm font-medium text-brand-indigo mb-1">
-                Effective date
+                Last day
             </label>
             <input
                 type="date"
-                name="deactivation_date"
+                name="last_day"
                 id="deactivate-date"
                 required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             />
             <p class="text-xs text-gray-500 mt-1">
-                Their last day on schedule is the day before this date. Off from
-                this date onward.
+                Their final day on the schedule. Off from the following day.
             </p>
         </div>
         <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
@@ -388,7 +385,7 @@
                 type="submit"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
             >
-                Deactivate
+                Set Last Day
             </button>
         </div>
     </form>

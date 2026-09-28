@@ -42,7 +42,7 @@ class EmployeeForm(forms.ModelForm):
         if not existing:
             return email
 
-        if existing.inactivated_on and existing.inactivated_on <= date.today():
+        if existing.last_day and existing.last_day < date.today():
             raise forms.ValidationError(
                 f"This email belongs to a former employee ({existing}). "
                 f"Reactivate them from Settings → Former employees instead."

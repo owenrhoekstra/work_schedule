@@ -17,11 +17,6 @@ urlpatterns = [
     ),
     path("settings/", views.settings_home, name="settings_home"),
     path(
-        "settings/employees/<uuid:pk>/edit/",
-        views.settings_edit_employee,
-        name="settings_edit_employee",
-    ),
-    path(
         "settings/employees/<uuid:pk>/deactivate/",
         views.settings_deactivate_employee,
         name="settings_deactivate_employee",

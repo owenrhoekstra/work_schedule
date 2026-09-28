@@ -55,13 +55,17 @@ class Employee(models.Model):
         default=date.today,
         help_text="First day on the schedule. Can be in the past.",
     )
+    last_day = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Final day on the schedule. The employee is off from the day after.",
+    )
     cycle_weeks = models.PositiveSmallIntegerField(
         default=1,
         validators=[MinValueValidator(1), MaxValueValidator(4)],
         help_text="Length of the repeating schedule pattern, in weeks (1–4).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    inactivated_on = models.DateField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -84,7 +88,11 @@ class EmploymentPeriod(models.Model):
         Employee, on_delete=models.CASCADE, related_name="periods"
     )
     start_date = models.DateField()
-    end_date = models.DateField(null=True, blank=True)  # null = currently employed
+    end_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Exclusive: first day NOT employed. Null while currently employed.",
+    )
 
     class Meta:
         ordering = ["start_date"]

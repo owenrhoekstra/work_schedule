@@ -403,6 +403,13 @@
                             </span>
                         </div>
                         {% endif %}
+                        {% if is_management and row.last_day %}
+                        <div
+                            class="mt-1 text-xs font-medium text-brand-coral whitespace-nowrap"
+                        >
+                            Last day: {{ row.last_day|date:"M j, Y" }}
+                        </div>
+                        {% endif %}
                     </td>
                     {% for cell in row.cells %}
                     <td class="p-3 text-center text-sm whitespace-nowrap">
