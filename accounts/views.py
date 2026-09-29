@@ -19,7 +19,7 @@ from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
 logger = logging.getLogger(__name__)
 
 
-def _client_ip(request):
+def get_client_ip(request):
     """Best-effort client IP behind Cloudflare Tunnel."""
     cf = request.META.get("HTTP_CF_CONNECTING_IP")
     if cf:
@@ -32,7 +32,7 @@ def _client_ip(request):
 
 def signup(request):
     if request.method == "POST":
-        ip = _client_ip(request)
+        ip = get_client_ip(request)
         if not otp_service.check_signup_rate_limit(ip):
             return render(
                 request,

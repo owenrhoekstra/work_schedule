@@ -20,9 +20,6 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
@@ -199,7 +196,7 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 DEFAULT_FROM_EMAIL = os.environ.get(
-    "DEFAULT_FROM_EMAIL", "Work Schedule <noreply@principiasystem.ca>"
+    "DEFAULT_FROM_EMAIL", "Work Schedule <noreply@work-schedule.principiasystems.ca>"
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
@@ -209,6 +206,7 @@ AXES_COOLOFF_TIME = 1  # hours
 AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
 AXES_RESET_ON_SUCCESS = True
 AXES_LOCKOUT_TEMPLATE = "axes_lockout.html"
+AXES_CLIENT_IP_CALLABLE = "accounts.views.get_client_ip"
 
 CSRF_TRUSTED_ORIGINS = [
     o.strip()
