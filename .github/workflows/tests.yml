@@ -20,7 +20,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U test_user"
+          --health-cmd "pg_isready -U test_user -d work_schedule_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
@@ -45,8 +45,6 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
-        with:
-          version: "0.5.14"
 
       - name: Set up Python
         run: uv python install 3.14
