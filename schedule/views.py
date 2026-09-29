@@ -87,7 +87,7 @@ def _parse_time(value):
     value = (value or "").strip()
     if not value:
         return None
-    normalized = value.replace(".", "").upper()
+    normalized = value.replace(".", ":").upper()
     for fmt in _TIME_FORMATS:
         try:
             return datetime.strptime(normalized, fmt).time()
