@@ -203,7 +203,7 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # django-axes — rate limiting. Applies in every environment.
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1  # hours
-AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
 AXES_RESET_ON_SUCCESS = True
 AXES_LOCKOUT_TEMPLATE = "axes_lockout.html"
 AXES_CLIENT_IP_CALLABLE = "accounts.views.get_client_ip"
