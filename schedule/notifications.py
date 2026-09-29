@@ -1,7 +1,11 @@
+import logging
+
 from django.conf import settings
 from django.core.cache import cache
 
 from accounts.emails import send_email
+
+logger = logging.getLogger(__name__)
 
 
 def _cooldown_ok(key, seconds=60):
@@ -27,12 +31,25 @@ def _schedule_url():
     return f"{settings.SITE_URL}/schedule/home/"
 
 
+def _try_send(**kwargs):
+    """Wrap send_email so failures return a message instead of raising.
+
+    The caller's action should still succeed when the email fails.
+    """
+    try:
+        send_email(**kwargs)
+    except Exception:
+        logger.exception("Failed to send email: %s", kwargs.get("template"))
+        return False, "Could not send email. Please try again."
+    return True, None
+
+
 def send_welcome_email(employee):
     """Send the welcome email. Rate-limited per employee (60s)."""
     if not _cooldown_ok(f"welcome-sent:{employee.id}"):
         return False, "Please wait a minute before sending again."
 
-    send_email(
+    return _try_send(
         template="emails/welcome.html",
         subject="Welcome to Work Schedule",
         context={
@@ -42,7 +59,6 @@ def send_welcome_email(employee):
         },
         to=employee.email,
     )
-    return True, None
 
 
 def send_account_approved_email(user, employee):
@@ -54,7 +70,7 @@ def send_account_approved_email(user, employee):
     if not to:
         return False, "No email address on file."
 
-    send_email(
+    return _try_send(
         template="emails/account_approved.html",
         subject="Your account is ready",
         context={
@@ -63,7 +79,6 @@ def send_account_approved_email(user, employee):
         },
         to=to,
     )
-    return True, None
 
 
 def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
@@ -79,10 +94,7 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
     `cycle_change` is None, or a dict:
         old_cycle — previous cycle length in weeks
         new_cycle — new cycle length
-        new_weeks — list of dicts, one per newly-active week:
-            label — "Week C"
-            rows — [{"day": "Monday", "time": "9:00 AM – 5:00 PM"}, ...]
-        (only populated when new_cycle > old_cycle)
+        new_weeks — list of dicts, one per newly-active week
     """
     if not changes and not cycle_change:
         return False, "No changes to notify."
@@ -95,7 +107,6 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
             headline = "Your rotation pattern has been shortened"
 
         if changes:
-            # Combined email — mention the rotation briefly, then the changes
             subheadline = (
                 f"Your schedule now repeats every {cycle_change['new_cycle']} "
                 f"weeks instead of {cycle_change['old_cycle']}, along with the "
@@ -110,11 +121,10 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
         else:
             subheadline = (
                 f"Your schedule now repeats every {cycle_change['new_cycle']} "
-                f"weeks instead of {cycle_change['old_cycle']}. Weeks beyond the "
-                f"new rotation no longer apply."
+                f"weeks instead of {cycle_change['old_cycle']}. Weeks beyond "
+                f"the new rotation no longer apply."
             )
     else:
-        # Existing shift-change behavior
         if kind == "override":
             if len(changes) == 1:
                 headline = f"Your shift on {changes[0]['label']} has changed"
@@ -127,7 +137,7 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
             subject = "Your regular schedule has changed"
             subheadline = "These changes affect upcoming weeks until further notice."
 
-    send_email(
+    return _try_send(
         template="emails/shift_changed.html",
         subject=subject,
         context={
@@ -139,19 +149,17 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
         },
         to=employee.email,
     )
-    return True, None
 
 
 def send_deactivation_email(employee, reason=None):
     """Send the deactivation notice."""
-    send_email(
+    return _try_send(
         template="emails/deactivation_notice.html",
         subject="A note about your schedule",
         context={
             "employee_name": employee.first_name,
-            "last_day": employee.inactivated_on,
+            "last_day": employee.last_day,
             "reason": reason,
         },
         to=employee.email,
     )
-    return True, None

@@ -25,3 +25,22 @@ package = false
 dev = [
     "coverage>=7.16.2",
 ]
+
+[tool.coverage.run]
+source = ["schedule", "accounts", "work_schedule"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__init__.py",
+    "manage.py",
+]
+
+[tool.coverage.report]
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

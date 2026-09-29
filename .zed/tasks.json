@@ -14,4 +14,8 @@
     "label": "tailscale serve",
     "command": "tailscale serve 8000",
   },
+  {
+    "label": "pre-commit checks",
+    "command": "echo '── Django check ──' && uv run python manage.py check && echo '── Test suite ──' && uv run python manage.py test && echo '── Lockfile check ──' && uv lock --check && echo '── All checks passed ──'",
+  },
 ]
