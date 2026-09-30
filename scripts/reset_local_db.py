@@ -8,6 +8,7 @@ import sys
 
 import psycopg
 from dotenv import load_dotenv
+from psycopg import sql
 
 load_dotenv()
 
@@ -38,8 +39,13 @@ with conn.cursor() as cur:
         "WHERE datname = %s AND pid <> pg_backend_pid()",
         (db_name,),
     )
-    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
-    cur.execute(f'CREATE DATABASE "{db_name}" OWNER "{user}"')
+    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(db_name)))
+    cur.execute(
+        sql.SQL("CREATE DATABASE {} OWNER {}").format(
+            sql.Identifier(db_name),
+            sql.Identifier(user),
+        )
+    )
 
 conn.close()
 print(f"Recreated database: {db_name}")

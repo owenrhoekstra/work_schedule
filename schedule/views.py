@@ -573,13 +573,25 @@ def _handle_identity_post(request, employee):
 
 
 def _handle_defaults_post(request, employee):
-    """Save default hour shifts. Handles cycle changes and notification."""
+    """Save default hour shifts, cycle length, and optional notification.
+
+    Iterates every week/day input present in the POST body and
+    creates, updates, or deletes the corresponding `Shift` row. Only
+    fields the browser submitted are touched — unrendered weeks are
+    left alone.
+
+    If `notify` is set, diffs the saved state against `old_shifts` and
+    sends a single change-summary email — including a rotation-change
+    section when `cycle_weeks` grew or shrank. Subject to the same
+    eligibility rules as other schedule emails.
+    """
+
     old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
     old_cycle = employee.cycle_weeks
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = employee.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -700,6 +712,19 @@ def employee_defaults(request, pk):
 @login_required
 @require_POST
 def set_override(request, employee_pk, date_iso):
+    """Create, update, or clear a per-day shift override.
+
+    The POST body's `action` field selects the operation:
+
+    - "save": set start_time/end_time for that specific date
+    - "off": mark the day off entirely
+    - "reset": delete the override, falling back to the default pattern
+
+    If `notify` is set and the cell actually changed, sends a shift
+    change email to the employee — subject to eligibility rules (see
+    `notifications._check_email_eligibility`).
+    """
+
     action = request.POST.get("action")
 
     if action in ("off", "reset"):
@@ -843,7 +868,23 @@ def send_welcome(request, pk):
 @management_required
 @require_POST
 def settings_deactivate_employee(request, pk):
-    """Mark a last day. Internally, "off" begins the following day."""
+    """Record a last day and close the current employment period.
+
+    The `last_day` form field is the final day the employee works.
+    Internally:
+
+    - `Employee.is_active` flips to False immediately, freeing the
+      email address for reuse.
+    - The open `EmploymentPeriod` closes with `end_date = last_day + 1`
+      (end_date is exclusive).
+    - The linked User is deactivated only if the last day is already
+      in the past. Future departures are enforced by middleware when
+      the day arrives.
+
+    Sends a deactivation email if `notify` is set and the employee is
+    still on the schedule.
+    """
+
     employee = get_object_or_404(Employee, pk=pk)
 
     raw = request.POST.get("last_day", "").strip()
