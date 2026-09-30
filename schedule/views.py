@@ -604,11 +604,14 @@ def _handle_defaults_post(request, employee):
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
 
-            if start_key not in request.POST and end_key not in request.POST:
+            # Only process a day when both keys were submitted. A partial
+            # submission (only one field) is skipped rather than treated as
+            # "both empty", which would silently delete an existing shift.
+            if start_key not in request.POST or end_key not in request.POST:
                 continue
 
-            raw_start = request.POST.get(start_key, "")
-            raw_end = request.POST.get(end_key, "")
+            raw_start = request.POST[start_key]
+            raw_end = request.POST[end_key]
 
             try:
                 start = _parse_time(raw_start)

@@ -219,6 +219,27 @@ class EmployeeDefaultsEdgeTests(TestCase):
             )
             mock_send.assert_not_called()
 
+    def test_partial_key_submission_does_not_delete_shift(self):
+        """Submitting only one of start/end must not delete an existing shift."""
+        Shift.objects.create(
+            employee=self.emp,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
+        )
+        self.post(
+            {
+                "form": "defaults",
+                "cycle_weeks": "1",
+                "week_0_day_0_start": "",  # only start, and it's empty
+                # no week_0_day_0_end key at all
+            }
+        )
+        self.assertTrue(
+            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+        )
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class SettingsEdgeTests(TestCase):
