@@ -174,15 +174,11 @@ class EmployeeDefaultsFormTests(TestCase):
         self.assertEqual(self.emp.cycle_weeks, 4)
 
     @patch("schedule.notifications.send_email")
-    def test_notify_sends_email(self, mock_send):
-        self.post_defaults(
-            notify="1",
-            **{"week_0_day_0_start": "09:00", "week_0_day_0_end": "17:00"},
-        )
-        mock_send.assert_called_once()
-
-    @patch("schedule.notifications.send_email")
     def test_notify_with_no_changes_does_not_send(self, mock_send):
+        user = make_staff_user("nochangeuser")
+        self.emp.user = user
+        self.emp.email = user.email
+        self.emp.save()
         # Set the same value twice with notify on the second
         self.post_defaults(
             **{"week_0_day_0_start": "09:00", "week_0_day_0_end": "17:00"}
@@ -194,7 +190,25 @@ class EmployeeDefaultsFormTests(TestCase):
         mock_send.assert_not_called()
 
     @patch("schedule.notifications.send_email")
+    def test_notify_sends_email(self, mock_send):
+        # Notifications require a linked, active user
+        user = make_staff_user("notifyuser")
+        self.emp.user = user
+        self.emp.email = user.email
+        self.emp.save()
+        self.post_defaults(
+            notify="1",
+            **{"week_0_day_0_start": "09:00", "week_0_day_0_end": "17:00"},
+        )
+        mock_send.assert_called_once()
+
+    @patch("schedule.notifications.send_email")
     def test_cycle_change_triggers_notification(self, mock_send):
+        # Notifications require a linked, active user
+        user = make_staff_user("cycleuser")
+        self.emp.user = user
+        self.emp.email = user.email
+        self.emp.save()
         self.post_defaults(cycle_weeks="3", notify="1")
         mock_send.assert_called_once()
         context = mock_send.call_args[1]["context"]

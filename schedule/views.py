@@ -573,7 +573,19 @@ def _handle_identity_post(request, employee):
 
 
 def _handle_defaults_post(request, employee):
-    """Save default hour shifts. Handles cycle changes and notification."""
+    """Save default hour shifts, cycle length, and optional notification.
+
+    Iterates every week/day input present in the POST body and
+    creates, updates, or deletes the corresponding `Shift` row. Only
+    fields the browser submitted are touched — unrendered weeks are
+    left alone.
+
+    If `notify` is set, diffs the saved state against `old_shifts` and
+    sends a single change-summary email — including a rotation-change
+    section when `cycle_weeks` grew or shrank. Subject to the same
+    eligibility rules as other schedule emails.
+    """
+
     old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
     old_cycle = employee.cycle_weeks
 
@@ -592,11 +604,14 @@ def _handle_defaults_post(request, employee):
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
 
-            if start_key not in request.POST and end_key not in request.POST:
+            # Only process a day when both keys were submitted. A partial
+            # submission (only one field) is skipped rather than treated as
+            # "both empty", which would silently delete an existing shift.
+            if start_key not in request.POST or end_key not in request.POST:
                 continue
 
-            raw_start = request.POST.get(start_key, "")
-            raw_end = request.POST.get(end_key, "")
+            raw_start = request.POST[start_key]
+            raw_end = request.POST[end_key]
 
             try:
                 start = _parse_time(raw_start)
@@ -639,6 +654,8 @@ def _handle_defaults_post(request, employee):
                     day=day,
                 ).delete()
 
+    # Notify — this block is a sibling of the week_offset loop, not inside it,
+    # so it fires exactly once per save.
     if request.POST.get("notify"):
         changes = _diff_default_changes(employee, old_shifts)
         cycle_change = None
@@ -650,10 +667,13 @@ def _handle_defaults_post(request, employee):
             }
 
         if changes or cycle_change:
-            notifications.send_shift_changes_email(
+            ok, error = notifications.send_shift_changes_email(
                 employee, changes, kind="default", cycle_change=cycle_change
             )
-            messages.success(request, f"Notification sent to {employee.email}.")
+            if ok:
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.warning(request, error or "Notification not sent.")
         else:
             messages.info(request, "No changes to notify.")
 
@@ -695,6 +715,19 @@ def employee_defaults(request, pk):
 @login_required
 @require_POST
 def set_override(request, employee_pk, date_iso):
+    """Create, update, or clear a per-day shift override.
+
+    The POST body's `action` field selects the operation:
+
+    - "save": set start_time/end_time for that specific date
+    - "off": mark the day off entirely
+    - "reset": delete the override, falling back to the default pattern
+
+    If `notify` is set and the cell actually changed, sends a shift
+    change email to the employee — subject to eligibility rules (see
+    `notifications._check_email_eligibility`).
+    """
+
     action = request.POST.get("action")
 
     if action in ("off", "reset"):
@@ -748,7 +781,7 @@ def set_override(request, employee_pk, date_iso):
     if request.POST.get("notify"):
         new_display = _cell_display(employee, override_date)
         if old_display != new_display:
-            notifications.send_shift_changes_email(
+            ok, error = notifications.send_shift_changes_email(
                 employee,
                 [
                     {
@@ -760,7 +793,10 @@ def set_override(request, employee_pk, date_iso):
                 ],
                 kind="override",
             )
-            messages.success(request, f"Notification sent to {employee.email}.")
+            if ok:
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.warning(request, error or "Notification not sent.")
 
     return redirect(back)
 
@@ -835,7 +871,23 @@ def send_welcome(request, pk):
 @management_required
 @require_POST
 def settings_deactivate_employee(request, pk):
-    """Mark a last day. Internally, "off" begins the following day."""
+    """Record a last day and close the current employment period.
+
+    The `last_day` form field is the final day the employee works.
+    Internally:
+
+    - `Employee.is_active` flips to False immediately, freeing the
+      email address for reuse.
+    - The open `EmploymentPeriod` closes with `end_date = last_day + 1`
+      (end_date is exclusive).
+    - The linked User is deactivated only if the last day is already
+      in the past. Future departures are enforced by middleware when
+      the day arrives.
+
+    Sends a deactivation email if `notify` is set and the employee is
+    still on the schedule.
+    """
+
     employee = get_object_or_404(Employee, pk=pk)
 
     raw = request.POST.get("last_day", "").strip()
@@ -870,7 +922,11 @@ def settings_deactivate_employee(request, pk):
         employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
-        notifications.send_deactivation_email(employee)
+        ok, error = notifications.send_deactivation_email(employee)
+        if ok:
+            messages.success(request, f"Notification sent to {employee.email}.")
+        else:
+            messages.warning(request, error or "Notification not sent.")
 
     messages.success(request, f"{employee}'s last day will be {last_day}.")
     return redirect("settings_home")

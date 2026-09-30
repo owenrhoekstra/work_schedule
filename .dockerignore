@@ -16,3 +16,4 @@ node_modules/
 htmlcov/
 *.log
 checklists.txt
+scripts/

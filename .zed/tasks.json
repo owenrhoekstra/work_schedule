@@ -18,4 +18,16 @@
     "label": "pre-commit checks",
     "command": "echo '── Django check ──' && uv run python manage.py check && echo '── Test suite ──' && uv run python manage.py test && echo '── Lockfile check ──' && uv lock --check && echo '── All checks passed ──'",
   },
+  {
+    "label": "create superuser",
+    "command": "uv run python manage.py createsuperuser",
+  },
+  {
+    "label": "flush db",
+    "command": "uv run python manage.py flush",
+  },
+  {
+    "label": "reset local db",
+    "command": "uv run python scripts/reset_local_db.py && uv run python manage.py migrate && uv run python manage.py createsuperuser",
+  },
 ]
