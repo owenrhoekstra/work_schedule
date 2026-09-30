@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      - name: Collect static files
+        run: uv run python manage.py collectstatic --noinput
+
       - name: Tests with coverage
         run: |
           uv run coverage run manage.py test
