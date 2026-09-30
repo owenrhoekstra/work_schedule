@@ -579,7 +579,7 @@ def _handle_defaults_post(request, employee):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = employee.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -639,6 +639,8 @@ def _handle_defaults_post(request, employee):
                     day=day,
                 ).delete()
 
+    # Notify — this block is a sibling of the week_offset loop, not inside it,
+    # so it fires exactly once per save.
     if request.POST.get("notify"):
         changes = _diff_default_changes(employee, old_shifts)
         cycle_change = None
@@ -650,10 +652,13 @@ def _handle_defaults_post(request, employee):
             }
 
         if changes or cycle_change:
-            notifications.send_shift_changes_email(
+            ok, error = notifications.send_shift_changes_email(
                 employee, changes, kind="default", cycle_change=cycle_change
             )
-            messages.success(request, f"Notification sent to {employee.email}.")
+            if ok:
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.warning(request, error or "Notification not sent.")
         else:
             messages.info(request, "No changes to notify.")
 
@@ -748,7 +753,7 @@ def set_override(request, employee_pk, date_iso):
     if request.POST.get("notify"):
         new_display = _cell_display(employee, override_date)
         if old_display != new_display:
-            notifications.send_shift_changes_email(
+            ok, error = notifications.send_shift_changes_email(
                 employee,
                 [
                     {
@@ -760,7 +765,10 @@ def set_override(request, employee_pk, date_iso):
                 ],
                 kind="override",
             )
-            messages.success(request, f"Notification sent to {employee.email}.")
+            if ok:
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.warning(request, error or "Notification not sent.")
 
     return redirect(back)
 
@@ -870,7 +878,11 @@ def settings_deactivate_employee(request, pk):
         employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
-        notifications.send_deactivation_email(employee)
+        ok, error = notifications.send_deactivation_email(employee)
+        if ok:
+            messages.success(request, f"Notification sent to {employee.email}.")
+        else:
+            messages.warning(request, error or "Notification not sent.")
 
     messages.success(request, f"{employee}'s last day will be {last_day}.")
     return redirect("settings_home")

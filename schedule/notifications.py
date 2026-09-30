@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from accounts.emails import send_email
 
@@ -17,6 +18,27 @@ def _cooldown_ok(key, seconds=60):
         return False
     cache.set(key, 1, timeout=seconds)
     return True
+
+
+def _check_email_eligibility(employee):
+    """Return (eligible, reason).
+
+    An employee is eligible to receive schedule-related emails when:
+    - They have a linked User account (they've signed up).
+    - The User is active (approved, not deactivated).
+    - They're currently on the schedule (last_day is null or in the future).
+
+    reason is a short phrase describing why they're ineligible, or None if
+    they are eligible. Callers include it in their return message.
+    """
+    if not employee.user_id:
+        return False, "employee hasn't signed up yet"
+    if not employee.user.is_active:
+        return False, "employee's account is inactive"
+    today = timezone.localdate()
+    if employee.last_day and employee.last_day < today:
+        return False, "employee is no longer on the schedule"
+    return True, None
 
 
 def _signup_url():
@@ -44,8 +66,17 @@ def _try_send(**kwargs):
     return True, None
 
 
+# ---------------------------------------------------------------------------
+# Welcome — exempt from eligibility (invites a non-user)
+# ---------------------------------------------------------------------------
+
+
 def send_welcome_email(employee):
-    """Send the welcome email. Rate-limited per employee (60s)."""
+    """Send the welcome email. Rate-limited per employee (60s).
+
+    Exempt from eligibility checks — this email's purpose is to invite
+    someone who hasn't signed up yet.
+    """
     if not _cooldown_ok(f"welcome-sent:{employee.id}"):
         return False, "Please wait a minute before sending again."
 
@@ -61,14 +92,24 @@ def send_welcome_email(employee):
     )
 
 
+# ---------------------------------------------------------------------------
+# Account approved — gated on employee eligibility
+# ---------------------------------------------------------------------------
+
+
 def send_account_approved_email(user, employee):
     """Send the account-approved email. Rate-limited per user (60s)."""
-    if not _cooldown_ok(f"approved-sent:{user.id}"):
-        return False, "Please wait a minute before sending again."
-
     to = employee.email if employee else user.email
     if not to:
         return False, "No email address on file."
+
+    if employee:
+        eligible, reason = _check_email_eligibility(employee)
+        if not eligible:
+            return False, f"No email sent — {reason}."
+
+    if not _cooldown_ok(f"approved-sent:{user.id}"):
+        return False, "Please wait a minute before sending again."
 
     return _try_send(
         template="emails/account_approved.html",
@@ -79,6 +120,11 @@ def send_account_approved_email(user, employee):
         },
         to=to,
     )
+
+
+# ---------------------------------------------------------------------------
+# Shift changes — gated on employee eligibility
+# ---------------------------------------------------------------------------
 
 
 def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
@@ -98,6 +144,10 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
     """
     if not changes and not cycle_change:
         return False, "No changes to notify."
+
+    eligible, reason = _check_email_eligibility(employee)
+    if not eligible:
+        return False, f"No email sent — {reason}."
 
     if cycle_change:
         subject = "Your rotation pattern has changed"
@@ -151,8 +201,22 @@ def send_shift_changes_email(employee, changes, *, kind, cycle_change=None):
     )
 
 
+# ---------------------------------------------------------------------------
+# Deactivation — gated on employee eligibility
+# ---------------------------------------------------------------------------
+
+
 def send_deactivation_email(employee, reason=None):
-    """Send the deactivation notice."""
+    """Send the deactivation notice.
+
+    Only sent while the employee is still on the schedule. If the
+    deactivation is immediate (last_day in the past), they're already
+    gone — no point telling them it's coming.
+    """
+    eligible, eligibility_reason = _check_email_eligibility(employee)
+    if not eligible:
+        return False, f"No email sent — {eligibility_reason}."
+
     return _try_send(
         template="emails/deactivation_notice.html",
         subject="A note about your schedule",

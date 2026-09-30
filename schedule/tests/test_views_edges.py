@@ -1,14 +1,16 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from schedule.models import Employee, Role, Shift, ShiftOverride, Title
 
 from .factories import (
     make_employee,
+    make_manager_user,
     make_role,
     make_staff_user,
     make_superuser,
@@ -236,9 +238,13 @@ class SettingsEdgeTests(TestCase):
 
     @patch("schedule.notifications.send_email")
     def test_deactivate_with_notify(self, mock_send):
+        user = make_staff_user("deactnotify")
+        self.emp.user = user
+        self.emp.save()
+        future = (timezone.localdate() + timedelta(days=14)).isoformat()
         self.client.post(
             reverse("settings_deactivate_employee", args=[self.emp.pk]),
-            {"last_day": "2026-06-30", "notify": "1"},
+            {"last_day": future, "notify": "1"},
         )
         mock_send.assert_called_once()
 

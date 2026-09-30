@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from schedule import notifications
 
@@ -29,6 +30,156 @@ class CooldownTests(TestCase):
     def test_different_keys_independent(self):
         notifications._cooldown_ok("key3a")
         self.assertTrue(notifications._cooldown_ok("key3b"))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class EmailEligibilityTests(TestCase):
+    """Rules that decide whether a schedule email can be sent.
+
+    Welcome and signup OTP are exempt; everything else requires a linked,
+    active User and a current employment window.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    # ----- shift changes -----
+
+    @patch("schedule.notifications.send_email")
+    def test_shift_email_skipped_when_no_user(self, mock_send):
+        emp = make_employee()
+        changes = [{"label": "Monday", "old": "9:00 AM", "new": "10:00 AM"}]
+        ok, err = notifications.send_shift_changes_email(emp, changes, kind="default")
+        self.assertFalse(ok)
+        self.assertIn("sign", err.lower())
+        mock_send.assert_not_called()
+
+    @patch("schedule.notifications.send_email")
+    def test_shift_email_skipped_when_user_inactive(self, mock_send):
+        user = make_staff_user("inactive")
+        user.is_active = False
+        user.save()
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.save()
+        changes = [{"label": "Monday", "old": "9:00 AM", "new": "10:00 AM"}]
+        ok, err = notifications.send_shift_changes_email(emp, changes, kind="default")
+        self.assertFalse(ok)
+        mock_send.assert_not_called()
+
+    @patch("schedule.notifications.send_email")
+    def test_shift_email_skipped_when_last_day_past(self, mock_send):
+        user = make_staff_user("left")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate() - timedelta(days=1)
+        emp.save()
+        changes = [{"label": "Monday", "old": "9:00 AM", "new": "10:00 AM"}]
+        ok, err = notifications.send_shift_changes_email(emp, changes, kind="default")
+        self.assertFalse(ok)
+        mock_send.assert_not_called()
+
+    @patch("schedule.notifications.send_email")
+    def test_shift_email_sent_when_eligible(self, mock_send):
+        user = make_staff_user("active")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.save()
+        changes = [{"label": "Monday", "old": "9:00 AM", "new": "10:00 AM"}]
+        ok, err = notifications.send_shift_changes_email(emp, changes, kind="default")
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
+
+    @patch("schedule.notifications.send_email")
+    def test_shift_email_sent_when_last_day_in_future(self, mock_send):
+        user = make_staff_user("scheduled")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate() + timedelta(days=14)
+        emp.save()
+        changes = [{"label": "Monday", "old": "9:00 AM", "new": "10:00 AM"}]
+        ok, err = notifications.send_shift_changes_email(emp, changes, kind="default")
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
+
+    # ----- deactivation -----
+
+    @patch("schedule.notifications.send_email")
+    def test_deactivation_email_skipped_without_user(self, mock_send):
+        emp = make_employee()
+        emp.last_day = timezone.localdate()
+        emp.save()
+        ok, err = notifications.send_deactivation_email(emp)
+        self.assertFalse(ok)
+        mock_send.assert_not_called()
+
+    @patch("schedule.notifications.send_email")
+    def test_deactivation_email_sent_on_last_day(self, mock_send):
+        user = make_staff_user("leaving")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate()
+        emp.save()
+        ok, err = notifications.send_deactivation_email(emp)
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
+
+    @patch("schedule.notifications.send_email")
+    def test_deactivation_email_skipped_after_last_day(self, mock_send):
+        user = make_staff_user("gone")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate() - timedelta(days=1)
+        emp.save()
+        ok, err = notifications.send_deactivation_email(emp)
+        self.assertFalse(ok)
+        mock_send.assert_not_called()
+
+    # ----- account approved -----
+
+    @patch("schedule.notifications.send_email")
+    def test_account_approved_skipped_when_employee_departed(self, mock_send):
+        user = make_staff_user("pendingapproval")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate() - timedelta(days=1)
+        emp.save()
+        ok, err = notifications.send_account_approved_email(user, emp)
+        self.assertFalse(ok)
+        mock_send.assert_not_called()
+
+    @patch("schedule.notifications.send_email")
+    def test_account_approved_sent_when_employee_active(self, mock_send):
+        user = make_staff_user("approveme")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.save()
+        ok, err = notifications.send_account_approved_email(user, emp)
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
+
+    # ----- welcome: exempt from eligibility -----
+
+    @patch("schedule.notifications.send_email")
+    def test_welcome_email_sent_without_user(self, mock_send):
+        emp = make_employee()
+        ok, err = notifications.send_welcome_email(emp)
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
+
+    @patch("schedule.notifications.send_email")
+    def test_welcome_email_sent_even_if_user_inactive(self, mock_send):
+        user = make_staff_user("welcomepending")
+        user.is_active = False
+        user.save()
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.save()
+        ok, err = notifications.send_welcome_email(emp)
+        self.assertTrue(ok)
+        mock_send.assert_called_once()
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
@@ -121,7 +272,11 @@ class ShiftChangesEmailTests(TestCase):
         from django.core.cache import cache
 
         cache.clear()
-        self.emp = make_employee()
+        # Notifications are gated on a linked, active user — build one.
+        self.user = make_staff_user("shiftuser")
+        self.emp = make_employee(email=self.user.email)
+        self.emp.user = self.user
+        self.emp.save()
 
     @patch("schedule.notifications.send_email")
     def test_override_single_change(self, mock_send):
@@ -192,8 +347,12 @@ class DeactivationEmailTests(TestCase):
         from django.core.cache import cache
 
         cache.clear()
-        self.emp = make_employee()
-        self.emp.last_day = date(2026, 6, 30)
+        # Deactivation emails go out while the employee is still on the
+        # schedule, so use a future last_day and a linked user.
+        self.user = make_staff_user("deactuser")
+        self.emp = make_employee(email=self.user.email)
+        self.emp.user = self.user
+        self.emp.last_day = timezone.localdate() + timedelta(days=14)
         self.emp.save()
 
     @patch("schedule.notifications.send_email")
@@ -202,7 +361,7 @@ class DeactivationEmailTests(TestCase):
         mock_send.assert_called_once()
         ctx = mock_send.call_args[1]["context"]
         self.assertEqual(ctx["employee_name"], self.emp.first_name)
-        self.assertEqual(ctx["last_day"], date(2026, 6, 30))
+        self.assertEqual(ctx["last_day"], self.emp.last_day)
 
     @patch("schedule.notifications.send_email")
     def test_includes_reason_when_provided(self, mock_send):

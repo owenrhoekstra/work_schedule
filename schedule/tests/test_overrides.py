@@ -81,6 +81,11 @@ class SetOverrideTests(TestCase):
 
     @patch("schedule.notifications.send_email")
     def test_notify_sends_when_changed(self, mock_send):
+        # Notifications require a linked, active user
+        user = make_staff_user("overrideuser")
+        self.emp.user = user
+        self.emp.email = user.email
+        self.emp.save()
         Shift.objects.create(
             employee=self.emp,
             week_offset=0,
