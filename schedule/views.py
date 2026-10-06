@@ -195,8 +195,10 @@ def _employees_for_week(week_start):
     """Employees with any employment period overlapping this week."""
     week_end = week_start + timedelta(days=5)
     return (
-        Employee.objects.filter(periods__start_date__lte=week_end)
-        .filter(Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
+        Employee.objects.filter(
+            Q(periods__start_date__lte=week_end)
+            & (Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
+        )
         .distinct()
         .select_related("title", "role")
         .prefetch_related("periods", "patterns__shifts")
@@ -595,14 +597,19 @@ def _render_employee_page(
 ):
     """Render the merged employee page. Used by both handlers on error.
 
-    Context additions since the last version:
+    If `edit_pattern` is provided (from the ?pattern= query parameter),
+    the defaults form is populated from that pattern's data and includes
+    a hidden `target_pattern` field so the save handler edits it in
+    place. Otherwise the form is populated from the latest pattern and
+    the save handler picks a mode based on the submitted date.
 
-    - `patterns_recent` feeds the top strip. Sorted newest-first so the
-      most recent change is closest to the form. Each entry carries an
-      `is_current` flag matching whatever pattern is loaded in the form.
-    - `pattern_is_earliest` tells the form's delete button whether it
-      should be shown. The earliest pattern anchors the schedule from
-      the employee's start date and can't be deleted — edit it instead.
+    Context additions:
+
+    - `patterns` — chronological (oldest first) for the bottom list.
+    - `patterns_recent` — reverse chronological (newest first) for the
+      strip at the top of the page.
+    - `pattern_is_earliest` — whether the currently-loaded pattern is
+      the earliest. Used to hide the form's delete button.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
@@ -614,7 +621,6 @@ def _render_employee_page(
     )
     earliest_pk = all_patterns[0].pk if all_patterns else None
 
-    # Bottom list: oldest first, chronological — easier to scan a range.
     patterns = [
         {
             "pattern": p,
@@ -624,7 +630,6 @@ def _render_employee_page(
         for p in all_patterns
     ]
 
-    # Top strip: newest first, so recent changes are at hand.
     patterns_recent = [
         {
             "pattern": p,
@@ -660,7 +665,8 @@ def _render_employee_page(
 
 def _handle_identity_post(request, employee):
     """Save the identity form. Sync the earliest EmploymentPeriod when
-    start_date changes."""
+    start_date changes, and slide the earliest pattern forward if the
+    new start date pushes past it."""
     old_start = employee.start_date
     form = EmployeeForm(request.POST, instance=employee)
 
@@ -687,6 +693,24 @@ def _handle_identity_post(request, employee):
             earliest.start_date = new_start
             earliest.save(update_fields=["start_date"])
 
+        # If the employee's start date moved later, the earliest pattern
+        # may now sit before the employee was hired. Slide it forward to
+        # the Monday of the new start week.
+        new_floor = _week_start(new_start)
+        earliest_pattern = employee.patterns.order_by("effective_from").first()
+        if earliest_pattern and earliest_pattern.effective_from < new_floor:
+            # Don't collide with the next pattern.
+            next_pattern = (
+                employee.patterns.filter(
+                    effective_from__gt=earliest_pattern.effective_from
+                )
+                .order_by("effective_from")
+                .first()
+            )
+            if next_pattern is None or new_floor < next_pattern.effective_from:
+                earliest_pattern.effective_from = new_floor
+                earliest_pattern.save(update_fields=["effective_from"])
+
     messages.success(request, f"Saved {employee}.")
     return redirect("employee_defaults", pk=employee.pk)
 
@@ -699,18 +723,22 @@ def _handle_defaults_post(request, employee):
     **Directed edit.** The form carries a `target_pattern` hidden field
     (set when the manager clicked Edit on a specific saved pattern).
     That pattern is edited in place — date, cycle length, and shifts.
-    No new pattern is created. The submitted effective date may differ
-    from the pattern's current date; the pattern simply moves.
+    No new pattern is created. The submitted date may move the pattern,
+    No new pattern is created. The submitted date may move the pattern,
+    but only within the range allowed by the employee's start week, the
+    target's neighbors, and the earliest-pattern anchoring rule.
 
     **Free-form save.** No `target_pattern`. The submitted effective
     date is compared against the latest pattern:
 
     - Same date → edit the latest pattern in place.
-    - Earlier date → move the latest pattern's date back to the
-      submitted date. Blocked if it would slip behind an earlier
-      pattern (that pattern would shadow it).
+    - Earlier date → move the latest pattern's date back.
     - Later date → create a new pattern at the submitted date, cloning
       the latest pattern's shifts.
+
+    In every path, the effective date must sit on or after the Monday
+    of the week containing the employee's start_date. Patterns are
+    Monday-aligned, so this is the earliest week a pattern can govern.
 
     Retroactive changes — anything effective before this week's Monday
     — require explicit confirmation via the `retroactive_confirmed`
@@ -749,6 +777,18 @@ def _handle_defaults_post(request, employee):
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
 
+    # The pattern can't start before the employee was hired. Patterns
+    # are Monday-aligned, so the floor is the Monday of the week
+    # containing the employee's start date.
+    start_date_floor = _week_start(employee.start_date)
+    if effective_from < start_date_floor:
+        messages.error(
+            request,
+            f"Effective date can't be before the employee's start "
+            f"week ({start_date_floor}).",
+        )
+        return redirect("employee_defaults", pk=employee.pk)
+
     this_week_start = _week_start(timezone.localdate())
 
     # Retroactive guard.
@@ -771,6 +811,61 @@ def _handle_defaults_post(request, employee):
 
     if directed_target is not None:
         target = directed_target
+
+        # 1. No other pattern may already own the submitted date.
+        if (
+            employee.patterns.filter(effective_from=effective_from)
+            .exclude(pk=target.pk)
+            .exists()
+        ):
+            messages.error(
+                request,
+                f"Another pattern is already effective from {effective_from}.",
+            )
+            return redirect("employee_defaults", pk=employee.pk)
+
+        # 2. The pattern's date must stay strictly inside the gap between
+        #    its neighbors.
+        prev_pattern = (
+            employee.patterns.filter(effective_from__lt=target.effective_from)
+            .exclude(pk=target.pk)
+            .order_by("-effective_from")
+            .first()
+        )
+        next_pattern = (
+            employee.patterns.filter(effective_from__gt=target.effective_from)
+            .exclude(pk=target.pk)
+            .order_by("effective_from")
+            .first()
+        )
+        if prev_pattern and effective_from <= prev_pattern.effective_from:
+            messages.error(
+                request,
+                f"Effective date must be after the previous pattern's "
+                f"start ({prev_pattern.effective_from}).",
+            )
+            return redirect("employee_defaults", pk=employee.pk)
+        if next_pattern and effective_from >= next_pattern.effective_from:
+            messages.error(
+                request,
+                f"Effective date must be before the next pattern's "
+                f"start ({next_pattern.effective_from}).",
+            )
+            return redirect("employee_defaults", pk=employee.pk)
+
+        # 3. The earliest pattern anchors the schedule from the
+        #    employee's start date. It may move earlier (extending the
+        #    anchor) but never forward — that would leave weeks before
+        #    it with no pattern.
+        earliest = employee.patterns.order_by("effective_from").first()
+        if earliest and earliest.pk == target.pk:
+            if effective_from > _week_start(earliest.effective_from):
+                messages.error(
+                    request,
+                    "The earliest pattern can only move earlier, not later.",
+                )
+                return redirect("employee_defaults", pk=employee.pk)
+
         mode = "edit"
     else:
         current_start = _week_start(latest.effective_from)
@@ -1000,15 +1095,21 @@ def employee_defaults(request, pk):
 def delete_pattern(request, pk):
     """Delete a ShiftPattern and every shift inside it.
 
-    The earliest pattern for an employee is preserved — it anchors the
-    schedule from their start date. Delete is blocked for it; edit it
-    via the defaults form instead.
+    The pattern must belong to an employee who's still on the roster —
+    same active-employee filter used by the defaults page. The earliest
+    pattern for that employee is protected; edit it via the defaults
+    form instead.
 
     Shift overrides within the deleted pattern's window are left in
     place. They'll be evaluated against the new latest pattern once
     the deleted one is gone.
     """
-    pattern = get_object_or_404(ShiftPattern, pk=pk)
+    today = timezone.localdate()
+    pattern = get_object_or_404(
+        ShiftPattern.objects.filter(employee__last_day__isnull=True)
+        | ShiftPattern.objects.filter(employee__last_day__gte=today),
+        pk=pk,
+    )
     employee = pattern.employee
 
     earliest = employee.patterns.order_by("effective_from").first()
