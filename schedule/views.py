@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
 from django.db.models import Min, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -170,15 +171,15 @@ def _latest_pattern(employee):
 def _pattern_for_week(employee, week_start):
     """The ShiftPattern active for the week starting week_start.
 
-    A pattern is active if its effective_from is on or before the
-    Monday of that week. The most recent such pattern wins. Returns
-    None if no pattern covers the week.
+    Iterates over the (prefetched) patterns relation in Python so the
+    schedule render doesn't fire one query per employee. Falls back to
+    the same relation via a fresh query if the cache is cold.
+    Returns None if no pattern covers the week.
     """
-    return (
-        employee.patterns.filter(effective_from__lte=week_start)
-        .order_by("-effective_from")
-        .first()
-    )
+    candidates = [p for p in employee.patterns.all() if p.effective_from <= week_start]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.effective_from)
 
 
 def _week_offset_for(week_start, pattern):
@@ -631,94 +632,54 @@ def _handle_defaults_post(request, employee):
       with shifts cloned from the predecessor pattern, then applies
       the manager's edits on top. Past weeks keep the previous pattern.
 
-    If `notify` is set, diffs the pre-edit snapshot against the final
-    state and sends a single change-summary email, including a
-    rotation-change section when cycle length changed.
+    All validation runs before any database writes. The writes
+    themselves are wrapped in a transaction so a failure leaves no
+    partial state.
     """
     current_pattern = _latest_pattern(employee)
     if current_pattern is None:
         messages.error(request, "No pattern exists for this employee.")
         return redirect("employee_defaults", pk=employee.pk)
 
-    # Effective date — normalize to Monday so it aligns with the week view
+    # ----- Parse and validate inputs (no writes yet) ------------------
+
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = date.fromisoformat(raw_effective)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         messages.error(request, "Please pick a valid effective date.")
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
 
-    # Cycle length
+    # Reject effective dates earlier than the latest pattern. Otherwise
+    # the "clone predecessor" path would compare against a snapshot
+    # from a different pattern and produce a confusing diff.
+    current_start = _week_start(current_pattern.effective_from)
+    if effective_from < current_start:
+        messages.error(
+            request,
+            f"Effective date can't be before the current pattern's "
+            f"start ({current_start}).",
+        )
+        return redirect("employee_defaults", pk=employee.pk)
+
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", current_pattern.cycle_weeks))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = current_pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
-    # Snapshot before edits, for the diff
-    old_shifts = {(s.week_offset, s.day): s for s in current_pattern.shifts.all()}
-    old_cycle = current_pattern.cycle_weeks
-
-    # Resolve the target pattern. Compare on week boundaries — the
-    # pattern's stored effective_from may not be Monday-aligned if it
-    # was created before the signal was updated to normalize.
-    if effective_from == _week_start(current_pattern.effective_from):
-        target = current_pattern
-        updates = []
-        if target.cycle_weeks != cycle_weeks:
-            target.cycle_weeks = cycle_weeks
-            updates.append("cycle_weeks")
-        if target.effective_from != effective_from:
-            target.effective_from = effective_from
-            updates.append("effective_from")
-        if updates:
-            target.save(update_fields=updates)
-    else:
-        if employee.patterns.filter(effective_from=effective_from).exists():
-            messages.error(
-                request,
-                f"A pattern already exists effective from "
-                f"{effective_from}. Pick a different date.",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-        target = ShiftPattern.objects.create(
-            employee=employee,
-            effective_from=effective_from,
-            cycle_weeks=cycle_weeks,
-        )
-
-        # Clone shifts from the predecessor pattern (the one active
-        # immediately before the new effective date).
-        predecessor = (
-            employee.patterns.filter(effective_from__lt=effective_from)
-            .order_by("-effective_from")
-            .first()
-        )
-        if predecessor:
-            Shift.objects.bulk_create(
-                [
-                    Shift(
-                        pattern=target,
-                        week_offset=s.week_offset,
-                        day=s.day,
-                        start_time=s.start_time,
-                        end_time=s.end_time,
-                    )
-                    for s in predecessor.shifts.all()
-                ]
-            )
-
-    # Apply the manager's edits to the target pattern
+    # Validate every submitted cell up front. `validated_edits` maps
+    # (week_offset, day) -> (start, end) for a set, or None for a
+    # delete (both fields empty).
+    validated_edits = {}
     for week_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
 
-            # Both keys required. A partial submission is skipped rather
-            # than treated as "both empty", which would silently delete
-            # an existing shift.
+            # Both keys required — a partial submission is skipped
+            # rather than treated as "both empty".
             if start_key not in request.POST or end_key not in request.POST:
                 continue
 
@@ -753,20 +714,88 @@ def _handle_defaults_post(request, employee):
                         f"start time.",
                     )
                     return redirect("employee_defaults", pk=employee.pk)
-                Shift.objects.update_or_create(
-                    pattern=target,
-                    week_offset=week_offset,
-                    day=day,
-                    defaults={"start_time": start, "end_time": end},
-                )
+                validated_edits[(week_offset, day)] = (start, end)
             else:
-                Shift.objects.filter(
-                    pattern=target,
-                    week_offset=week_offset,
-                    day=day,
-                ).delete()
+                validated_edits[(week_offset, day)] = None
 
-    # Notify — sibling of the outer loop, fires once per save
+    # ----- Snapshot for the diff --------------------------------------
+
+    old_shifts = {(s.week_offset, s.day): s for s in current_pattern.shifts.all()}
+    old_cycle = current_pattern.cycle_weeks
+
+    # ----- Apply everything in a transaction --------------------------
+
+    try:
+        with transaction.atomic():
+            if effective_from == current_start:
+                target = current_pattern
+                updates = []
+                if target.cycle_weeks != cycle_weeks:
+                    target.cycle_weeks = cycle_weeks
+                    updates.append("cycle_weeks")
+                if target.effective_from != effective_from:
+                    target.effective_from = effective_from
+                    updates.append("effective_from")
+                if updates:
+                    target.save(update_fields=updates)
+            else:
+                if employee.patterns.filter(effective_from=effective_from).exists():
+                    messages.error(
+                        request,
+                        f"A pattern already exists effective from "
+                        f"{effective_from}. Pick a different date.",
+                    )
+                    return redirect("employee_defaults", pk=employee.pk)
+
+                target = ShiftPattern.objects.create(
+                    employee=employee,
+                    effective_from=effective_from,
+                    cycle_weeks=cycle_weeks,
+                )
+
+                predecessor = (
+                    employee.patterns.filter(effective_from__lt=effective_from)
+                    .order_by("-effective_from")
+                    .first()
+                )
+                if predecessor:
+                    Shift.objects.bulk_create(
+                        [
+                            Shift(
+                                pattern=target,
+                                week_offset=s.week_offset,
+                                day=s.day,
+                                start_time=s.start_time,
+                                end_time=s.end_time,
+                            )
+                            for s in predecessor.shifts.all()
+                        ]
+                    )
+
+            for (week_offset, day), value in validated_edits.items():
+                if value is None:
+                    Shift.objects.filter(
+                        pattern=target, week_offset=week_offset, day=day
+                    ).delete()
+                else:
+                    start, end = value
+                    Shift.objects.update_or_create(
+                        pattern=target,
+                        week_offset=week_offset,
+                        day=day,
+                        defaults={"start_time": start, "end_time": end},
+                    )
+    except IntegrityError:
+        # Race condition: another request created a pattern at this
+        # date between our exists() check and our create() call.
+        messages.error(
+            request,
+            "Someone else just saved a pattern for that date. Try again.",
+        )
+        return redirect("employee_defaults", pk=employee.pk)
+
+    # ----- Notify ------------------------------------------------------
+
     if request.POST.get("notify"):
         new_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
         changes = _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks)
