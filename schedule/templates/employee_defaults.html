@@ -157,33 +157,51 @@
         <input type="hidden" name="form" value="defaults" />
 
         <div
-            class="flex items-center justify-between p-4 border-b border-gray-200 bg-brand-offwhite/40"
+            class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border-b border-gray-200 bg-brand-offwhite/40"
         >
-            <label
-                for="cycle-weeks-select"
-                class="text-sm font-medium text-brand-indigo"
-            >
-                Pattern length
-            </label>
-            <select
-                name="cycle_weeks"
-                id="cycle-weeks-select"
-                {% if not can_change %}disabled{% endif %}
-                class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
-            >
-                <option value="1" {% if employee.cycle_weeks == 1 %}selected{% endif %}>
-                    1 week
-                </option>
-                <option value="2" {% if employee.cycle_weeks == 2 %}selected{% endif %}>
-                    2 weeks
-                </option>
-                <option value="3" {% if employee.cycle_weeks == 3 %}selected{% endif %}>
-                    3 weeks
-                </option>
-                <option value="4" {% if employee.cycle_weeks == 4 %}selected{% endif %}>
-                    4 weeks
-                </option>
-            </select>
+            <div class="flex items-center gap-3">
+                <label
+                    for="effective-from"
+                    class="text-sm font-medium text-brand-indigo whitespace-nowrap"
+                >
+                    Effective from
+                </label>
+                <input
+                    type="date"
+                    name="effective_from"
+                    id="effective-from"
+                    value="{{ pattern.effective_from|date:'Y-m-d' }}"
+                    {% if not can_change %}disabled{% endif %}
+                    class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+            <div class="flex items-center gap-3">
+                <label
+                    for="cycle-weeks-select"
+                    class="text-sm font-medium text-brand-indigo whitespace-nowrap"
+                >
+                    Pattern length
+                </label>
+                <select
+                    name="cycle_weeks"
+                    id="cycle-weeks-select"
+                    {% if not can_change %}disabled{% endif %}
+                    class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                >
+                    <option value="1" {% if pattern.cycle_weeks == 1 %}selected{% endif %}>
+                        1 week
+                    </option>
+                    <option value="2" {% if pattern.cycle_weeks == 2 %}selected{% endif %}>
+                        2 weeks
+                    </option>
+                    <option value="3" {% if pattern.cycle_weeks == 3 %}selected{% endif %}>
+                        3 weeks
+                    </option>
+                    <option value="4" {% if pattern.cycle_weeks == 4 %}selected{% endif %}>
+                        4 weeks
+                    </option>
+                </select>
+            </div>
         </div>
 
         <div class="flex border-b border-gray-200" id="week-tabs" role="tablist">
@@ -279,8 +297,9 @@
 
     <p class="text-xs text-gray-500 mt-4">
         Use 24-hour time like <code>09:00</code> or 12-hour like
-        <code>9:00 AM</code>. Leave both fields empty for a day off. Weeks
-        beyond the current pattern length are preserved when you shorten it.
+        <code>9:00 AM</code>. Leave both fields empty for a day off. Saving
+        with a new effective date creates a new pattern — previous weeks keep
+        the hours they had.
     </p>
 </div>
 

@@ -115,9 +115,14 @@ class EmployeeDefaultsFormTests(TestCase):
         self.client.force_login(self.user)
         self.role = make_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role)
+        self.pattern = self.emp.patterns.first()
 
     def post_defaults(self, **overrides):
-        data = {"form": "defaults", "cycle_weeks": "1"}
+        data = {
+            "form": "defaults",
+            "cycle_weeks": "1",
+            "effective_from": self.pattern.effective_from.isoformat(),
+        }
         data.update(overrides)
         return self.client.post(reverse("employee_defaults", args=[self.emp.pk]), data)
 
@@ -129,21 +134,24 @@ class EmployeeDefaultsFormTests(TestCase):
             }
         )
         self.assertEqual(resp.status_code, 302)
+        pattern = self.emp.patterns.first()
         self.assertTrue(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
     def test_clears_shift_when_both_empty(self):
+        pattern = self.emp.patterns.first()
         Shift.objects.create(
-            employee=self.emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
             end_time="17:00",
         )
         self.post_defaults(**{"week_0_day_0_start": "", "week_0_day_0_end": ""})
+        pattern = self.emp.patterns.first()
         self.assertFalse(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
     def test_partial_time_rejected(self):
@@ -151,27 +159,29 @@ class EmployeeDefaultsFormTests(TestCase):
             **{"week_0_day_0_start": "09:00", "week_0_day_0_end": ""}
         )
         self.assertEqual(resp.status_code, 302)
+        pattern = self.emp.patterns.first()
         self.assertFalse(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
     def test_end_before_start_rejected(self):
         self.post_defaults(
             **{"week_0_day_0_start": "17:00", "week_0_day_0_end": "09:00"}
         )
+        pattern = self.emp.patterns.first()
         self.assertFalse(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
     def test_cycle_weeks_saved(self):
         self.post_defaults(cycle_weeks="3")
-        self.emp.refresh_from_db()
-        self.assertEqual(self.emp.cycle_weeks, 3)
+        self.pattern.refresh_from_db()
+        self.assertEqual(self.pattern.cycle_weeks, 3)
 
     def test_cycle_weeks_clamped(self):
         self.post_defaults(cycle_weeks="99")
-        self.emp.refresh_from_db()
-        self.assertEqual(self.emp.cycle_weeks, 4)
+        self.pattern.refresh_from_db()
+        self.assertEqual(self.pattern.cycle_weeks, 4)
 
     @patch("schedule.notifications.send_email")
     def test_notify_with_no_changes_does_not_send(self, mock_send):

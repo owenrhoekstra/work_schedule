@@ -22,6 +22,7 @@ from .models import (
     Role,
     Shift,
     ShiftOverride,
+    ShiftPattern,
     Title,
 )
 
@@ -118,7 +119,7 @@ def _ordinal(n):
 
 
 # ---------------------------------------------------------------------------
-# Week and cycle helpers
+# Week helpers
 # ---------------------------------------------------------------------------
 
 
@@ -147,22 +148,50 @@ def _earliest_week():
     return _week_start(earliest)
 
 
-def _week_offset_for(week_start, employee):
-    """Which week of this employee's cycle the given week falls on."""
-    if employee.cycle_weeks <= 1:
+def _home_url_for(date_):
+    """Redirect to home, scrolled to the week containing date_."""
+    return f"{reverse('home')}?week={_week_start(date_).isoformat()}"
+
+
+# ---------------------------------------------------------------------------
+# Pattern and cycle helpers
+# ---------------------------------------------------------------------------
+
+
+def _latest_pattern(employee):
+    """The most recently defined pattern for this employee.
+
+    The defaults page edits this pattern. Past patterns are historical
+    and not reachable from the UI.
+    """
+    return employee.patterns.order_by("-effective_from").first()
+
+
+def _pattern_for_week(employee, week_start):
+    """The ShiftPattern active for the week starting week_start.
+
+    A pattern is active if its effective_from is on or before the
+    Monday of that week. The most recent such pattern wins. Returns
+    None if no pattern covers the week.
+    """
+    return (
+        employee.patterns.filter(effective_from__lte=week_start)
+        .order_by("-effective_from")
+        .first()
+    )
+
+
+def _week_offset_for(week_start, pattern):
+    """Which week of this pattern's cycle the given week falls on."""
+    if pattern.cycle_weeks <= 1:
         return 0
     weeks_since_epoch = (week_start - settings.CYCLE_EPOCH).days // 7
-    return weeks_since_epoch % employee.cycle_weeks
+    return weeks_since_epoch % pattern.cycle_weeks
 
 
-def _current_or_future_employees():
-    """Employees who are current or scheduled for future departure.
-
-    Uses `last_day` — an employee is current through the end of their
-    last day, so `last_day >= today` means they're still on the roster.
-    """
-    today = timezone.localdate()
-    return Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
+# ---------------------------------------------------------------------------
+# Employment helpers
+# ---------------------------------------------------------------------------
 
 
 def _employees_for_week(week_start):
@@ -173,7 +202,7 @@ def _employees_for_week(week_start):
         .filter(Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
         .distinct()
         .select_related("title", "role")
-        .prefetch_related("shifts", "periods")
+        .prefetch_related("periods", "patterns__shifts")
         .order_by("role__display_order", "role__name", "start_date")
     )
 
@@ -194,11 +223,6 @@ def _employed_dates(employee, week_dates):
     return covered
 
 
-def _home_url_for(date_):
-    """Redirect to home, scrolled to the week containing date_."""
-    return f"{reverse('home')}?week={_week_start(date_).isoformat()}"
-
-
 # ---------------------------------------------------------------------------
 # Shift display helpers
 # ---------------------------------------------------------------------------
@@ -212,7 +236,11 @@ def _shift_display(shift):
 
 
 def _cell_display(employee, d):
-    """What the schedule cell shows for this employee on this date."""
+    """What the schedule cell shows for this employee on this date.
+
+    Overrides take precedence; otherwise the default from the pattern
+    active that week.
+    """
     override = employee.overrides.filter(date=d).first()
     if override:
         if override.is_off:
@@ -223,9 +251,13 @@ def _cell_display(employee, d):
         )
 
     week_start = _week_start(d)
-    offset = _week_offset_for(week_start, employee)
+    pattern = _pattern_for_week(employee, week_start)
+    if pattern is None:
+        return "OFF"
+
+    offset = _week_offset_for(week_start, pattern)
     day = d.weekday()
-    default = employee.shifts.filter(week_offset=offset, day=day).first()
+    default = pattern.shifts.filter(week_offset=offset, day=day).first()
     if default:
         return (
             f"{_format_time_12(default.start_time)} – "
@@ -234,20 +266,18 @@ def _cell_display(employee, d):
     return "OFF"
 
 
-def _diff_default_changes(employee, old_shifts):
-    """List change dicts for default shifts that changed.
+def _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks):
+    """List change dicts comparing two shift snapshots.
 
-    `old_shifts` is a dict keyed by (week_offset, day). Compares against
-    the current DB state. Only offsets within the active cycle_weeks.
+    `old_shifts` and `new_shifts` are dicts keyed by (week_offset, day).
+    `cycle_weeks` is the effective cycle length — offsets at or beyond
+    it are ignored.
     """
-    new_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
-    cycle = employee.cycle_weeks
-
     changes = []
     keys = sorted(set(old_shifts) | set(new_shifts), key=lambda k: (k[0], k[1]))
     for key in keys:
         week_offset, day = key
-        if week_offset >= cycle:
+        if week_offset >= cycle_weeks:
             continue
 
         old = old_shifts.get(key)
@@ -258,7 +288,7 @@ def _diff_default_changes(employee, old_shifts):
         if old_display == new_display:
             continue
 
-        if cycle == 1:
+        if cycle_weeks == 1:
             label = DAY_LABELS_FULL[day]
         else:
             label = f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}"
@@ -268,14 +298,15 @@ def _diff_default_changes(employee, old_shifts):
     return changes
 
 
-def _new_week_details(employee, old_cycle, new_cycle):
-    """Build rows for weeks that become active when the cycle increases.
+def _new_week_details(pattern, old_cycle, new_cycle):
+    """Rows for weeks that become active when the cycle length grows.
 
-    Returns an empty list when the cycle didn't grow.
+    Reads from the freshly saved pattern so the manager sees whatever
+    they put in the new weeks. Empty weeks show OFF.
     """
     if new_cycle <= old_cycle:
         return []
-    shifts_by_key = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
     weeks = []
     for offset in range(old_cycle, new_cycle):
         rows = [
@@ -300,8 +331,13 @@ def _build_schedule_rows(week_start):
     day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
     rows = []
     for emp in employees:
-        offset = _week_offset_for(week_start, emp)
-        defaults = {s.day: s for s in emp.shifts.all() if s.week_offset == offset}
+        pattern = _pattern_for_week(emp, week_start)
+        offset = _week_offset_for(week_start, pattern) if pattern else 0
+        defaults = (
+            {s.day: s for s in pattern.shifts.all() if s.week_offset == offset}
+            if pattern
+            else {}
+        )
         overrides = {o.date: o for o in emp.overrides.filter(date__in=week_dates)}
         employed = _employed_dates(emp, week_dates)
         cells = []
@@ -395,7 +431,9 @@ def _build_schedule_rows(week_start):
                 "employee": emp,
                 "cells": cells,
                 "total_hours": _format_duration(total),
-                "cycle_label": (WEEK_LABELS[offset] if emp.cycle_weeks > 1 else None),
+                "cycle_label": (
+                    WEEK_LABELS[offset] if pattern and pattern.cycle_weeks > 1 else None
+                ),
                 "last_day": emp.last_day,
             }
         )
@@ -448,6 +486,7 @@ def _home_context(week_start):
 @login_required
 @permission_required("schedule.view_shift", raise_exception=True)
 def home(request):
+    """Render the week view for the given (or current) week."""
     week_start = _parse_week_param(request) or _week_start(timezone.localdate())
     context = _home_context(week_start)
     if request.user.has_perm("schedule.add_employee"):
@@ -458,6 +497,12 @@ def home(request):
 @login_required
 @permission_required("schedule.add_employee", raise_exception=True)
 def add_employee(request):
+    """Create a new employee from the modal form on the home page.
+
+    If a matching User account already exists (by email) and isn't
+    linked to another Employee, link it automatically. Optionally send
+    a welcome email when `notify` is set.
+    """
     if request.method == "POST":
         form = EmployeeForm(request.POST)
         if form.is_valid():
@@ -502,9 +547,9 @@ def add_employee(request):
 # ---------------------------------------------------------------------------
 
 
-def _build_default_weeks(employee):
+def _build_default_weeks(pattern):
     """Assemble the week/row structure for the defaults editor."""
-    shifts_by_key = {(s.week_offset, s.day): s for s in employee.shifts.all()}
+    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
     weeks = []
     for week_offset in range(MAX_CYCLE_WEEKS):
         rows = [
@@ -527,13 +572,15 @@ def _build_default_weeks(employee):
 
 def _render_employee_page(request, employee, identity_form=None, can_change=True):
     """Render the merged employee page. Used by both handlers on error."""
+    pattern = _latest_pattern(employee)
     return render(
         request,
         "employee_defaults.html",
         {
             "employee": employee,
             "identity_form": identity_form or EmployeeForm(instance=employee),
-            "weeks": _build_default_weeks(employee),
+            "pattern": pattern,
+            "weeks": _build_default_weeks(pattern) if pattern else [],
             "can_change": can_change,
             "last_day": employee.last_day,
         },
@@ -541,7 +588,8 @@ def _render_employee_page(request, employee, identity_form=None, can_change=True
 
 
 def _handle_identity_post(request, employee):
-    """Save the identity form. Sync EmploymentPeriod when start_date changes."""
+    """Save the identity form. Sync the earliest EmploymentPeriod when
+    start_date changes."""
     old_start = employee.start_date
     form = EmployeeForm(request.POST, instance=employee)
 
@@ -573,40 +621,104 @@ def _handle_identity_post(request, employee):
 
 
 def _handle_defaults_post(request, employee):
-    """Save default hour shifts, cycle length, and optional notification.
+    """Save default hour shifts as a shift pattern.
 
-    Iterates every week/day input present in the POST body and
-    creates, updates, or deletes the corresponding `Shift` row. Only
-    fields the browser submitted are touched — unrendered weeks are
-    left alone.
+    Two modes:
 
-    If `notify` is set, diffs the saved state against `old_shifts` and
-    sends a single change-summary email — including a rotation-change
-    section when `cycle_weeks` grew or shrank. Subject to the same
-    eligibility rules as other schedule emails.
+    - If the submitted `effective_from` matches the latest pattern's
+      date, edits that pattern in place.
+    - Otherwise, creates a new pattern anchored at `effective_from`
+      with shifts cloned from the predecessor pattern, then applies
+      the manager's edits on top. Past weeks keep the previous pattern.
+
+    If `notify` is set, diffs the pre-edit snapshot against the final
+    state and sends a single change-summary email, including a
+    rotation-change section when cycle length changed.
     """
+    current_pattern = _latest_pattern(employee)
+    if current_pattern is None:
+        messages.error(request, "No pattern exists for this employee.")
+        return redirect("employee_defaults", pk=employee.pk)
 
-    old_shifts = {(s.week_offset, s.day): s for s in employee.shifts.all()}
-    old_cycle = employee.cycle_weeks
-
+    # Effective date — normalize to Monday so it aligns with the week view
+    raw_effective = request.POST.get("effective_from", "").strip()
     try:
-        cycle_weeks = int(request.POST.get("cycle_weeks", employee.cycle_weeks))
-    except TypeError, ValueError:
-        cycle_weeks = employee.cycle_weeks
+        effective_from = date.fromisoformat(raw_effective)
+    except (ValueError, TypeError):
+        messages.error(request, "Please pick a valid effective date.")
+        return redirect("employee_defaults", pk=employee.pk)
+    effective_from = _week_start(effective_from)
+
+    # Cycle length
+    try:
+        cycle_weeks = int(request.POST.get("cycle_weeks", current_pattern.cycle_weeks))
+    except (TypeError, ValueError):
+        cycle_weeks = current_pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
-    if cycle_weeks != employee.cycle_weeks:
-        employee.cycle_weeks = cycle_weeks
-        employee.save(update_fields=["cycle_weeks"])
+    # Snapshot before edits, for the diff
+    old_shifts = {(s.week_offset, s.day): s for s in current_pattern.shifts.all()}
+    old_cycle = current_pattern.cycle_weeks
 
+    # Resolve the target pattern. Compare on week boundaries — the
+    # pattern's stored effective_from may not be Monday-aligned if it
+    # was created before the signal was updated to normalize.
+    if effective_from == _week_start(current_pattern.effective_from):
+        target = current_pattern
+        updates = []
+        if target.cycle_weeks != cycle_weeks:
+            target.cycle_weeks = cycle_weeks
+            updates.append("cycle_weeks")
+        if target.effective_from != effective_from:
+            target.effective_from = effective_from
+            updates.append("effective_from")
+        if updates:
+            target.save(update_fields=updates)
+    else:
+        if employee.patterns.filter(effective_from=effective_from).exists():
+            messages.error(
+                request,
+                f"A pattern already exists effective from "
+                f"{effective_from}. Pick a different date.",
+            )
+            return redirect("employee_defaults", pk=employee.pk)
+
+        target = ShiftPattern.objects.create(
+            employee=employee,
+            effective_from=effective_from,
+            cycle_weeks=cycle_weeks,
+        )
+
+        # Clone shifts from the predecessor pattern (the one active
+        # immediately before the new effective date).
+        predecessor = (
+            employee.patterns.filter(effective_from__lt=effective_from)
+            .order_by("-effective_from")
+            .first()
+        )
+        if predecessor:
+            Shift.objects.bulk_create(
+                [
+                    Shift(
+                        pattern=target,
+                        week_offset=s.week_offset,
+                        day=s.day,
+                        start_time=s.start_time,
+                        end_time=s.end_time,
+                    )
+                    for s in predecessor.shifts.all()
+                ]
+            )
+
+    # Apply the manager's edits to the target pattern
     for week_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
 
-            # Only process a day when both keys were submitted. A partial
-            # submission (only one field) is skipped rather than treated as
-            # "both empty", which would silently delete an existing shift.
+            # Both keys required. A partial submission is skipped rather
+            # than treated as "both empty", which would silently delete
+            # an existing shift.
             if start_key not in request.POST or end_key not in request.POST:
                 continue
 
@@ -642,28 +754,29 @@ def _handle_defaults_post(request, employee):
                     )
                     return redirect("employee_defaults", pk=employee.pk)
                 Shift.objects.update_or_create(
-                    employee=employee,
+                    pattern=target,
                     week_offset=week_offset,
                     day=day,
                     defaults={"start_time": start, "end_time": end},
                 )
             else:
                 Shift.objects.filter(
-                    employee=employee,
+                    pattern=target,
                     week_offset=week_offset,
                     day=day,
                 ).delete()
 
-    # Notify — this block is a sibling of the week_offset loop, not inside it,
-    # so it fires exactly once per save.
+    # Notify — sibling of the outer loop, fires once per save
     if request.POST.get("notify"):
-        changes = _diff_default_changes(employee, old_shifts)
+        new_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
+        changes = _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks)
+
         cycle_change = None
         if cycle_weeks != old_cycle:
             cycle_change = {
                 "old_cycle": old_cycle,
                 "new_cycle": cycle_weeks,
-                "new_weeks": _new_week_details(employee, old_cycle, cycle_weeks),
+                "new_weeks": _new_week_details(target, old_cycle, cycle_weeks),
             }
 
         if changes or cycle_change:
@@ -677,13 +790,21 @@ def _handle_defaults_post(request, employee):
         else:
             messages.info(request, "No changes to notify.")
 
-    messages.success(request, "Default hours saved.")
+    messages.success(
+        request,
+        f"Default hours saved, effective from {target.effective_from}.",
+    )
     return redirect("employee_defaults", pk=employee.pk)
 
 
 @login_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_defaults(request, pk):
+    """Render or handle the merged identity + defaults page.
+
+    POST bodies carry a `form` field that routes to the identity or
+    defaults handler.
+    """
     today = timezone.localdate()
     employee = get_object_or_404(
         Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
@@ -708,7 +829,7 @@ def employee_defaults(request, pk):
 
 
 # ---------------------------------------------------------------------------
-# Overrides
+# Views — overrides
 # ---------------------------------------------------------------------------
 
 
@@ -724,10 +845,8 @@ def set_override(request, employee_pk, date_iso):
     - "reset": delete the override, falling back to the default pattern
 
     If `notify` is set and the cell actually changed, sends a shift
-    change email to the employee — subject to eligibility rules (see
-    `notifications._check_email_eligibility`).
+    change email to the employee — subject to eligibility rules.
     """
-
     action = request.POST.get("action")
 
     if action in ("off", "reset"):
@@ -748,7 +867,6 @@ def set_override(request, employee_pk, date_iso):
         raise Http404
 
     back = _home_url_for(override_date)
-
     old_display = _cell_display(employee, override_date)
 
     if action == "reset":
@@ -805,6 +923,7 @@ def set_override(request, employee_pk, date_iso):
 @permission_required("schedule.change_shift", raise_exception=True)
 @require_POST
 def set_day_override(request, date_iso):
+    """Mark a whole date as Closed or Holiday, or clear that status."""
     try:
         d = date.fromisoformat(date_iso)
     except ValueError:
@@ -829,6 +948,8 @@ def set_day_override(request, date_iso):
 @login_required
 @management_required
 def settings_home(request):
+    """Management landing page: active employees, former employees,
+    titles, and roles."""
     today = timezone.localdate()
 
     active_employees = (
@@ -858,6 +979,7 @@ def settings_home(request):
 @permission_required("schedule.add_employee", raise_exception=True)
 @require_POST
 def send_welcome(request, pk):
+    """Send the welcome email for an employee, respecting the cooldown."""
     employee = get_object_or_404(Employee, pk=pk, is_active=True)
     ok, error = notifications.send_welcome_email(employee)
     if ok:
@@ -873,21 +995,17 @@ def send_welcome(request, pk):
 def settings_deactivate_employee(request, pk):
     """Record a last day and close the current employment period.
 
-    The `last_day` form field is the final day the employee works.
-    Internally:
-
-    - `Employee.is_active` flips to False immediately, freeing the
-      email address for reuse.
-    - The open `EmploymentPeriod` closes with `end_date = last_day + 1`
+    - `Employee.is_active` flips False immediately, freeing the email
+      for reuse.
+    - The open EmploymentPeriod closes with `end_date = last_day + 1`
       (end_date is exclusive).
-    - The linked User is deactivated only if the last day is already
-      in the past. Future departures are enforced by middleware when
-      the day arrives.
+    - The linked User is deactivated only if the last day has already
+      passed. Future departures are enforced by middleware when the
+      day arrives.
 
     Sends a deactivation email if `notify` is set and the employee is
     still on the schedule.
     """
-
     employee = get_object_or_404(Employee, pk=pk)
 
     raw = request.POST.get("last_day", "").strip()
@@ -903,20 +1021,15 @@ def settings_deactivate_employee(request, pk):
     today = timezone.localdate()
     is_immediate = last_day < today
 
-    # Employee row: mark inactive immediately (frees the email for reuse)
-    # and record the last_day the manager entered.
     employee.is_active = False
     employee.last_day = last_day
     employee.save(update_fields=["is_active", "last_day"])
 
-    # Employment period: end_date is exclusive, so it's the day after.
     current = employee.periods.filter(end_date__isnull=True).first()
     if current:
         current.end_date = last_day + timedelta(days=1)
         current.save(update_fields=["end_date"])
 
-    # User account: only flip off if the departure already happened.
-    # Future deactivations are enforced by middleware when the day arrives.
     if employee.user and is_immediate:
         employee.user.is_active = False
         employee.user.save(update_fields=["is_active"])
@@ -936,6 +1049,10 @@ def settings_deactivate_employee(request, pk):
 @management_required
 @require_POST
 def settings_cancel_deactivation(request, pk):
+    """Reverse a scheduled (or immediate) deactivation.
+
+    Reopens the most recently closed period and reactivates the User.
+    """
     employee = get_object_or_404(Employee, pk=pk)
 
     current = (
@@ -961,6 +1078,12 @@ def settings_cancel_deactivation(request, pk):
 @management_required
 @require_POST
 def settings_reactivate_employee(request, pk):
+    """Reactivate a former employee as of a chosen date.
+
+    Opens a new EmploymentPeriod starting on that date. The employee's
+    previous patterns are preserved; the schedule picks up the most
+    recent pattern as of the reactivation week.
+    """
     employee = get_object_or_404(Employee, pk=pk)
 
     raw = request.POST.get("reactivation_date", "").strip()
@@ -1011,6 +1134,7 @@ def settings_reactivate_employee(request, pk):
 @management_required
 @require_POST
 def settings_add_title(request):
+    """Create a new title. Empty names are ignored."""
     name = request.POST.get("name", "").strip()
     if name:
         Title.objects.get_or_create(name=name)
@@ -1021,6 +1145,7 @@ def settings_add_title(request):
 @management_required
 @require_POST
 def settings_delete_title(request, pk):
+    """Delete a title by ID."""
     Title.objects.filter(pk=pk).delete()
     return redirect("settings_home")
 
@@ -1029,6 +1154,7 @@ def settings_delete_title(request, pk):
 @management_required
 @require_POST
 def settings_add_role(request):
+    """Create a new role, placing it last in the display order."""
     name = request.POST.get("name", "").strip()
     if name:
         last = Role.objects.order_by("-display_order").first()
@@ -1041,6 +1167,7 @@ def settings_add_role(request):
 @management_required
 @require_POST
 def settings_delete_role(request, pk):
+    """Delete a role, unless any employees are still assigned to it."""
     role = get_object_or_404(Role, pk=pk)
     if role.employees.exists():
         messages.error(
@@ -1056,6 +1183,7 @@ def settings_delete_role(request, pk):
 @management_required
 @require_POST
 def settings_move_role(request, pk, direction):
+    """Swap a role's position with its neighbor and renumber everything."""
     role = get_object_or_404(Role, pk=pk)
     roles = list(Role.objects.order_by("display_order", "name"))
     idx = roles.index(role)

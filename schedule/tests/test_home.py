@@ -73,8 +73,8 @@ class HomeWeekNavigationTests(TestCase):
 class HomeScheduleRenderingTests(TestCase):
     """Tests for how the schedule grid renders.
 
-    Every employee created here starts well before `self.mon` so that
-    the "not yet employed" dash never interferes with the assertions.
+    Every employee created here starts well before `self.mon` so the
+    "not yet employed" dash never interferes with the assertions.
     Tests that specifically exercise that dash use their own dates.
     """
 
@@ -119,8 +119,9 @@ class HomeScheduleRenderingTests(TestCase):
         period.end_date = self.mon + timedelta(days=2)  # Wednesday is first off
         period.save()
 
+        pattern = emp.patterns.first()
         Shift.objects.create(
-            employee=emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -173,8 +174,9 @@ class HomeScheduleRenderingTests(TestCase):
 
     def test_employee_override_shows_times(self):
         emp = make_employee(start_date=self.early_start)
+        pattern = emp.patterns.first()
         Shift.objects.create(
-            employee=emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -194,8 +196,9 @@ class HomeScheduleRenderingTests(TestCase):
 
     def test_off_override_shows_off(self):
         emp = make_employee(start_date=self.early_start)
+        pattern = emp.patterns.first()
         Shift.objects.create(
-            employee=emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -211,9 +214,10 @@ class HomeScheduleRenderingTests(TestCase):
 
     def test_total_hours_sums_defaults(self):
         emp = make_employee(start_date=self.early_start)
+        pattern = emp.patterns.first()
         for day in range(3):  # Mon, Tue, Wed
             Shift.objects.create(
-                employee=emp,
+                pattern=pattern,
                 week_offset=0,
                 day=day,
                 start_time="09:00",
