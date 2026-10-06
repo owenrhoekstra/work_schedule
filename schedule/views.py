@@ -646,7 +646,7 @@ def _handle_defaults_post(request, employee):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = date.fromisoformat(raw_effective)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         messages.error(request, "Please pick a valid effective date.")
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
@@ -665,7 +665,7 @@ def _handle_defaults_post(request, employee):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", current_pattern.cycle_weeks))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = current_pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
