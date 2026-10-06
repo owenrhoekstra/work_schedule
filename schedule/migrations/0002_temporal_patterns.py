@@ -15,12 +15,17 @@ Two subtleties that the auto-generated migration can't handle:
 
 The backfill normalizes each pattern's effective_from to the Monday of
 its anchor week so all patterns align with the week-based schedule view.
+
+This migration is irreversible. Rolling back would need to restore
+Shift.employee from values that were dropped, and there's no way to
+reconstruct that mapping. A database backup is the only safe path.
 """
 
-import django.db.models.deletion
 from datetime import timedelta
 
+import django.db.models.deletion
 from django.db import migrations, models
+from django.db.migrations.exceptions import IrreversibleError
 from django.db.models.functions import UUID7
 
 
@@ -50,26 +55,22 @@ def backfill_patterns(apps, schema_editor):
         Shift.objects.filter(employee=emp).update(pattern=pattern)
 
 
-def reverse_patterns(apps, schema_editor):
-    """Best-effort reverse: collapse each employee's earliest pattern back
-    into employee.cycle_weeks. Shifts are removed by FK cascade when the
-    pattern column is dropped."""
-    Employee = apps.get_model("schedule", "Employee")
-    ShiftPattern = apps.get_model("schedule", "ShiftPattern")
+def _irreversible(apps, schema_editor):
+    """Refuse to reverse this migration.
 
-    for emp in Employee.objects.all():
-        first = (
-            ShiftPattern.objects.filter(employee=emp)
-            .order_by("effective_from")
-            .first()
-        )
-        if first:
-            emp.cycle_weeks = first.cycle_weeks
-            emp.save(update_fields=["cycle_weeks"])
+    The forward path dropped Shift.employee, and its values are gone.
+    Reversing would leave Shift rows orphaned and could only partially
+    reconstruct Employee.cycle_weeks. Restore from a database backup
+    instead.
+    """
+    raise IrreversibleError(
+        "Cannot reverse schedule.0002_temporal_patterns — the previous "
+        "Shift.employee column has been dropped and its values are gone. "
+        "Restore from a database backup instead."
+    )
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("schedule", "0001_initial"),
     ]
@@ -94,8 +95,7 @@ class Migration(migrations.Migration):
                     models.PositiveSmallIntegerField(
                         default=1,
                         help_text=(
-                            "Length of the repeating schedule pattern, "
-                            "in weeks (1–4)."
+                            "Length of the repeating schedule pattern, in weeks (1–4)."
                         ),
                     ),
                 ),
@@ -118,7 +118,6 @@ class Migration(migrations.Migration):
                 name="unique_pattern_per_employee_per_date",
             ),
         ),
-
         # ----- Add Shift.pattern, populate, make required -----------------
         migrations.AddField(
             model_name="shift",
@@ -130,7 +129,7 @@ class Migration(migrations.Migration):
                 to="schedule.shiftpattern",
             ),
         ),
-        migrations.RunPython(backfill_patterns, reverse_patterns),
+        migrations.RunPython(backfill_patterns, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="shift",
             name="pattern",
@@ -140,7 +139,6 @@ class Migration(migrations.Migration):
                 to="schedule.shiftpattern",
             ),
         ),
-
         # ----- Drop old constraint, remove employee field -----------------
         # Order matters: AlterUniqueTogether must run while employee still
         # exists in state, so Django can find the old constraint's columns.
@@ -149,13 +147,15 @@ class Migration(migrations.Migration):
             unique_together=set(),
         ),
         migrations.RemoveField(model_name="shift", name="employee"),
-
         # ----- Add new constraint -----------------------------------------
         migrations.AlterUniqueTogether(
             name="shift",
             unique_together={("pattern", "week_offset", "day")},
         ),
-
         # ----- Drop cycle_weeks from Employee -----------------------------
         migrations.RemoveField(model_name="employee", name="cycle_weeks"),
+        # ----- Guard against rollback -------------------------------------
+        # On forward: no-op. On reverse: runs first (reverse order) and
+        # raises before any of the schema changes above get undone.
+        migrations.RunPython(migrations.RunPython.noop, _irreversible),
     ]
