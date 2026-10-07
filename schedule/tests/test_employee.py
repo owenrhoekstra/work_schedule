@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Shift
+from schedule.models import Shift, ShiftPattern
 
 from .factories import make_employee, make_manager_user, make_role, make_staff_user
 
@@ -101,6 +101,64 @@ class EmployeeIdentityFormTests(TestCase):
         resp = self.post_identity(email=other.email)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["identity_form"].errors)
+
+    # ----- earliest-pattern sliding -----
+    #
+    # When start_date changes, the earliest pattern must stay anchored
+    # to the Monday of the new start week. Moving earlier slides the
+    # pattern backward with no collision check (nothing precedes the
+    # earliest pattern). Moving later slides forward only if it won't
+    # collide with the next pattern's effective_from.
+
+    def test_start_date_earlier_slides_earliest_pattern_backward(self):
+        pattern = self.emp.patterns.first()
+        pattern.effective_from = date(2025, 6, 2)  # Monday
+        pattern.save(update_fields=["effective_from"])
+
+        # Thursday; the Monday of its week is 2024-11-04.
+        new_start = date(2024, 11, 7)
+        resp = self.post_identity(start_date=new_start.isoformat())
+        self.assertEqual(resp.status_code, 302)
+
+        pattern.refresh_from_db()
+        self.assertEqual(pattern.effective_from, date(2024, 11, 4))
+
+    def test_start_date_later_slides_earliest_pattern_forward_when_no_collision(
+        self,
+    ):
+        self.emp.patterns.all().delete()
+        ShiftPattern.objects.create(
+            employee=self.emp, effective_from=date(2025, 1, 6), cycle_weeks=1
+        )
+        ShiftPattern.objects.create(
+            employee=self.emp, effective_from=date(2025, 6, 2), cycle_weeks=1
+        )
+
+        # Monday of the week containing 2025-03-01 (Saturday) is 2025-02-24,
+        # which is before the next pattern (2025-06-02), so the slide is safe.
+        resp = self.post_identity(start_date=date(2025, 3, 1).isoformat())
+        self.assertEqual(resp.status_code, 302)
+
+        earliest = self.emp.patterns.order_by("effective_from").first()
+        self.assertEqual(earliest.effective_from, date(2025, 2, 24))
+
+    def test_start_date_later_does_not_collide_with_next_pattern(self):
+        self.emp.patterns.all().delete()
+        ShiftPattern.objects.create(
+            employee=self.emp, effective_from=date(2025, 1, 6), cycle_weeks=1
+        )
+        ShiftPattern.objects.create(
+            employee=self.emp, effective_from=date(2025, 2, 3), cycle_weeks=1
+        )
+
+        # new_start 2025-02-10 is itself a Monday, so new_floor is
+        # 2025-02-10, which is at/past the next pattern (2025-02-03).
+        # The collision guard must skip the slide.
+        resp = self.post_identity(start_date=date(2025, 2, 10).isoformat())
+        self.assertEqual(resp.status_code, 302)
+
+        earliest = self.emp.patterns.order_by("effective_from").first()
+        self.assertEqual(earliest.effective_from, date(2025, 1, 6))
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

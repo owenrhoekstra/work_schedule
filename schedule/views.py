@@ -665,8 +665,14 @@ def _render_employee_page(
 
 def _handle_identity_post(request, employee):
     """Save the identity form. Sync the earliest EmploymentPeriod when
-    start_date changes, and slide the earliest pattern forward if the
-    new start date pushes past it."""
+    start_date changes, and slide the earliest pattern so it stays
+    anchored to the Monday of the new start week.
+
+    Moving the start date earlier slides the earliest pattern backward
+    (no collision check — nothing precedes the earliest pattern).
+    Moving it later slides the pattern forward, but only if it doesn't
+    collide with the next pattern.
+    """
     old_start = employee.start_date
     form = EmployeeForm(request.POST, instance=employee)
 
@@ -693,24 +699,29 @@ def _handle_identity_post(request, employee):
             earliest.start_date = new_start
             earliest.save(update_fields=["start_date"])
 
-        # If the employee's start date moved later, the earliest pattern
-        # may now sit before the employee was hired. Slide it forward to
-        # the Monday of the new start week.
+        # Keep the earliest pattern anchored to the Monday of the new
+        # start week, in either direction.
         new_floor = _week_start(new_start)
         earliest_pattern = employee.patterns.order_by("effective_from").first()
-        if earliest_pattern and earliest_pattern.effective_from < new_floor:
-            # Don't collide with the next pattern.
-            next_pattern = (
-                employee.patterns.filter(
-                    effective_from__gt=earliest_pattern.effective_from
-                )
-                .order_by("effective_from")
-                .first()
-            )
-            if next_pattern is None or new_floor < next_pattern.effective_from:
+        if earliest_pattern and earliest_pattern.effective_from != new_floor:
+            if earliest_pattern.effective_from > new_floor:
+                # Moving earlier — extend the anchor backward. No
+                # collision possible; nothing precedes the earliest
+                # pattern.
                 earliest_pattern.effective_from = new_floor
                 earliest_pattern.save(update_fields=["effective_from"])
-
+            else:
+                # Moving later — don't collide with the next pattern.
+                next_pattern = (
+                    employee.patterns.filter(
+                        effective_from__gt=earliest_pattern.effective_from
+                    )
+                    .order_by("effective_from")
+                    .first()
+                )
+                if next_pattern is None or new_floor < next_pattern.effective_from:
+                    earliest_pattern.effective_from = new_floor
+                    earliest_pattern.save(update_fields=["effective_from"])
     messages.success(request, f"Saved {employee}.")
     return redirect("employee_defaults", pk=employee.pk)
 
