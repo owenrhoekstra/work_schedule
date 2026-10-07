@@ -86,8 +86,9 @@ class SetOverrideTests(TestCase):
         self.emp.user = user
         self.emp.email = user.email
         self.emp.save()
+        pattern = self.emp.patterns.first()
         Shift.objects.create(
-            employee=self.emp,
+            pattern=pattern,
             week_offset=0,
             day=date(2026, 6, 1).weekday(),
             start_time="09:00",

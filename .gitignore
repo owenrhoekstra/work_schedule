@@ -15,11 +15,6 @@ htmlcov/
 # Environment variables
 .env
 
-# Migrations (optional - uncomment if you want to exclude them)
-schedule/migrations/*.py
-accounts/migrations/*.py
-theme/migrations/*.py
-
 # IDE
 .idea/
 .vscode/

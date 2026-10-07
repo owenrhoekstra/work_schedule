@@ -46,8 +46,9 @@ class UniqueConstraintsTests(TestCase):
 
     def test_shift_unique_per_week_offset_and_day(self):
         emp = make_employee()
+        pattern = emp.patterns.first()
         Shift.objects.create(
-            employee=emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -55,7 +56,7 @@ class UniqueConstraintsTests(TestCase):
         )
         with self.assertRaises(IntegrityError):
             Shift.objects.create(
-                employee=emp,
+                pattern=pattern,
                 week_offset=0,
                 day=0,
                 start_time="10:00",

@@ -26,7 +26,9 @@ class AddEmployeeViewTests(TestCase):
     def setUp(self):
         self.admin = make_superuser()
         self.client.force_login(self.admin)
-        self.role = make_role("Receptionist", order=20)
+        self.role = make_role()
+        self.emp = make_employee(role=self.role)
+        self.pattern = self.emp.patterns.first()
 
     def form_data(self, **overrides):
         data = {
@@ -165,8 +167,10 @@ class EmployeeDefaultsEdgeTests(TestCase):
         self.client.force_login(self.admin)
         self.role = make_role()
         self.emp = make_employee(role=self.role)
+        self.pattern = self.emp.patterns.first()
 
     def post(self, data):
+        data.setdefault("effective_from", self.pattern.effective_from.isoformat())
         return self.client.post(reverse("employee_defaults", args=[self.emp.pk]), data)
 
     def test_unknown_form_type_redirects(self):
@@ -175,15 +179,15 @@ class EmployeeDefaultsEdgeTests(TestCase):
 
     def test_cycle_weeks_clamped(self):
         self.post({"form": "defaults", "cycle_weeks": "99"})
-        self.emp.refresh_from_db()
-        self.assertEqual(self.emp.cycle_weeks, 4)
+        self.pattern.refresh_from_db()
+        self.assertEqual(self.pattern.cycle_weeks, 4)
 
     def test_bad_cycle_string_keeps_current(self):
-        self.emp.cycle_weeks = 2
-        self.emp.save()
+        self.pattern.cycle_weeks = 2
+        self.pattern.save()
         self.post({"form": "defaults", "cycle_weeks": "notanumber"})
-        self.emp.refresh_from_db()
-        self.assertEqual(self.emp.cycle_weeks, 2)
+        self.pattern.refresh_from_db()
+        self.assertEqual(self.pattern.cycle_weeks, 2)
 
     def test_invalid_time_shows_error_and_redirects(self):
         resp = self.post(
@@ -195,13 +199,15 @@ class EmployeeDefaultsEdgeTests(TestCase):
             }
         )
         self.assertEqual(resp.status_code, 302)
+        pattern = self.emp.patterns.first()
         self.assertFalse(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
     def test_notify_without_changes_no_send(self):
+        pattern = self.emp.patterns.first()
         Shift.objects.create(
-            employee=self.emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -221,8 +227,9 @@ class EmployeeDefaultsEdgeTests(TestCase):
 
     def test_partial_key_submission_does_not_delete_shift(self):
         """Submitting only one of start/end must not delete an existing shift."""
+        pattern = self.emp.patterns.first()
         Shift.objects.create(
-            employee=self.emp,
+            pattern=pattern,
             week_offset=0,
             day=0,
             start_time="09:00",
@@ -236,8 +243,9 @@ class EmployeeDefaultsEdgeTests(TestCase):
                 # no week_0_day_0_end key at all
             }
         )
+        pattern = self.emp.patterns.first()
         self.assertTrue(
-            Shift.objects.filter(employee=self.emp, week_offset=0, day=0).exists()
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
         )
 
 
