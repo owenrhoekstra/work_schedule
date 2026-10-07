@@ -192,7 +192,14 @@ def _week_offset_for(week_start, pattern):
 
 
 def _employees_for_week(week_start):
-    """Employees with any employment period overlapping this week."""
+    """Employees with any employment period overlapping this week.
+
+    Both halves of the overlap test are wrapped in a single filter() so
+    they apply to the same joined `periods` row. Chaining two filter()
+    calls on the multi-valued relation would create separate joins,
+    letting an employee with a closed period and a later reactivation
+    period appear in the gap between them.
+    """
     week_end = week_start + timedelta(days=5)
     return (
         Employee.objects.filter(
@@ -524,21 +531,32 @@ def add_employee(request):
     If a matching User account already exists (by email) and isn't
     linked to another Employee, link it automatically. Optionally send
     a welcome email when `notify` is set.
+
+    The Employee save runs in a transaction so the post-save signals
+    (which create the initial EmploymentPeriod and ShiftPattern) commit
+    or roll back together with the Employee row. Without this, a
+    failure in either signal could leave an Employee without a
+    pattern — a state the defaults handler refuses to edit.
     """
     if request.method == "POST":
         form = EmployeeForm(request.POST)
         if form.is_valid():
-            employee = form.save(commit=False)
+            with transaction.atomic():
+                employee = form.save(commit=False)
 
-            matching_user = User.objects.filter(email__iexact=employee.email).first()
-            if (
-                matching_user
-                and not Employee.objects.filter(user=matching_user).exists()
-            ):
-                employee.user = matching_user
+                matching_user = User.objects.filter(
+                    email__iexact=employee.email
+                ).first()
+                if (
+                    matching_user
+                    and not Employee.objects.filter(user=matching_user).exists()
+                ):
+                    employee.user = matching_user
 
-            employee.save()
+                employee.save()
 
+            # Notification runs outside the transaction so an email
+            # failure doesn't roll back a successfully created employee.
             if request.POST.get("notify"):
                 ok, error = notifications.send_welcome_email(employee)
                 if ok:
@@ -610,6 +628,9 @@ def _render_employee_page(
       strip at the top of the page.
     - `pattern_is_earliest` — whether the currently-loaded pattern is
       the earliest. Used to hide the form's delete button.
+    - `can_delete` — schedule.delete_shift. Gates the pattern delete
+      controls in the template, matching the boundary enforced by the
+      delete_pattern view.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
@@ -651,6 +672,7 @@ def _render_employee_page(
             "patterns_recent": patterns_recent,
             "weeks": _build_default_weeks(form_source) if form_source else [],
             "can_change": can_change,
+            "can_delete": request.user.has_perm("schedule.delete_shift"),
             "last_day": employee.last_day,
             "default_effective_from": (
                 form_source.effective_from if form_source else this_week_start
@@ -672,6 +694,9 @@ def _handle_identity_post(request, employee):
     (no collision check — nothing precedes the earliest pattern).
     Moving it later slides the pattern forward, but only if it doesn't
     collide with the next pattern.
+
+    The write phase runs in a single transaction so the Employee,
+    EmploymentPeriod, and ShiftPattern rows can't drift out of sync.
     """
     old_start = employee.start_date
     form = EmployeeForm(request.POST, instance=employee)
@@ -691,37 +716,39 @@ def _handle_identity_post(request, employee):
             )
             return _render_employee_page(request, employee, identity_form=form)
 
-    form.save()
+    with transaction.atomic():
+        form.save()
 
-    if new_start != old_start:
-        earliest = employee.periods.order_by("start_date").first()
-        if earliest:
-            earliest.start_date = new_start
-            earliest.save(update_fields=["start_date"])
+        if new_start != old_start:
+            earliest = employee.periods.order_by("start_date").first()
+            if earliest:
+                earliest.start_date = new_start
+                earliest.save(update_fields=["start_date"])
 
-        # Keep the earliest pattern anchored to the Monday of the new
-        # start week, in either direction.
-        new_floor = _week_start(new_start)
-        earliest_pattern = employee.patterns.order_by("effective_from").first()
-        if earliest_pattern and earliest_pattern.effective_from != new_floor:
-            if earliest_pattern.effective_from > new_floor:
-                # Moving earlier — extend the anchor backward. No
-                # collision possible; nothing precedes the earliest
-                # pattern.
-                earliest_pattern.effective_from = new_floor
-                earliest_pattern.save(update_fields=["effective_from"])
-            else:
-                # Moving later — don't collide with the next pattern.
-                next_pattern = (
-                    employee.patterns.filter(
-                        effective_from__gt=earliest_pattern.effective_from
-                    )
-                    .order_by("effective_from")
-                    .first()
-                )
-                if next_pattern is None or new_floor < next_pattern.effective_from:
+            # Keep the earliest pattern anchored to the Monday of the
+            # new start week, in either direction.
+            new_floor = _week_start(new_start)
+            earliest_pattern = employee.patterns.order_by("effective_from").first()
+            if earliest_pattern and earliest_pattern.effective_from != new_floor:
+                if earliest_pattern.effective_from > new_floor:
+                    # Moving earlier — extend the anchor backward. No
+                    # collision possible; nothing precedes the earliest
+                    # pattern.
                     earliest_pattern.effective_from = new_floor
                     earliest_pattern.save(update_fields=["effective_from"])
+                else:
+                    # Moving later — don't collide with the next pattern.
+                    next_pattern = (
+                        employee.patterns.filter(
+                            effective_from__gt=earliest_pattern.effective_from
+                        )
+                        .order_by("effective_from")
+                        .first()
+                    )
+                    if next_pattern is None or new_floor < next_pattern.effective_from:
+                        earliest_pattern.effective_from = new_floor
+                        earliest_pattern.save(update_fields=["effective_from"])
+
     messages.success(request, f"Saved {employee}.")
     return redirect("employee_defaults", pk=employee.pk)
 
@@ -734,7 +761,6 @@ def _handle_defaults_post(request, employee):
     **Directed edit.** The form carries a `target_pattern` hidden field
     (set when the manager clicked Edit on a specific saved pattern).
     That pattern is edited in place — date, cycle length, and shifts.
-    No new pattern is created. The submitted date may move the pattern,
     No new pattern is created. The submitted date may move the pattern,
     but only within the range allowed by the employee's start week, the
     target's neighbors, and the earliest-pattern anchoring rule.
@@ -1101,7 +1127,7 @@ def employee_defaults(request, pk):
 
 
 @login_required
-@management_required
+@permission_required("schedule.delete_shift", raise_exception=True)
 @require_POST
 def delete_pattern(request, pk):
     """Delete a ShiftPattern and every shift inside it.
@@ -1114,6 +1140,10 @@ def delete_pattern(request, pk):
     Shift overrides within the deleted pattern's window are left in
     place. They'll be evaluated against the new latest pattern once
     the deleted one is gone.
+
+    Authority matches set_override's destructive path: delete_shift,
+    not Management membership. The Settings page keeps management_required
+    for its own destructive actions.
     """
     today = timezone.localdate()
     pattern = get_object_or_404(
@@ -1330,18 +1360,19 @@ def settings_deactivate_employee(request, pk):
     today = timezone.localdate()
     is_immediate = last_day < today
 
-    employee.is_active = False
-    employee.last_day = last_day
-    employee.save(update_fields=["is_active", "last_day"])
+    with transaction.atomic():
+        employee.is_active = False
+        employee.last_day = last_day
+        employee.save(update_fields=["is_active", "last_day"])
 
-    current = employee.periods.filter(end_date__isnull=True).first()
-    if current:
-        current.end_date = last_day + timedelta(days=1)
-        current.save(update_fields=["end_date"])
+        current = employee.periods.filter(end_date__isnull=True).first()
+        if current:
+            current.end_date = last_day + timedelta(days=1)
+            current.save(update_fields=["end_date"])
 
-    if employee.user and is_immediate:
-        employee.user.is_active = False
-        employee.user.save(update_fields=["is_active"])
+        if employee.user and is_immediate:
+            employee.user.is_active = False
+            employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_deactivation_email(employee)
@@ -1364,20 +1395,23 @@ def settings_cancel_deactivation(request, pk):
     """
     employee = get_object_or_404(Employee, pk=pk)
 
-    current = (
-        employee.periods.filter(end_date__isnull=False).order_by("-end_date").first()
-    )
-    if current:
-        current.end_date = None
-        current.save(update_fields=["end_date"])
+    with transaction.atomic():
+        current = (
+            employee.periods.filter(end_date__isnull=False)
+            .order_by("-end_date")
+            .first()
+        )
+        if current:
+            current.end_date = None
+            current.save(update_fields=["end_date"])
 
-    employee.is_active = True
-    employee.last_day = None
-    employee.save(update_fields=["is_active", "last_day"])
+        employee.is_active = True
+        employee.last_day = None
+        employee.save(update_fields=["is_active", "last_day"])
 
-    if employee.user:
-        employee.user.is_active = True
-        employee.user.save(update_fields=["is_active"])
+        if employee.user:
+            employee.user.is_active = True
+            employee.user.save(update_fields=["is_active"])
 
     messages.success(request, f"{employee}'s deactivation was cancelled.")
     return redirect("settings_home")
@@ -1405,19 +1439,20 @@ def settings_reactivate_employee(request, pk):
     else:
         effective = date.today()
 
-    EmploymentPeriod.objects.create(
-        employee=employee,
-        start_date=effective,
-        end_date=None,
-    )
+    with transaction.atomic():
+        EmploymentPeriod.objects.create(
+            employee=employee,
+            start_date=effective,
+            end_date=None,
+        )
 
-    employee.is_active = True
-    employee.last_day = None
-    employee.save(update_fields=["is_active", "last_day"])
+        employee.is_active = True
+        employee.last_day = None
+        employee.save(update_fields=["is_active", "last_day"])
 
-    if employee.user:
-        employee.user.is_active = True
-        employee.user.save(update_fields=["is_active"])
+        if employee.user:
+            employee.user.is_active = True
+            employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_welcome_email(employee)

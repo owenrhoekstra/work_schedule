@@ -205,7 +205,7 @@
     {% endif %}
 
     <!-- Hidden delete form for the currently-loaded pattern -->
-    {% if can_change and pattern and not pattern_is_earliest %}
+    {% if can_delete and pattern and not pattern_is_earliest %}
     <form
         method="post"
         action="{% url 'delete_pattern' pattern.pk %}"
@@ -387,7 +387,7 @@
         </label>
         <div class="flex items-center justify-between gap-3 p-4">
             <div>
-                {% if pattern and not pattern_is_earliest %}
+                {% if can_delete and pattern and not pattern_is_earliest %}
                 <button
                     type="button"
                     class="delete-loaded-pattern-btn font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
@@ -447,14 +447,16 @@
                         {% if entry.pattern.cycle_weeks > 1 %}· {{ entry.pattern.cycle_weeks }}w cycle{% endif %}
                     </span>
                 </button>
-                {% if can_change %}
+                {% if can_change or can_delete %}
                 <div class="flex items-center gap-3 shrink-0">
+                    {% if can_change %}
                     <a
                         href="{% url 'employee_defaults' employee.pk %}?pattern={{ entry.pattern.pk }}"
                         class="text-sm font-medium text-brand-coral hover:underline"
                         >Edit</a
                     >
-                    {% if not entry.is_earliest %}
+                    {% endif %}
+                    {% if can_delete and not entry.is_earliest %}
                     <form
                         method="post"
                         action="{% url 'delete_pattern' entry.pattern.pk %}"
@@ -788,6 +790,7 @@
     // Delete pattern confirmation
     (function () {
         const dialog = document.getElementById("delete-pattern-modal");
+        if (!dialog) return;
         let pendingForm = null;
 
         function requestDelete(form, dateText) {
