@@ -18,7 +18,6 @@ _LOCMEM_CACHES = {
 class EmployeePageGetTests(TestCase):
     def setUp(self):
         self.user = make_manager_user()
-        # give manager required perms via group so management_required passes
         from django.contrib.auth.models import Group, Permission
 
         mgmt = Group.objects.create(name="Management")
@@ -46,6 +45,53 @@ class EmployeePageGetTests(TestCase):
         self.emp.save()
         resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
         self.assertEqual(resp.status_code, 404)
+
+    # ----- default effective_from: first-time setup vs forward edit -----
+
+    def test_default_effective_from_uses_pattern_date_on_first_time_setup(self):
+        """When the latest pattern has no shifts, the form anchors to
+        the pattern's own effective_from so saving edits it in place
+        instead of creating a second, forward-only pattern."""
+        self.emp.start_date = date(2024, 1, 1)
+        self.emp.save()
+        pattern = self.emp.patterns.first()
+        pattern.effective_from = date(2024, 1, 1)  # Monday
+        pattern.save(update_fields=["effective_from"])
+
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertEqual(resp.context["default_effective_from"], date(2024, 1, 1))
+        self.assertTrue(resp.context["first_time_setup"])
+
+    def test_default_effective_from_uses_this_week_once_shifts_exist(self):
+        """Once the latest pattern has shifts, a fresh load anchors to
+        this week so forward edits preserve the past."""
+        pattern = self.emp.patterns.first()
+        Shift.objects.create(
+            pattern=pattern,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
+        )
+
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        this_monday = date.today() - timedelta(days=date.today().weekday())
+        self.assertEqual(resp.context["default_effective_from"], this_monday)
+        self.assertFalse(resp.context["first_time_setup"])
+
+    def test_default_effective_from_keeps_pattern_date_when_editing(self):
+        """?pattern=<uuid> always shows that pattern's date, regardless
+        of first-time-setup state."""
+        pattern = self.emp.patterns.first()
+        pattern.effective_from = date(2024, 1, 1)
+        pattern.save(update_fields=["effective_from"])
+
+        resp = self.client.get(
+            reverse("employee_defaults", args=[self.emp.pk]),
+            {"pattern": str(pattern.pk)},
+        )
+        self.assertEqual(resp.context["default_effective_from"], date(2024, 1, 1))
+        self.assertFalse(resp.context["first_time_setup"])
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
@@ -103,19 +149,12 @@ class EmployeeIdentityFormTests(TestCase):
         self.assertTrue(resp.context["identity_form"].errors)
 
     # ----- earliest-pattern sliding -----
-    #
-    # When start_date changes, the earliest pattern must stay anchored
-    # to the Monday of the new start week. Moving earlier slides the
-    # pattern backward with no collision check (nothing precedes the
-    # earliest pattern). Moving later slides forward only if it won't
-    # collide with the next pattern's effective_from.
 
     def test_start_date_earlier_slides_earliest_pattern_backward(self):
         pattern = self.emp.patterns.first()
-        pattern.effective_from = date(2025, 6, 2)  # Monday
+        pattern.effective_from = date(2025, 6, 2)
         pattern.save(update_fields=["effective_from"])
 
-        # Thursday; the Monday of its week is 2024-11-04.
         new_start = date(2024, 11, 7)
         resp = self.post_identity(start_date=new_start.isoformat())
         self.assertEqual(resp.status_code, 302)
@@ -134,8 +173,6 @@ class EmployeeIdentityFormTests(TestCase):
             employee=self.emp, effective_from=date(2025, 6, 2), cycle_weeks=1
         )
 
-        # Monday of the week containing 2025-03-01 (Saturday) is 2025-02-24,
-        # which is before the next pattern (2025-06-02), so the slide is safe.
         resp = self.post_identity(start_date=date(2025, 3, 1).isoformat())
         self.assertEqual(resp.status_code, 302)
 
@@ -151,9 +188,6 @@ class EmployeeIdentityFormTests(TestCase):
             employee=self.emp, effective_from=date(2025, 2, 3), cycle_weeks=1
         )
 
-        # new_start 2025-02-10 is itself a Monday, so new_floor is
-        # 2025-02-10, which is at/past the next pattern (2025-02-03).
-        # The collision guard must skip the slide.
         resp = self.post_identity(start_date=date(2025, 2, 10).isoformat())
         self.assertEqual(resp.status_code, 302)
 
@@ -241,13 +275,37 @@ class EmployeeDefaultsFormTests(TestCase):
         self.pattern.refresh_from_db()
         self.assertEqual(self.pattern.cycle_weeks, 4)
 
+    # ----- first-time setup: no retroactive confirmation -----
+
+    def test_first_time_setup_saves_without_retroactive_confirmation(self):
+        """An empty pattern being filled in for the first time should
+        save even if the effective date is in the past."""
+        self.emp.start_date = date(2024, 1, 1)
+        self.emp.save()
+        pattern = self.emp.patterns.first()
+        pattern.effective_from = date(2024, 1, 1)
+        pattern.save(update_fields=["effective_from"])
+
+        # No retroactive_confirmed=1 in the POST — should still succeed.
+        resp = self.post_defaults(
+            effective_from="2024-01-01",
+            **{
+                "week_0_day_0_start": "09:00",
+                "week_0_day_0_end": "17:00",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        pattern = self.emp.patterns.first()
+        self.assertTrue(
+            Shift.objects.filter(pattern=pattern, week_offset=0, day=0).exists()
+        )
+
     @patch("schedule.notifications.send_email")
     def test_notify_with_no_changes_does_not_send(self, mock_send):
         user = make_staff_user("nochangeuser")
         self.emp.user = user
         self.emp.email = user.email
         self.emp.save()
-        # Set the same value twice with notify on the second
         self.post_defaults(
             **{"week_0_day_0_start": "09:00", "week_0_day_0_end": "17:00"}
         )
@@ -259,7 +317,6 @@ class EmployeeDefaultsFormTests(TestCase):
 
     @patch("schedule.notifications.send_email")
     def test_notify_sends_email(self, mock_send):
-        # Notifications require a linked, active user
         user = make_staff_user("notifyuser")
         self.emp.user = user
         self.emp.email = user.email
@@ -272,7 +329,6 @@ class EmployeeDefaultsFormTests(TestCase):
 
     @patch("schedule.notifications.send_email")
     def test_cycle_change_triggers_notification(self, mock_send):
-        # Notifications require a linked, active user
         user = make_staff_user("cycleuser")
         self.emp.user = user
         self.emp.email = user.email
