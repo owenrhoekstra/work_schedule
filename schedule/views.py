@@ -637,6 +637,23 @@ def _render_employee_page(
 
     form_source = edit_pattern or latest
 
+    # First-time setup: no explicit ?pattern= and the latest pattern has
+    # no shifts yet, so the manager is defining the schedule for the
+    # first time. Anchor the form to the pattern's own date (their start
+    # week) so saving edits it in place instead of creating a second,
+    # forward-only pattern. Once shifts exist, anchor to this week so
+    # forward edits preserve the past.
+    first_time_setup = edit_pattern is None and (
+        latest is None or not latest.shifts.exists()
+    )
+
+    if edit_pattern is not None:
+        default_effective_from = edit_pattern.effective_from
+    elif first_time_setup and latest is not None:
+        default_effective_from = latest.effective_from
+    else:
+        default_effective_from = this_week_start
+
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
     )
@@ -674,9 +691,8 @@ def _render_employee_page(
             "can_change": can_change,
             "can_delete": request.user.has_perm("schedule.delete_shift"),
             "last_day": employee.last_day,
-            "default_effective_from": (
-                form_source.effective_from if form_source else this_week_start
-            ),
+            "default_effective_from": default_effective_from,
+            "first_time_setup": first_time_setup,
             "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
             "editing_pattern": edit_pattern,
             "pattern_is_earliest": pattern_is_earliest,
@@ -828,9 +844,15 @@ def _handle_defaults_post(request, employee):
 
     this_week_start = _week_start(timezone.localdate())
 
+    # First-time setup: the latest pattern has no shifts yet, so saving
+    # is defining the schedule, not rewriting it. The retroactive warning
+    # would be misleading — there's no history to change.
+    is_first_time = not latest.shifts.exists()
+
     # Retroactive guard.
     if (
         effective_from < this_week_start
+        and not is_first_time
         and request.POST.get("retroactive_confirmed") != "1"
     ):
         messages.error(

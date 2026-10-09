@@ -221,6 +221,7 @@
         method="post"
         id="defaults-form"
         data-this-week-start="{{ this_week_start_iso }}"
+        {% if first_time_setup %}data-first-time-setup="1"{% endif %}
         class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
     >
         {% csrf_token %}
@@ -769,6 +770,9 @@
 
         form.addEventListener("submit", function (e) {
             if (hiddenConfirmed.value === "1") return;
+            // First-time setup: the form is defining the schedule, not
+            // rewriting history. No retroactive warning applies.
+            if (form.dataset.firstTimeSetup === "1") return;
             if (!dateInput.value) return;
             if (dateInput.value >= thisWeekStart) return;
 
