@@ -419,10 +419,26 @@ def _build_schedule_rows(week_start):
         "override"      manager set custom hours
         "default"       regular pattern shift
         "none"          no shift on this day (regular OFF)
+
+    Shift overrides are batch-fetched in a single query for the whole
+    week and grouped by employee in Python, so the per-employee loop
+    below doesn't fire one query per row. For a multi-week print this
+    is N queries per week down to 1.
     """
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
-    employees = _employees_for_week(week_start)
+    employees = list(_employees_for_week(week_start))
     day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
+
+    # One query for every override in this week, grouped by employee.
+    overrides_by_employee = {}
+    if employees:
+        for override in ShiftOverride.objects.filter(
+            employee__in=employees, date__in=week_dates
+        ):
+            overrides_by_employee.setdefault(override.employee_id, {})[
+                override.date
+            ] = override
+
     rows = []
 
     for emp in employees:
@@ -433,7 +449,7 @@ def _build_schedule_rows(week_start):
             if pattern
             else {}
         )
-        overrides = {o.date: o for o in emp.overrides.filter(date__in=week_dates)}
+        overrides = overrides_by_employee.get(emp.id, {})
         employed = _employed_dates(emp, week_dates)
         cells = []
         total = timedelta()
@@ -1703,7 +1719,7 @@ def qr_code(request):
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
         box_size=10,
-        border=1,
+        border=2,
     )
     qr.add_data(login_url)
     qr.make(fit=True)
