@@ -14,5 +14,5 @@ email when it's ready.
 
 —
 
-Work Schedule
+{{ app_name }}
 {{ site_url }}{% endautoescape %}

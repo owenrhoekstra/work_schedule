@@ -1,5 +1,5 @@
 {% extends "emails/base.html" %} {% block title %}Your account is ready{% endblock %}
-{% block preheader %}Your Work Schedule account has been approved — you can log in now.{% endblock %}
+{% block preheader %}Your {{ app_name }} account has been approved — you can log in now.{% endblock %}
 {% block content %}
 <h1
     class="h1"
@@ -30,7 +30,7 @@
     chose during signup.
 </p>
 
-{% include "emails/_button.html" with url=login_url text="Log in to Work Schedule" %}
+{% with button_text="Log in to "|add:app_name %}{% include "emails/_button.html" with url=login_url text=button_text %}{% endwith %}
 
 <p
     style="

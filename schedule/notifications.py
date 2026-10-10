@@ -82,7 +82,7 @@ def send_welcome_email(employee):
 
     return _try_send(
         template="emails/welcome.html",
-        subject="Welcome to Work Schedule",
+        subject=f"Welcome to {settings.APP_NAME}",
         context={
             "employee_name": employee.first_name,
             "employee_email": employee.email,

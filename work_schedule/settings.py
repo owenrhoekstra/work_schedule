@@ -20,6 +20,8 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+APP_NAME = os.environ.get("APP_NAME", "Work Schedule")
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
@@ -90,6 +92,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context_processors.pending_accounts",
                 "accounts.context_processors.user_is_management",
+                "work_schedule.context_processors.app_name",
             ],
         },
     },

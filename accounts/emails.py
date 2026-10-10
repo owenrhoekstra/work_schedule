@@ -51,12 +51,22 @@ def send_email(
     By default sends multipart/alternative with HTML + text/plain. When
     `text_only=True`, sends plain text only — useful for reviewing the
     fallback that recipients without HTML rendering will see.
+
+    Every email gets three context values injected automatically:
+
+    - `app_name` — the branded name from settings.APP_NAME
+    - `site_url` — the base URL of the site
+    - `site_domain` — the domain part of site_url
+
+    Caller-supplied context wins on collision, so a specific email can
+    override any of these if it ever needs to.
     """
     if isinstance(to, str):
         to = [to]
 
     parsed = urlparse(settings.SITE_URL)
     context = {
+        "app_name": settings.APP_NAME,
         "site_url": settings.SITE_URL,
         "site_domain": parsed.netloc,
         **context,

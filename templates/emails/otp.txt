@@ -11,7 +11,7 @@ If you didn't request this code, you can safely ignore this email.
 
 —
 
-Work Schedule
+{{ app_name }}
 {{ site_url }}
 
 @{{ site_domain }} #{{ code }}{% endautoescape %}
