@@ -1,0 +1,81 @@
+{% comment %}
+One row of the schedule table.
+
+Context:
+- row — a dict from _build_schedule_rows():
+    employee, cells, total_hours, cycle_label, last_day
+- is_management, perms — inherited from the parent template context
+
+The <tr> carries id="schedule-row-{{ employee.pk }}" so HTMX can
+target a single row for an in-place swap. This id is stable across
+renders and is the target the override modal will swap into once
+the modal conversion lands.
+
+Straight lift from home.html — no behavior change.
+{% endcomment %}
+<tr
+    id="schedule-row-{{ row.employee.pk }}"
+    class="border-t border-gray-200 hover:bg-brand-offwhite/60 transition-colors"
+>
+    <td class="p-3">
+        {% if perms.schedule.view_employee %}
+        <a
+            href="{% url 'employee_defaults' row.employee.id %}"
+            class="font-medium text-brand-indigo hover:text-brand-coral transition-colors whitespace-nowrap"
+        >
+            {{ row.employee }}
+        </a>
+        {% else %}
+        <div class="font-medium text-brand-indigo whitespace-nowrap">
+            {{ row.employee }}
+        </div>
+        {% endif %}
+        <div class="text-sm text-gray-500 whitespace-nowrap">
+            {{ row.employee.role }}
+        </div>
+        {% if row.cycle_label %}
+        <div class="mt-1">
+            <span
+                class="inline-block text-xs font-medium text-brand-indigo bg-brand-indigo/10 rounded px-1.5 py-0.5"
+            >
+                Week {{ row.cycle_label }}
+            </span>
+        </div>
+        {% endif %}
+        {% if is_management and row.last_day %}
+        <div
+            class="mt-1 text-xs font-medium text-brand-coral whitespace-nowrap"
+        >
+            Last day: {{ row.last_day|date:"M j, Y" }}
+        </div>
+        {% endif %}
+    </td>
+    {% for cell in row.cells %}
+    <td class="p-3 text-center text-sm whitespace-nowrap">
+        {% if not cell.is_employed %}
+        <span class="{{ cell.state_class }}">{{ cell.display }}</span>
+        {% elif perms.schedule.add_shift or perms.schedule.delete_shift %}
+        <button
+            type="button"
+            class="hover:underline {{ cell.state_class }}"
+            data-url="{% url 'set_override' row.employee.id cell.date_iso %}"
+            data-title="{{ row.employee }} — {{ cell.day_label }}"
+            data-subtitle="{{ cell.date_label }}"
+            data-start="{{ cell.start|time:'g:i A' }}"
+            data-end="{{ cell.end|time:'g:i A' }}"
+            data-has-override="{{ cell.has_override|yesno:'1,0' }}"
+            onclick="openOverrideModal(this)"
+        >
+            {{ cell.display }}
+        </button>
+        {% else %}
+        <span class="{{ cell.state_class }}">{{ cell.display }}</span>
+        {% endif %}
+    </td>
+    {% endfor %}
+    <td
+        class="p-3 text-center text-sm font-medium text-brand-indigo whitespace-nowrap"
+    >
+        {{ row.total_hours }}
+    </td>
+</tr>

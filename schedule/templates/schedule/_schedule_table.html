@@ -1,0 +1,78 @@
+{% comment %}
+Full schedule table for one week.
+
+Context:
+- rows — list from _build_schedule_rows()
+- day_headers — list from _build_schedule_rows()
+- is_management, perms — inherited from the parent template context
+
+Each row is rendered by _schedule_row.html. Rows carry a stable
+id="schedule-row-{{ employee.pk }}" so future HTMX conversions can
+target a single row for an in-place swap without re-extracting this
+markup.
+
+This partial is a straight lift from home.html — no behavior change.
+{% endcomment %}
+<div
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto"
+>
+    <table class="w-max min-w-full border-collapse">
+        <thead>
+            <tr class="bg-brand-indigo">
+                <th
+                    class="text-left p-3 font-display text-sm font-medium text-white whitespace-nowrap"
+                >
+                    Employee
+                </th>
+                {% for header in day_headers %}
+                <th
+                    class="p-3 text-center font-display text-sm font-medium text-white whitespace-nowrap"
+                >
+                    {% if perms.schedule.change_shift %}
+                    <button
+                        type="button"
+                        class="w-full hover:opacity-80 transition-opacity"
+                        data-date="{{ header.date_iso }}"
+                        data-date-label="{{ header.label }}, {{ header.date_label }}"
+                        data-current-status="{{ header.day_status }}"
+                        onclick="openDayModal(this)"
+                    >
+                        <div>{{ header.label }}</div>
+                        <div class="text-xs font-normal opacity-80">
+                            {{ header.date_label }}
+                        </div>
+                        {% if header.day_status %}
+                        <div
+                            class="text-xs mt-0.5 text-brand-yellow font-medium"
+                        >
+                            {{ header.day_status }}
+                        </div>
+                        {% endif %}
+                    </button>
+                    {% else %}
+                    <div>{{ header.label }}</div>
+                    <div class="text-xs font-normal opacity-80">
+                        {{ header.date_label }}
+                    </div>
+                    {% if header.day_status %}
+                    <div class="text-xs mt-0.5 text-brand-yellow font-medium">
+                        {{ header.day_status }}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </th>
+                {% endfor %}
+                <th
+                    class="p-3 text-center font-display text-sm font-medium text-white whitespace-nowrap"
+                >
+                    Total Hours
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                {% include "schedule/_schedule_row.html" with row=row %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
