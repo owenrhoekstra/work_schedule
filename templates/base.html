@@ -7,8 +7,20 @@
         <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
         <title>{% block title %}{{ app_name }}{% endblock %}</title>
         {% tailwind_css %}
+        {% comment %}
+          Both scripts load with `defer` so parsing isn't blocked and
+          the DOM is fully available when they run. Order matters:
+          Alpine must not run before the DOM is ready. `defer`
+          guarantees script order and post-DOM execution, so putting
+          HTMX first is fine.
+        {% endcomment %}
+        <script src="{% static 'js/htmx.min.js' %}" defer></script>
+        <script src="{% static 'js/alpine.min.js' %}" defer></script>
     </head>
-    <body class="min-h-screen bg-brand-offwhite font-sans">
+    <body
+        class="min-h-screen bg-brand-offwhite font-sans"
+        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+    >
         <nav
             class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 sm:py-4 bg-brand-indigo"
         >
