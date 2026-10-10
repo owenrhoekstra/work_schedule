@@ -41,16 +41,21 @@ def _check_email_eligibility(employee):
     return True, None
 
 
+# Strip trailing slash once at module load so every URL builder
+# composes cleanly, regardless of how SITE_URL is written in .env.
+_BASE_URL = settings.SITE_URL.rstrip("/")
+
+
 def _signup_url():
-    return f"{settings.SITE_URL}/accounts/signup/"
+    return f"{_BASE_URL}/accounts/signup/"
 
 
 def _login_url():
-    return f"{settings.SITE_URL}/accounts/login/"
+    return f"{_BASE_URL}/accounts/login/"
 
 
 def _schedule_url():
-    return f"{settings.SITE_URL}/schedule/home/"
+    return f"{_BASE_URL}/schedule/home/"
 
 
 def _try_send(**kwargs):

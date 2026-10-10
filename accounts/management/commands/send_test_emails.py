@@ -17,7 +17,10 @@ from django.core.management.base import BaseCommand
 
 from accounts.emails import send_email
 
-_SITE_URL = "https://work-schedule.principiasystems.ca"
+# Derive from settings so links in test emails match the environment
+# the command is running against (local dev, staging, prod). Strip any
+# trailing slash so f-string concatenation never produces "//".
+_SITE_URL = settings.SITE_URL.rstrip("/")
 
 
 class Command(BaseCommand):
@@ -77,7 +80,7 @@ class Command(BaseCommand):
             (
                 "welcome (HTML)",
                 "emails/welcome.html",
-                "Welcome to Work Schedule",
+                f"Welcome to {settings.APP_NAME}",
                 {
                     "employee_name": "Owen",
                     "employee_email": recipient,

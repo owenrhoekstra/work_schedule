@@ -3,6 +3,9 @@ from datetime import date, timedelta
 from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
+
+from schedule.views import _ordinal
 
 from .factories import make_employee, make_manager_user, make_role, make_staff_user
 
@@ -17,6 +20,16 @@ def _make_manager(username="printmgr"):
     mgmt.permissions.set(Permission.objects.all())
     user.groups.add(mgmt)
     return user
+
+
+def _first_monday_of_june(year):
+    """The Monday of the first week that overlaps June in `year`.
+
+    Used by the range-label tests so the anchor date is a real Monday
+    in June for whatever year the tests happen to run in.
+    """
+    d = date(year, 6, 1)
+    return d + timedelta(days=(7 - d.weekday()) % 7)
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
@@ -42,7 +55,8 @@ class PrintScheduleTests(TestCase):
         resp = self.client.get(reverse("print_schedule"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.context["weeks"]), 1)
-        this_monday = date.today() - timedelta(days=date.today().weekday())
+        today = timezone.localdate()
+        this_monday = today - timedelta(days=today.weekday())
         self.assertEqual(resp.context["anchor"], this_monday)
 
     def test_weeks_param_respected(self):
@@ -67,7 +81,8 @@ class PrintScheduleTests(TestCase):
 
     def test_week_param_invalid_falls_back_to_current(self):
         resp = self.client.get(reverse("print_schedule"), {"week": "nonsense"})
-        this_monday = date.today() - timedelta(days=date.today().weekday())
+        today = timezone.localdate()
+        this_monday = today - timedelta(days=today.weekday())
         self.assertEqual(resp.context["anchor"], this_monday)
 
     def test_consecutive_weeks_are_ordered(self):
@@ -92,17 +107,36 @@ class PrintScheduleTests(TestCase):
         resp = self.client.get(reverse("print_schedule"), {"color": "rainbow"})
         self.assertEqual(resp.context["color_mode"], "color")
 
+    # ----- range label -----
+    #
+    # The label composes the first week's title with the short form of
+    # the last week's title. `_week_title_for` appends a year suffix
+    # only when the week's year differs from the current year, so
+    # anchoring tests in the current year keeps the expected strings
+    # stable across calendar rollovers.
+
     def test_range_label_single_week(self):
+        anchor = _first_monday_of_june(timezone.localdate().year)
         resp = self.client.get(
-            reverse("print_schedule"), {"week": "2026-06-01", "weeks": "1"}
+            reverse("print_schedule"),
+            {"week": anchor.isoformat(), "weeks": "1"},
         )
-        self.assertEqual(resp.context["range_label"], "Week of June 1st")
+        self.assertEqual(
+            resp.context["range_label"],
+            f"Week of June {_ordinal(anchor.day)}",
+        )
 
     def test_range_label_multi_week(self):
+        anchor = _first_monday_of_june(timezone.localdate().year)
+        end = anchor + timedelta(weeks=1)
         resp = self.client.get(
-            reverse("print_schedule"), {"week": "2026-06-01", "weeks": "2"}
+            reverse("print_schedule"),
+            {"week": anchor.isoformat(), "weeks": "2"},
         )
-        self.assertEqual(resp.context["range_label"], "Week of June 1st – June 8th")
+        self.assertEqual(
+            resp.context["range_label"],
+            f"Week of June {_ordinal(anchor.day)} – June {_ordinal(end.day)}",
+        )
 
     def test_paper_has_mode_class(self):
         resp = self.client.get(reverse("print_schedule"), {"color": "bw"})
