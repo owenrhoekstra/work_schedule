@@ -71,4 +71,6 @@ urlpatterns = [
         views.settings_move_role,
         name="settings_move_role",
     ),
+    path("print/", views.print_schedule, name="print_schedule"),
+    path("qr/", views.qr_code, name="qr_code"),
 ]

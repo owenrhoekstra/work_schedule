@@ -18,5 +18,5 @@ If something looks wrong, reach out to your manager.
 
 —
 
-Work Schedule
+{{ app_name }}
 {{ site_url }}{% endautoescape %}

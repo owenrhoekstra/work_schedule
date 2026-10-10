@@ -9,5 +9,5 @@ If you didn't create this account, please email us at contact@principiasystems.c
 
 —
 
-Work Schedule
+{{ app_name }}
 {{ site_url }}{% endautoescape %}

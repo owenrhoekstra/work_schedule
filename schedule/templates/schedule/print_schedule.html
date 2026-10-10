@@ -1,0 +1,468 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Print schedule — {{ app_name }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            color: #111;
+            background: #e5e5e5;
+        }
+        @media print {
+            .screen-only { display: none !important; }
+            html, body { background: white; }
+        }
+
+        /* ------------------------------------------------------------------
+           Config bar — single line, never wraps. Buttons that contain an
+           inline icon use inline-flex so the icon and label sit on one
+           centred row.
+           ------------------------------------------------------------------ */
+        .config-bar {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 0.5rem;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: white;
+            border-bottom: 1px solid #d4d4d8;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .config-bar a {
+            font: inherit;
+            font-size: 0.8125rem;
+            color: #111;
+            background: white;
+            border: 1px solid #d4d4d8;
+            padding: 0.35rem 0.6rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            text-decoration: none;
+            white-space: nowrap;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .config-bar button {
+            font: inherit;
+            font-size: 0.8125rem;
+            color: #111;
+            background: white;
+            border: 1px solid #d4d4d8;
+            padding: 0.35rem 0.6rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            line-height: 1;
+        }
+        .config-bar button svg {
+            display: block;
+            width: 1em;
+            height: 1em;
+            flex-shrink: 0;
+        }
+        .config-bar button.primary {
+            background: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+        .config-bar form {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: nowrap;
+            min-width: 0;
+        }
+        .config-bar label {
+            display: flex;
+            gap: 0.3rem;
+            align-items: center;
+            font-size: 0.8125rem;
+            color: #333;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .config-bar input[type="date"],
+        .config-bar select {
+            font: inherit;
+            font-size: 0.8125rem;
+            padding: 0.3rem 0.45rem;
+            border: 1px solid #d4d4d8;
+            border-radius: 0.375rem;
+        }
+        .config-bar .spacer { flex: 1 1 auto; min-width: 0.5rem; }
+
+        /* paper */
+        .paper {
+            background: white;
+            width: 11in;
+            max-width: 100%;
+            margin: 1rem auto;
+            padding: 0.5in;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        }
+        @media print {
+            .paper {
+                margin: 0;
+                padding: 0;
+                width: auto;
+                box-shadow: none;
+            }
+        }
+
+        /* header */
+        .print-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            border-bottom: 2px solid #111;
+            padding-bottom: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .print-header .title-block { flex: 1; }
+        .print-header h1 {
+            font-size: 1.5rem;
+            margin: 0 0 0.25rem 0;
+        }
+        .print-header .subtitle {
+            font-size: 0.875rem;
+            color: #444;
+        }
+        .print-header .generated {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 0.5rem;
+        }
+
+        /* QR block */
+        .qr-block {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.1rem;
+            flex-shrink: 0;
+        }
+        .qr-block .qr-top-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.05rem;
+            text-transform: uppercase;
+        }
+        .qr-block .qr-body {
+            display: flex;
+            align-items: center;
+            gap: 0;
+        }
+        .qr-block .qr-side {
+            font-size: 0.5rem;
+            color: #444;
+            white-space: nowrap;
+        }
+        .qr-block .qr-side-left {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+        }
+        .qr-block .qr-side-right {
+            writing-mode: vertical-rl;
+        }
+        .qr-block .qr-with-icon {
+            position: relative;
+            width: 0.85in;
+            height: 0.85in;
+        }
+        .qr-block .qr-image {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .qr-block .qr-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20%;
+            height: 20%;
+            background: white;
+            padding: 1px;
+            border-radius: 2px;
+            object-fit: contain;
+        }
+
+        /* ------------------------------------------------------------------
+           Week sections. `break-inside: avoid` keeps a single week from
+           splitting across pages; if it doesn't fit in the remaining
+           space, the whole section moves to the next page. No forced
+           `break-before` so the engine packs as many weeks as fit.
+           ------------------------------------------------------------------ */
+        .week-section {
+            margin-bottom: 1.25rem;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        .week-section h2 {
+            font-size: 1rem;
+            margin: 0 0 0.5rem 0;
+        }
+
+        /* schedule grid */
+        .schedule-grid {
+            display: grid;
+            font-size: 0.75rem;
+            border-top: 1px solid #555;
+            border-left: 1px solid #555;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        .schedule-grid > .cell {
+            border-right: 1px solid #555;
+            border-bottom: 1px solid #555;
+            padding: 0.3rem 0.4rem;
+            text-align: center;
+            vertical-align: middle;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .schedule-grid > .head {
+            background: #e5e5e5;
+            font-weight: 600;
+        }
+        .schedule-grid > .head .day-name { display: block; }
+        .schedule-grid > .head .day-date {
+            display: block;
+            font-weight: 400;
+            font-size: 0.68rem;
+            color: #444;
+            margin-top: 1px;
+        }
+        .schedule-grid > .head .day-status {
+            display: block;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-top: 2px;
+        }
+        .schedule-grid > .name {
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: nowrap;
+            padding: 0.4rem 0.65rem;
+        }
+        .schedule-grid > .time {
+            font-variant-numeric: tabular-nums;
+        }
+        .schedule-grid > .empty {
+            grid-column: 1 / -1;
+            color: #666;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        .cycle-badge {
+            display: inline-block;
+            font-size: 0.6rem;
+            font-weight: 600;
+            background: #e5e5e5;
+            border-radius: 2px;
+            padding: 0 0.25rem;
+            margin-left: 0.25rem;
+            vertical-align: middle;
+        }
+
+        /* Color mode — highlights for overrides and day statuses. */
+        .paper.mode-color .cell.kind-override {
+            background: #e0e7ff;
+            color: #3730a3;
+            font-weight: 600;
+        }
+        .paper.mode-color .cell.kind-off_override {
+            background: #fecaca;
+            color: #991b1b;
+            font-weight: 700;
+        }
+        .paper.mode-color .cell.kind-day_override,
+        .paper.mode-color .head.kind-day_override {
+            background: #fef3c7;
+            color: #92400e;
+            font-weight: 700;
+        }
+        .paper.mode-color .head.kind-day_override .day-name,
+        .paper.mode-color .head.kind-day_override .day-date,
+        .paper.mode-color .head.kind-day_override .day-status {
+            color: inherit;
+        }
+        .paper.mode-color .cell.kind-not_employed {
+            color: #999;
+        }
+        .paper.mode-color .cell.kind-none {
+            color: #777;
+        }
+
+        /* B&W mode — weight and grayscale instead of colour. */
+        .paper.mode-bw .cell.kind-override {
+            background: #ececec;
+            color: #111;
+            font-weight: 700;
+        }
+        .paper.mode-bw .cell.kind-off_override {
+            background: #b8b8b8;
+            color: #111;
+            font-weight: 700;
+        }
+        .paper.mode-bw .cell.kind-day_override,
+        .paper.mode-bw .head.kind-day_override {
+            background: #a0a0a0;
+            color: #111;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .paper.mode-bw .head.kind-day_override .day-name,
+        .paper.mode-bw .head.kind-day_override .day-date,
+        .paper.mode-bw .head.kind-day_override .day-status {
+            color: inherit;
+        }
+        .paper.mode-bw .cell.kind-not_employed {
+            color: #888;
+        }
+        .paper.mode-bw .cell.kind-none {
+            color: #555;
+        }
+
+        @page {
+            size: letter landscape;
+            margin: 0.5in;
+        }
+    </style>
+</head>
+<body>
+    <div class="config-bar screen-only">
+        <a href="{% url 'home' %}">← Home</a>
+        <form method="get" id="config-form">
+            <label>
+                Week starting
+                <input type="date" name="week" value="{{ anchor_iso }}" />
+            </label>
+            <label>
+                Weeks
+                <select name="weeks">
+                    {% for n in week_options %}
+                    <option value="{{ n }}" {% if n == selected_weeks %}selected{% endif %}>{{ n }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                Colour
+                <select name="color">
+                    <option value="color" {% if color_mode == "color" %}selected{% endif %}>Colour</option>
+                    <option value="bw" {% if color_mode == "bw" %}selected{% endif %}>Black &amp; white</option>
+                </select>
+            </label>
+        </form>
+        <span class="spacer"></span>
+        <button type="button" class="primary" id="print-btn">
+            {% include "icons/_printer.html" %}
+            <span>Print</span>
+        </button>
+    </div>
+
+    <div class="paper mode-{{ color_mode }}">
+        <div class="print-header">
+            <div class="title-block">
+                <h1>{{ app_name }}</h1>
+                <div class="subtitle">{{ range_label }}</div>
+                <div class="generated">
+                    Generated {{ generated_at|date:"F j, Y \a\t g:i A" }}
+                </div>
+            </div>
+            <div class="qr-block">
+                <div class="qr-top-label">{{ app_name }}</div>
+                <div class="qr-body">
+                    <div class="qr-side qr-side-left">Principia Systems</div>
+                    <div class="qr-with-icon">
+                        <img class="qr-image" src="{% url 'qr_code' %}" alt="Scan to sign in" />
+                        <img class="qr-icon" src="{% static 'favicon.svg' %}" alt="" onerror="this.style.display='none'" />
+                    </div>
+                    <div class="qr-side qr-side-right">Principia Systems</div>
+                </div>
+            </div>
+        </div>
+
+        {% for week in weeks %}
+        <section class="week-section">
+            <h2>{{ week.week_title }}</h2>
+            <div
+                class="schedule-grid"
+                style="grid-template-columns: max-content repeat({{ week.day_headers|length }}, 1fr);"
+            >
+                <div class="cell head">Employee</div>
+                {% for header in week.day_headers %}
+                <div class="cell head{% if header.day_status %} kind-day_override{% endif %}">
+                    <span class="day-name">{{ header.label|slice:":3" }}</span>
+                    <span class="day-date">{{ header.date_label }}</span>
+                    {% if header.day_status %}
+                    <span class="day-status">{{ header.day_status }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                {% for row in week.rows %}
+                <div class="cell name">
+                    {{ row.employee }}{% if row.cycle_label %}<span class="cycle-badge">Week {{ row.cycle_label }}</span>{% endif %}
+                </div>
+                {% for cell in row.cells %}
+                <div class="cell time kind-{{ cell.kind }}">{{ cell.display }}</div>
+                {% endfor %}
+                {% empty %}
+                <div class="cell empty">No employees scheduled this week.</div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    </div>
+
+    <script>
+        (function () {
+            const form = document.getElementById("config-form");
+            const printBtn = document.getElementById("print-btn");
+            if (!form) return;
+
+            // Any settings change re-submits the form, reloading the
+            // preview with the new query string. There is no separate
+            // "update" step.
+            form.addEventListener("change", function () {
+                form.submit();
+            });
+
+            // Print button. Settings are always current because any
+            // change has already auto-submitted, so we print straight
+            // away. Wait for `load` so the QR image is painted.
+            if (printBtn) {
+                printBtn.addEventListener("click", function () {
+                    if (document.readyState === "complete") {
+                        window.print();
+                    } else {
+                        window.addEventListener("load", function () {
+                            window.print();
+                        });
+                    }
+                });
+            }
+        })();
+    </script>
+</body>
+</html>

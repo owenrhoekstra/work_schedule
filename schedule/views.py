@@ -1,6 +1,31 @@
+"""Views and helpers for the schedule app.
+
+File layout, top to bottom:
+
+    1. Constants
+    2. Decorators
+    3. Parsing and formatting helpers
+    4. Week helpers
+    5. Pattern and cycle helpers
+    6. Employment helpers
+    7. Shift display helpers
+    8. Schedule building
+    9. Views — schedule
+    10. Views — employee page
+    11. Views — overrides
+    12. Views — settings
+    13. Views — print
+
+Sections 3–8 are pure helpers: no request objects, no HTTP concerns.
+Sections 9–13 are the actual views.
+"""
+
+import io
 from datetime import date, datetime, timedelta
 from functools import wraps
 
+import qrcode
+import qrcode.image.svg
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
@@ -8,7 +33,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Min, Q
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -28,7 +53,7 @@ from .models import (
 )
 
 # ---------------------------------------------------------------------------
-# Constants
+# 1. Constants
 # ---------------------------------------------------------------------------
 
 DAYS = [0, 1, 2, 3, 4, 5]
@@ -43,6 +68,7 @@ DAY_LABELS_FULL = [
 ]
 WEEK_LABELS = ["A", "B", "C", "D"]
 MAX_CYCLE_WEEKS = 4
+MAX_PRINT_WEEKS = 4
 
 _TIME_FORMATS = (
     "%H:%M",
@@ -59,7 +85,7 @@ _TIME_FORMATS = (
 
 
 # ---------------------------------------------------------------------------
-# Decorators
+# 2. Decorators
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +103,7 @@ def management_required(view):
 
 
 # ---------------------------------------------------------------------------
-# Parsing and formatting helpers
+# 3. Parsing and formatting helpers
 # ---------------------------------------------------------------------------
 
 
@@ -99,6 +125,7 @@ def _parse_time(value):
 
 
 def _format_duration(td):
+    """Format a timedelta as 'Hh MMm'."""
     total_minutes = int(td.total_seconds() // 60)
     hours, minutes = divmod(total_minutes, 60)
     return f"{hours}h {minutes:02d}m"
@@ -120,13 +147,40 @@ def _ordinal(n):
 
 
 # ---------------------------------------------------------------------------
-# Week helpers
+# 4. Week helpers
 # ---------------------------------------------------------------------------
 
 
 def _week_start(d):
     """Return the Monday of the week containing d."""
     return d - timedelta(days=d.weekday())
+
+
+def _week_title_for(week_start):
+    """Human title for a week, with ordinal day and year when it differs."""
+    current_week = _week_start(timezone.localdate())
+    day_with_ordinal = _ordinal(week_start.day)
+    if week_start.year == current_week.year:
+        return f"Week of {week_start.strftime('%B')} {day_with_ordinal}"
+    return f"Week of {week_start.strftime('%B')} {day_with_ordinal}, {week_start.year}"
+
+
+def _week_range_label(weeks):
+    """Build a header label spanning one or more weeks.
+
+    One week: "Week of October 5th"
+    Multiple: "Week of October 5th – October 19th"
+    """
+    if not weeks:
+        return ""
+    first_title = weeks[0]["week_title"]
+    if len(weeks) == 1:
+        return first_title
+    last_title = weeks[-1]["week_title"]
+    # Drop the "Week of " prefix from the last title so the range reads
+    # as a span rather than two back-to-back week titles.
+    last_short = last_title.removeprefix("Week of ")
+    return f"{first_title} – {last_short}"
 
 
 def _parse_week_param(request):
@@ -155,7 +209,7 @@ def _home_url_for(date_):
 
 
 # ---------------------------------------------------------------------------
-# Pattern and cycle helpers
+# 5. Pattern and cycle helpers
 # ---------------------------------------------------------------------------
 
 
@@ -168,9 +222,8 @@ def _pattern_for_week(employee, week_start):
     """The ShiftPattern active for the week starting week_start.
 
     Iterates over the (prefetched) patterns relation in Python so the
-    schedule render doesn't fire one query per employee. Falls back to
-    the same relation via a fresh query if the cache is cold.
-    Returns None if no pattern covers the week.
+    schedule render doesn't fire one query per employee. Returns None
+    if no pattern covers the week.
     """
     candidates = [p for p in employee.patterns.all() if p.effective_from <= week_start]
     if not candidates:
@@ -187,7 +240,7 @@ def _week_offset_for(week_start, pattern):
 
 
 # ---------------------------------------------------------------------------
-# Employment helpers
+# 6. Employment helpers
 # ---------------------------------------------------------------------------
 
 
@@ -230,7 +283,7 @@ def _employed_dates(employee, week_dates):
 
 
 # ---------------------------------------------------------------------------
-# Shift display helpers
+# 7. Shift display helpers
 # ---------------------------------------------------------------------------
 
 
@@ -350,15 +403,44 @@ def _pattern_summary(pattern):
 
 
 # ---------------------------------------------------------------------------
-# Schedule building
+# 8. Schedule building
 # ---------------------------------------------------------------------------
 
 
 def _build_schedule_rows(week_start):
+    """Build the render-ready rows and day headers for one week.
+
+    Each cell carries a `kind` string used by the print view to style
+    overrides, holidays, and closures differently from regular shifts:
+
+        "day_override"  whole day marked closed/holiday
+        "not_employed"  employee not yet started or already departed
+        "off_override"  manager marked this day off
+        "override"      manager set custom hours
+        "default"       regular pattern shift
+        "none"          no shift on this day (regular OFF)
+
+    Shift overrides are batch-fetched in a single query for the whole
+    week and grouped by employee in Python, so the per-employee loop
+    below doesn't fire one query per row. For a multi-week print this
+    is N queries per week down to 1.
+    """
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
-    employees = _employees_for_week(week_start)
+    employees = list(_employees_for_week(week_start))
     day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
+
+    # One query for every override in this week, grouped by employee.
+    overrides_by_employee = {}
+    if employees:
+        for override in ShiftOverride.objects.filter(
+            employee__in=employees, date__in=week_dates
+        ):
+            overrides_by_employee.setdefault(override.employee_id, {})[
+                override.date
+            ] = override
+
     rows = []
+
     for emp in employees:
         pattern = _pattern_for_week(emp, week_start)
         offset = _week_offset_for(week_start, pattern) if pattern else 0
@@ -367,7 +449,7 @@ def _build_schedule_rows(week_start):
             if pattern
             else {}
         )
-        overrides = {o.date: o for o in emp.overrides.filter(date__in=week_dates)}
+        overrides = overrides_by_employee.get(emp.id, {})
         employed = _employed_dates(emp, week_dates)
         cells = []
         total = timedelta()
@@ -387,6 +469,7 @@ def _build_schedule_rows(week_start):
                         "display": day_override.get_status_display(),
                         "has_override": False,
                         "is_employed": False,
+                        "kind": "day_override",
                     }
                 )
                 continue
@@ -403,6 +486,7 @@ def _build_schedule_rows(week_start):
                         "display": "—",
                         "has_override": False,
                         "is_employed": False,
+                        "kind": "not_employed",
                     }
                 )
                 continue
@@ -452,6 +536,7 @@ def _build_schedule_rows(week_start):
                     "display": display,
                     "has_override": override is not None,
                     "is_employed": True,
+                    "kind": state,
                 }
             )
 
@@ -487,19 +572,11 @@ def _home_context(week_start):
     rows, day_headers = _build_schedule_rows(week_start)
     min_week = _earliest_week()
 
-    day_with_ordinal = _ordinal(week_start.day)
-    if week_start.year == current_week.year:
-        week_title = f"Week of {week_start.strftime('%B')} {day_with_ordinal}"
-    else:
-        week_title = (
-            f"Week of {week_start.strftime('%B')} {day_with_ordinal}, {week_start.year}"
-        )
-
     return {
         "rows": rows,
         "day_headers": day_headers,
         "week_start": week_start,
-        "week_title": week_title,
+        "week_title": _week_title_for(week_start),
         "prev_week": week_start - timedelta(days=7),
         "next_week": week_start + timedelta(days=7),
         "is_current_week": week_start == current_week,
@@ -508,7 +585,7 @@ def _home_context(week_start):
 
 
 # ---------------------------------------------------------------------------
-# Views — schedule
+# 9. Views — schedule
 # ---------------------------------------------------------------------------
 
 
@@ -583,7 +660,7 @@ def add_employee(request):
 
 
 # ---------------------------------------------------------------------------
-# Employee page — merged identity + defaults
+# 10. Views — employee page
 # ---------------------------------------------------------------------------
 
 
@@ -631,18 +708,15 @@ def _render_employee_page(
     - `can_delete` — schedule.delete_shift. Gates the pattern delete
       controls in the template, matching the boundary enforced by the
       delete_pattern view.
+    - `first_time_setup` — True when the latest pattern has no shifts
+      yet, so the form anchors to the pattern's own effective_from and
+      the retroactive-confirm dialog is suppressed.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
 
     form_source = edit_pattern or latest
 
-    # First-time setup: no explicit ?pattern= and the latest pattern has
-    # no shifts yet, so the manager is defining the schedule for the
-    # first time. Anchor the form to the pattern's own date (their start
-    # week) so saving edits it in place instead of creating a second,
-    # forward-only pattern. Once shifts exist, anchor to this week so
-    # forward edits preserve the past.
     first_time_setup = edit_pattern is None and (
         latest is None or not latest.shifts.exists()
     )
@@ -795,9 +869,10 @@ def _handle_defaults_post(request, employee):
 
     Retroactive changes — anything effective before this week's Monday
     — require explicit confirmation via the `retroactive_confirmed`
-    POST field. The template intercepts submission and shows a dialog;
-    this guard catches the case where JavaScript is disabled or
-    bypassed.
+    POST field, unless the employee is being set up for the first time
+    (latest pattern has no shifts yet). The template intercepts
+    submission and shows a dialog; this guard catches the case where
+    JavaScript is disabled or bypassed.
 
     All validation runs before any database writes. The writes are
     wrapped in a transaction so a failure leaves no partial state.
@@ -845,8 +920,8 @@ def _handle_defaults_post(request, employee):
     this_week_start = _week_start(timezone.localdate())
 
     # First-time setup: the latest pattern has no shifts yet, so saving
-    # is defining the schedule, not rewriting it. The retroactive warning
-    # would be misleading — there's no history to change.
+    # is defining the schedule, not rewriting it. The retroactive
+    # warning would be misleading — there's no history to change.
     is_first_time = not latest.shifts.exists()
 
     # Retroactive guard.
@@ -1190,7 +1265,7 @@ def delete_pattern(request, pk):
 
 
 # ---------------------------------------------------------------------------
-# Views — overrides
+# 11. Views — overrides
 # ---------------------------------------------------------------------------
 
 
@@ -1302,7 +1377,7 @@ def set_day_override(request, date_iso):
 
 
 # ---------------------------------------------------------------------------
-# Views — settings
+# 12. Views — settings
 # ---------------------------------------------------------------------------
 
 
@@ -1561,3 +1636,94 @@ def settings_move_role(request, pk, direction):
         r.display_order = (i + 1) * 10
         r.save(update_fields=["display_order"])
     return redirect("settings_home")
+
+
+# ---------------------------------------------------------------------------
+# 13. Views — print
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@management_required
+def print_schedule(request):
+    """Print-ready view of the schedule for one or more weeks.
+
+    Query params:
+    - `week` — anchor Monday (defaults to current week)
+    - `weeks` — number of weeks to render, 1–4 (defaults to 1)
+    - `color` — "color" or "bw" (defaults to "color"). Controls
+      whether the print layout highlights overrides and day-level
+      statuses with background colors or typography.
+
+    Standalone template — no base.html, no Tailwind. Its own CSS
+    handles screen preview and print layout. The QR code points at
+    the login page so a printed sheet can be scanned to sign in.
+    """
+    raw_week = request.GET.get("week", "").strip()
+    if raw_week:
+        try:
+            anchor = _week_start(date.fromisoformat(raw_week))
+        except ValueError:
+            anchor = _week_start(timezone.localdate())
+    else:
+        anchor = _week_start(timezone.localdate())
+
+    try:
+        weeks_count = int(request.GET.get("weeks", "1"))
+    except TypeError, ValueError:
+        weeks_count = 1
+    weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
+
+    color_mode = request.GET.get("color", "color")
+    if color_mode not in ("color", "bw"):
+        color_mode = "color"
+
+    weeks = []
+    for i in range(weeks_count):
+        ws = anchor + timedelta(weeks=i)
+        rows, day_headers = _build_schedule_rows(ws)
+        weeks.append(
+            {
+                "week_start": ws,
+                "week_title": _week_title_for(ws),
+                "day_headers": day_headers,
+                "rows": rows,
+            }
+        )
+
+    return render(
+        request,
+        "schedule/print_schedule.html",
+        {
+            "weeks": weeks,
+            "anchor": anchor,
+            "anchor_iso": anchor.isoformat(),
+            "selected_weeks": weeks_count,
+            "week_options": list(range(1, MAX_PRINT_WEEKS + 1)),
+            "range_label": _week_range_label(weeks),
+            "color_mode": color_mode,
+            "generated_at": timezone.now(),
+        },
+    )
+
+
+@login_required
+def qr_code(request):
+    """SVG QR code pointing at the login page.
+
+    Uses error-correction level H (30%) so the print template can
+    overlay a favicon in the center without breaking scanning.
+    """
+    login_url = request.build_absolute_uri(reverse("login"))
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(login_url)
+    qr.make(fit=True)
+    img = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
+    buffer = io.BytesIO()
+    img.save(buffer)
+    return HttpResponse(buffer.getvalue(), content_type="image/svg+xml")
