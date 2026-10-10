@@ -1,0 +1,65 @@
+<dialog
+    id="day-modal"
+    data-url-template="{% url 'set_day_override' 'PLACEHOLDER' %}"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form method="post" id="day-form" class="p-6 space-y-4">
+        {% csrf_token %}
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Mark day as closed
+        </h2>
+        <p id="day-modal-subtitle" class="text-sm text-gray-500"></p>
+
+        <div class="space-y-2 pt-2">
+            <button
+                type="submit"
+                name="action"
+                value="closed"
+                class="w-full font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2.5 transition-colors"
+            >
+                Mark as Closed
+            </button>
+            <button
+                type="submit"
+                name="action"
+                value="holiday"
+                class="w-full font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-4 py-2.5 transition-colors"
+            >
+                Mark as Holiday
+            </button>
+            <button
+                type="submit"
+                name="action"
+                value="clear"
+                id="day-clear-btn"
+                class="w-full text-sm font-medium text-gray-500 hover:text-brand-coral px-4 py-2 transition-colors"
+            >
+                Clear
+            </button>
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-gray-200">
+            <button
+                type="button"
+                onclick="document.getElementById('day-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    function openDayModal(btn) {
+        const d = btn.dataset;
+        const dialog = document.getElementById("day-modal");
+        const template = dialog.dataset.urlTemplate;
+        const form = document.getElementById("day-form");
+        form.action = template.replace("PLACEHOLDER", d.date);
+        document.getElementById("day-modal-subtitle").textContent = d.dateLabel;
+        const clearBtn = document.getElementById("day-clear-btn");
+        clearBtn.style.display = d.currentStatus ? "" : "none";
+        dialog.showModal();
+    }
+</script>

@@ -65,7 +65,7 @@ Straight lift from home.html — no behavior change.
             data-start="{{ cell.start|time:'g:i A' }}"
             data-end="{{ cell.end|time:'g:i A' }}"
             data-has-override="{{ cell.has_override|yesno:'1,0' }}"
-            onclick="openOverrideModal(this)"
+            @click="openFromButton($el.dataset)"
         >
             {{ cell.display }}
         </button>

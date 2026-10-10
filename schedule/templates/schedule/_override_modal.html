@@ -1,0 +1,308 @@
+<style>
+    /* Override modal enter/exit transitions. Browsers without
+       @starting-style fall back to an instant appear. */
+    #override-modal {
+        transform: translate(-50%, -50%);
+        transition: opacity 200ms ease-out, transform 200ms ease-out;
+    }
+    #override-modal[open] {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    @starting-style {
+        #override-modal[open] {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.96);
+        }
+    }
+    #override-modal.is-closing {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.96);
+    }
+
+    #override-modal::backdrop {
+        background: rgba(0, 0, 0, 0);
+        transition: background 200ms ease-out;
+    }
+    #override-modal[open]::backdrop {
+        background: rgba(0, 0, 0, 0.4);
+    }
+    @starting-style {
+        #override-modal[open]::backdrop {
+            background: rgba(0, 0, 0, 0);
+        }
+    }
+    #override-modal.is-closing::backdrop {
+        background: rgba(0, 0, 0, 0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #override-modal,
+        #override-modal::backdrop {
+            transition: none;
+        }
+    }
+</style>
+
+<dialog
+    id="override-modal"
+    x-effect="
+        if (isOpen && !$el.open) $el.showModal();
+        if (!isOpen && $el.open) $el.close();
+    "
+    :class="{ 'is-closing': isClosing }"
+    @cancel.prevent="closeModal()"
+    @close="isOpen = false; isClosing = false;"
+    class="fixed top-1/2 left-1/2 rounded-xl p-0 w-full max-w-sm m-0"
+>
+    <form
+        method="post"
+        id="override-form"
+        class="p-6 space-y-4"
+        hx-swap="outerHTML"
+        x-bind:hx-post="postUrl || null"
+        x-bind:hx-target="targetSelector || null"
+    >
+        {% csrf_token %}
+        <h2
+            id="override-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+            x-text="title || 'Edit shift'"
+        >
+            Edit shift
+        </h2>
+        <p
+            id="override-subtitle"
+            class="text-sm text-gray-500"
+            x-text="subtitle"
+        ></p>
+        <p
+            id="override-error"
+            class="text-sm text-brand-coral empty:hidden"
+            role="alert"
+            x-text="displayError"
+        ></p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Start</label
+                >
+                <input
+                    type="text"
+                    name="start_time"
+                    id="override-start"
+                    placeholder="HH:MM"
+                    x-model="startTime"
+                    @input="serverError = ''"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >End</label
+                >
+                <input
+                    type="text"
+                    name="end_time"
+                    id="override-end"
+                    placeholder="HH:MM"
+                    x-model="endTime"
+                    @input="serverError = ''"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+        </div>
+        <p class="text-xs text-gray-500">
+            Use 24-hour time like <code>09:00</code> or 12-hour like
+            <code>9:00 AM</code>.
+        </p>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee
+        </label>
+        <div class="flex justify-between gap-2 pt-2">
+            <div class="flex gap-2">
+                {% if perms.schedule.delete_shift %}
+                <button
+                    type="submit"
+                    name="action"
+                    value="off"
+                    class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                >
+                    Mark off
+                </button>
+                <button
+                    type="submit"
+                    name="action"
+                    value="reset"
+                    id="override-reset-btn"
+                    x-show="hasOverride"
+                    class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                >
+                    Reset to default
+                </button>
+                {% endif %}
+            </div>
+            <div class="flex gap-2">
+                <button
+                    type="button"
+                    @click="closeModal()"
+                    class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >
+                    Cancel
+                </button>
+                {% if perms.schedule.add_shift %}
+                <button
+                    type="submit"
+                    name="action"
+                    value="save"
+                    :disabled="!canSave"
+                    :class="canSave ? '' : 'opacity-50 cursor-not-allowed'"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                >
+                    Save
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    document.addEventListener("alpine:init", () => {
+        Alpine.data("overrideModal", () => ({
+            isOpen: false,
+            isClosing: false,
+
+            postUrl: "",
+            targetSelector: "",
+
+            title: "",
+            subtitle: "",
+            hasOverride: false,
+
+            startTime: "",
+            endTime: "",
+
+            serverError: "",
+
+            init() {
+                this.$el.addEventListener("htmx:beforeSwap", (e) => {
+                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
+                    if (retarget === "#override-error") {
+                        this.serverError = e.detail.xhr.responseText;
+                        e.detail.shouldSwap = false;
+                    }
+                });
+
+                this.$el.addEventListener("htmx:afterRequest", (e) => {
+                    if (e.detail.elt?.id !== "override-form") return;
+                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
+                    if (retarget === "#override-error") return;
+                    if (e.detail.successful) this.closeModal();
+                });
+            },
+
+            openFromButton(d) {
+                this.postUrl = d.url;
+                this.targetSelector = "#" + d.rowTarget;
+                this.title = d.title;
+                this.subtitle = d.subtitle;
+                this.startTime = d.start || "";
+                this.endTime = d.end || "";
+                this.hasOverride = d.hasOverride === "1";
+                this.serverError = "";
+                this.isClosing = false;
+                this.isOpen = true;
+
+                this.$nextTick(() => {
+                    const form = document.getElementById("override-form");
+                    if (form && window.htmx) htmx.process(form);
+                });
+            },
+
+            closeModal() {
+                if (this.isClosing || !this.isOpen) return;
+                this.isClosing = true;
+                setTimeout(() => {
+                    this.isOpen = false;
+                }, 200);
+            },
+
+            parseTime(str) {
+                const s = (str || "").trim().replace(/\./g, ":").toUpperCase();
+                if (!s) return null;
+
+                let m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
+                if (m) {
+                    let h = parseInt(m[1], 10);
+                    const min = parseInt(m[2], 10);
+                    if (m[3] === "AM") h = h === 12 ? 0 : h;
+                    else if (m[3] === "PM") h = h === 12 ? h : h + 12;
+                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+                    return h * 60 + min;
+                }
+
+                m = s.match(/^(\d{4})$/);
+                if (m) {
+                    const h = parseInt(m[1].slice(0, 2), 10);
+                    const min = parseInt(m[1].slice(2), 10);
+                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+                    return h * 60 + min;
+                }
+
+                m = s.match(/^(\d{1,2})\s*(AM|PM)$/);
+                if (m) {
+                    let h = parseInt(m[1], 10);
+                    if (m[2] === "AM") h = h === 12 ? 0 : h;
+                    else h = h === 12 ? h : h + 12;
+                    if (h < 0 || h > 23) return null;
+                    return h * 60;
+                }
+
+                return null;
+            },
+
+            get startIsEmpty() { return !this.startTime.trim(); },
+            get endIsEmpty() { return !this.endTime.trim(); },
+            get bothEmpty() { return this.startIsEmpty && this.endIsEmpty; },
+            get missingOne() {
+                return (
+                    (this.startIsEmpty && !this.endIsEmpty) ||
+                    (!this.startIsEmpty && this.endIsEmpty)
+                );
+            },
+            get startIsInvalid() {
+                return !this.startIsEmpty && this.parseTime(this.startTime) === null;
+            },
+            get endIsInvalid() {
+                return !this.endIsEmpty && this.parseTime(this.endTime) === null;
+            },
+            get rangeIsInvalid() {
+                if (this.startIsEmpty || this.endIsEmpty) return false;
+                const s = this.parseTime(this.startTime);
+                const e = this.parseTime(this.endTime);
+                if (s === null || e === null) return false;
+                return e <= s;
+            },
+            get clientError() {
+                if (this.missingOne) return "Set both start and end time, or leave both empty.";
+                if (this.startIsInvalid || this.endIsInvalid) return "Use a time like 9:00 AM or 09:00.";
+                if (this.rangeIsInvalid) return "End time must be after start time.";
+                return "";
+            },
+            get displayError() { return this.serverError || this.clientError; },
+            get canSave() {
+                if (this.bothEmpty || this.missingOne) return false;
+                if (this.startIsInvalid || this.endIsInvalid) return false;
+                if (this.rangeIsInvalid) return false;
+                return true;
+            },
+        }));
+    });
+</script>

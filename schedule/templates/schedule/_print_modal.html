@@ -1,0 +1,69 @@
+<dialog
+    id="print-modal"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form method="get" action="{% url 'print_schedule' %}" class="p-6 space-y-4">
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Print schedule
+        </h2>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Week starting
+            </label>
+            <input
+                type="date"
+                name="week"
+                value="{{ week_start|date:'Y-m-d' }}"
+                required
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+                Any date in the target week. Patterns are Monday-aligned.
+            </p>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Weeks to print
+            </label>
+            <select
+                name="weeks"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            >
+                <option value="1" selected>1 week</option>
+                <option value="2">2 weeks</option>
+                <option value="3">3 weeks</option>
+                <option value="4">4 weeks</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1">
+                Colour
+            </label>
+            <select
+                name="color"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            >
+                <option value="color" selected>Colour</option>
+                <option value="bw">Black &amp; white</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">
+                Black &amp; white prints faster and reads clearly on a mono printer.
+            </p>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="document.getElementById('print-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Open print view
+            </button>
+        </div>
+    </form>
+</dialog>

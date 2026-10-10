@@ -1,0 +1,83 @@
+<dialog
+    id="add-employee-modal"
+    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form method="post" action="{% url 'add_employee' %}" class="p-6 space-y-4">
+        {% csrf_token %}
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Add Employee
+        </h2>
+        <div class="grid grid-cols-3 gap-3">
+            <div>
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Title</label
+                >
+                {{ employee_form.title }}
+            </div>
+            <div class="col-span-2">
+                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    >First Name</label
+                >
+                {{ employee_form.first_name }}
+            </div>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Last Name</label
+            >
+            {{ employee_form.last_name }}
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Role</label
+            >
+            {{ employee_form.role }}
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Email</label
+            >
+            {{ employee_form.email }}
+            {% if employee_form.email.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ employee_form.email.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-brand-indigo mb-1"
+                >Start Date</label
+            >
+            {{ employee_form.start_date }}
+            {% if employee_form.start_date.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ employee_form.start_date.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Send welcome email
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="document.getElementById('add-employee-modal').close()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save
+            </button>
+        </div>
+    </form>
+</dialog>

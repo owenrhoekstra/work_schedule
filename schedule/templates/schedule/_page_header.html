@@ -1,0 +1,80 @@
+<div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3 sm:gap-4"
+>
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+        <!-- Title with invisible date picker overlay -->
+        <div
+            class="relative inline-block self-center sm:self-auto sm:order-2"
+        >
+            <h1
+                class="font-display text-2xl font-bold text-brand-indigo whitespace-nowrap pointer-events-none"
+            >
+                {% if is_current_week %} This Week's Schedule {% else %} {{ week_title }} {% endif %}
+            </h1>
+            <input
+                type="date"
+                value="{{ week_start|date:'Y-m-d' }}"
+                aria-label="Jump to week"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                onchange="window.location.href = '{% url 'home' %}?week=' + this.value"
+            />
+        </div>
+
+        <!-- Arrows: below title on mobile, flanking on desktop -->
+        <div class="flex items-center justify-between sm:contents">
+            {% if can_go_back %}
+            <a
+                href="?week={{ prev_week|date:'Y-m-d' }}"
+                aria-label="Previous week"
+                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors sm:order-1"
+            >
+                ←
+            </a>
+            {% else %}
+            <span
+                aria-hidden="true"
+                class="font-display text-2xl leading-none text-gray-300 cursor-not-allowed sm:order-1"
+            >
+                ←
+            </span>
+            {% endif %}
+            <a
+                href="?week={{ next_week|date:'Y-m-d' }}"
+                aria-label="Next week"
+                class="font-display text-2xl leading-none text-brand-indigo hover:text-brand-coral transition-colors sm:order-3"
+            >
+                →
+            </a>
+        </div>
+
+        <!-- Back to current week -->
+        {% if not is_current_week %}
+        <a
+            href="{% url 'home' %}"
+            class="text-sm font-medium text-brand-coral hover:underline whitespace-nowrap text-center sm:text-left sm:order-4"
+        >
+            Back to current week
+        </a>
+        {% endif %}
+    </div>
+    <div class="flex items-center gap-2 self-center sm:self-auto">
+        {% if is_management %}
+        <button
+            onclick="document.getElementById('print-modal').showModal()"
+            class="font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+            style="display: inline-flex; align-items: center; gap: 0.375rem;"
+        >
+            {% include "icons/_printer.html" with class="w-4 h-4" %}
+            Print
+        </button>
+        {% endif %}
+        {% if perms.schedule.add_employee %}
+        <button
+            onclick="document.getElementById('add-employee-modal').showModal()"
+            class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
+        >
+            + Add Employee
+        </button>
+        {% endif %}
+    </div>
+</div>
