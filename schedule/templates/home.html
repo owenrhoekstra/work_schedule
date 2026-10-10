@@ -257,7 +257,12 @@
         id="override-modal"
         class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
     >
-        <form method="post" id="override-form" class="p-6 space-y-4">
+        <form
+            method="post"
+            id="override-form"
+            class="p-6 space-y-4"
+            hx-swap="outerHTML"
+        >
             {% csrf_token %}
             <h2
                 id="override-title"
@@ -266,6 +271,11 @@
                 Edit shift
             </h2>
             <p id="override-subtitle" class="text-sm text-gray-500"></p>
+            <p
+                id="override-error"
+                class="text-sm text-brand-coral empty:hidden"
+                role="alert"
+            ></p>
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label
@@ -418,20 +428,57 @@
 </script>
 {% endif %} {% if perms.schedule.add_shift or perms.schedule.delete_shift %}
 <script>
-    function openOverrideModal(btn) {
-        const d = btn.dataset;
+    (function () {
         const form = document.getElementById("override-form");
-        form.action = d.url;
-        document.getElementById("override-title").textContent = d.title;
-        document.getElementById("override-subtitle").textContent = d.subtitle;
-        document.getElementById("override-start").value = d.start || "";
-        document.getElementById("override-end").value = d.end || "";
-        const resetBtn = document.getElementById("override-reset-btn");
-        if (resetBtn) {
-            resetBtn.style.display = d.hasOverride === "1" ? "" : "none";
-        }
-        document.getElementById("override-modal").showModal();
-    }
+        const modal = document.getElementById("override-modal");
+        const errorSlot = document.getElementById("override-error");
+        if (!form || !modal) return;
+
+        window.openOverrideModal = function (btn) {
+            const d = btn.dataset;
+
+            // Point the form's HTMX post at this cell's override URL
+            // and tell it to swap the whole row when the response
+            // comes back. The URL differs per cell, so it's set on
+            // every open rather than baked into the markup.
+            form.setAttribute("hx-post", d.url);
+            form.setAttribute(
+                "hx-target",
+                "#" + (d.rowTarget || btn.closest("tr").id)
+            );
+            // Clear any stale error from the last time the modal was open.
+            if (errorSlot) errorSlot.textContent = "";
+            // Re-process so HTMX picks up the new attributes.
+            if (window.htmx) htmx.process(form);
+
+            document.getElementById("override-title").textContent = d.title;
+            document.getElementById("override-subtitle").textContent = d.subtitle;
+            document.getElementById("override-start").value = d.start || "";
+            document.getElementById("override-end").value = d.end || "";
+            const resetBtn = document.getElementById("override-reset-btn");
+            if (resetBtn) {
+                resetBtn.style.display = d.hasOverride === "1" ? "" : "none";
+            }
+            modal.showModal();
+        };
+
+        // Close the modal on a successful HTMX swap. The row already
+        // shows the new state, so there's nothing left for the user
+        // to do here.
+        document.body.addEventListener("htmx:afterRequest", function (e) {
+            if (e.detail.elt === form && e.detail.successful) {
+                modal.close();
+            }
+        });
+
+        // The form's native submit is intercepted by HTMX. If HTMX
+        // isn't loaded for some reason, fall back to a normal submit
+        // so the feature still works.
+        form.addEventListener("submit", function (e) {
+            if (!window.htmx) return;
+            e.preventDefault();
+        });
+    })();
 </script>
 {% endif %} {% if perms.schedule.change_shift %}
 <script>

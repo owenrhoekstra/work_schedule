@@ -407,7 +407,7 @@ def _pattern_summary(pattern):
 # ---------------------------------------------------------------------------
 
 
-def _build_schedule_rows(week_start):
+def _build_schedule_rows(week_start, employee_pk=None):
     """Build the render-ready rows and day headers for one week.
 
     Each cell carries a `kind` string used by the print view to style
@@ -424,9 +424,15 @@ def _build_schedule_rows(week_start):
     week and grouped by employee in Python, so the per-employee loop
     below doesn't fire one query per row. For a multi-week print this
     is N queries per week down to 1.
+
+    When `employee_pk` is given, only that employee's row is built.
+    Used by the HTMX override path to render a single updated row
+    without walking the whole roster.
     """
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
     employees = list(_employees_for_week(week_start))
+    if employee_pk is not None:
+        employees = [e for e in employees if e.pk == employee_pk]
     day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
 
     # One query for every override in this week, grouped by employee.
@@ -1282,8 +1288,17 @@ def set_override(request, employee_pk, date_iso):
 
     If `notify` is set and the cell actually changed, sends a shift
     change email to the employee — subject to eligibility rules.
+
+    Responds two ways:
+
+    - Plain POST → redirect back to the schedule (full page reload).
+    - HTMX POST (HX-Request header) → return just the updated row so
+      HTMX can swap it in place. On validation errors, retarget the
+      response into the modal's `#override-error` element so the user
+      sees the message without losing their input.
     """
     action = request.POST.get("action")
+    is_htmx = request.headers.get("HX-Request") == "true"
 
     if action in ("off", "reset"):
         if not request.user.has_perm("schedule.delete_shift"):
@@ -1305,6 +1320,39 @@ def set_override(request, employee_pk, date_iso):
     back = _home_url_for(override_date)
     old_display = _cell_display(employee, override_date)
 
+    def _respond_error(message):
+        """Return the correct shape for a validation error.
+
+        HTMX: retarget into the modal's error slot, leave the row and
+        the modal's inputs alone.
+        Plain POST: flash the message and redirect, as before.
+        """
+        if is_htmx:
+            response = HttpResponse(message)
+            response["HX-Retarget"] = "#override-error"
+            response["HX-Reswap"] = "innerHTML"
+            return response
+        messages.error(request, message)
+        return redirect(back)
+
+    def _respond_success():
+        """Return the correct shape for a successful save.
+
+        HTMX: return the updated row partial for outerHTML swap.
+        Plain POST: redirect back to the schedule.
+        """
+        if is_htmx:
+            week_start = _week_start(override_date)
+            rows, _ = _build_schedule_rows(week_start, employee_pk=employee.pk)
+            if rows:
+                return render(
+                    request,
+                    "schedule/_schedule_row.html",
+                    {"row": rows[0]},
+                )
+            return HttpResponse(status=204)
+        return redirect(back)
+
     if action == "reset":
         ShiftOverride.objects.filter(employee=employee, date=override_date).delete()
     elif action == "off":
@@ -1318,14 +1366,11 @@ def set_override(request, employee_pk, date_iso):
             start = _parse_time(request.POST.get("start_time"))
             end = _parse_time(request.POST.get("end_time"))
         except ValueError as exc:
-            messages.error(request, str(exc))
-            return redirect(back)
+            return _respond_error(str(exc))
         if start is None or end is None:
-            messages.error(request, "Set both start and end time.")
-            return redirect(back)
+            return _respond_error("Set both start and end time.")
         if end <= start:
-            messages.error(request, "End time must be after start time.")
-            return redirect(back)
+            return _respond_error("End time must be after start time.")
         ShiftOverride.objects.update_or_create(
             employee=employee,
             date=override_date,
@@ -1347,12 +1392,16 @@ def set_override(request, employee_pk, date_iso):
                 ],
                 kind="override",
             )
-            if ok:
-                messages.success(request, f"Notification sent to {employee.email}.")
-            else:
-                messages.warning(request, error or "Notification not sent.")
+            # In HTMX mode we skip the flash messages — the page didn't
+            # reload, so a message would sit in the session and appear
+            # unexpectedly on the next full navigation.
+            if not is_htmx:
+                if ok:
+                    messages.success(request, f"Notification sent to {employee.email}.")
+                else:
+                    messages.warning(request, error or "Notification not sent.")
 
-    return redirect(back)
+    return _respond_success()
 
 
 @login_required

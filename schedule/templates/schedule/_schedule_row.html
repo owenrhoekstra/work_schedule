@@ -59,6 +59,7 @@ Straight lift from home.html — no behavior change.
             type="button"
             class="hover:underline {{ cell.state_class }}"
             data-url="{% url 'set_override' row.employee.id cell.date_iso %}"
+            data-row-target="schedule-row-{{ row.employee.pk }}"
             data-title="{{ row.employee }} — {{ cell.day_label }}"
             data-subtitle="{{ cell.date_label }}"
             data-start="{{ cell.start|time:'g:i A' }}"
