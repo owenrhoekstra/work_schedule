@@ -15,6 +15,18 @@ add-employee modal is a plain Django form with no Alpine involvement.
             // same animation as a manual open.
             addEmployeeOpen: !!opts.showAddEmployee,
 
+            // Mirrored from the DOM via @input. Not bound with x-model
+            // — see file header comment for why.
+            addEmployeeFirstName: "",
+            addEmployeeLastName: "",
+            addEmployeeRole: "",
+            addEmployeeEmail: "",
+            addEmployeeStartDate: "",
+
+            // Suppress hints until the user has interacted with the
+            // form. Prevents yelling at them on first open.
+            addEmployeeDirty: false,
+
             // ---- Print modal state ------------------------------------
             printOpen: false,
 
@@ -36,6 +48,22 @@ add-employee modal is a plain Django form with no Alpine involvement.
             dayHasStatus: false,
 
             init() {
+                // Populate add-employee state from the server-rendered
+                // DOM. Runs before Alpine processes any bindings, so
+                // the values we capture are the ones Django wrote.
+                const modal = document.getElementById("add-employee-modal");
+                if (modal) {
+                    const read = (name) => {
+                        const el = modal.querySelector(`[name="${name}"]`);
+                        return el ? el.value : "";
+                    };
+                    this.addEmployeeFirstName = read("first_name");
+                    this.addEmployeeLastName = read("last_name");
+                    this.addEmployeeRole = read("role");
+                    this.addEmployeeEmail = read("email");
+                    this.addEmployeeStartDate = read("start_date");
+                }
+
                 this.$el.addEventListener("htmx:beforeSwap", (e) => {
                     const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
                     if (retarget === "#override-error") {
@@ -50,6 +78,50 @@ add-employee modal is a plain Django form with no Alpine involvement.
                     if (retarget === "#override-error") return;
                     if (e.detail.successful) this.overrideOpen = false;
                 });
+            },
+
+            // ---- Add-employee tooltips --------------------------------
+            //
+            // Neutral guidance, not error messages. Server-side errors
+            // still surface under the field in red via Django's form.
+            // These only appear once the user has interacted with the
+            // form so nothing is visible on first open.
+
+            get addEmployeeFirstNameHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeFirstName.trim()) return "Please enter a first name";
+                return "";
+            },
+            get addEmployeeLastNameHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeLastName.trim()) return "Please enter a last name";
+                return "";
+            },
+            get addEmployeeRoleHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeRole) return "Please select a role";
+                return "";
+            },
+            get addEmployeeEmailHint() {
+                if (!this.addEmployeeDirty) return "";
+                const v = this.addEmployeeEmail.trim();
+                if (!v) return "Please enter an email";
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return "That doesn't look like an email";
+                return "";
+            },
+            get addEmployeeStartDateHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeStartDate) return "Please pick a start date";
+                return "";
+            },
+            get addEmployeeCanSave() {
+                return (
+                    this.addEmployeeFirstName.trim() !== "" &&
+                    this.addEmployeeLastName.trim() !== "" &&
+                    this.addEmployeeRole !== "" &&
+                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.addEmployeeEmail.trim()) &&
+                    this.addEmployeeStartDate !== ""
+                );
             },
 
             openOverride(d) {

@@ -13,7 +13,12 @@
     @close="addEmployeeOpen = false"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
-    <form method="post" action="{% url 'add_employee' %}" class="p-6 space-y-4">
+    <form
+        method="post"
+        action="{% url 'add_employee' %}"
+        @input="addEmployeeDirty = true"
+        class="p-6 space-y-4"
+    >
         {% csrf_token %}
         <h2 class="font-display text-lg font-bold text-brand-indigo">
             Add Employee
@@ -31,10 +36,22 @@
                 {% endif %}
             </div>
             <div class="col-span-2">
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
-                    >First Name</label
-                >
-                {{ employee_form.first_name }}
+                <div class="flex items-baseline justify-between mb-1">
+                    <label class="block text-sm font-medium text-brand-indigo"
+                        >First Name</label
+                    >
+                    <span
+                        class="text-xs italic text-gray-400"
+                        x-text="addEmployeeFirstNameHint"
+                    ></span>
+                </div>
+                <input
+                    type="text"
+                    name="first_name"
+                    value="{{ employee_form.first_name.value|default:'' }}"
+                    @input="addEmployeeFirstName = $event.target.value"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
                 {% if employee_form.first_name.errors %}
                 <p class="text-sm text-brand-coral mt-1">
                     {{ employee_form.first_name.errors.0 }}
@@ -43,10 +60,22 @@
             </div>
         </div>
         <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1"
-                >Last Name</label
-            >
-            {{ employee_form.last_name }}
+            <div class="flex items-baseline justify-between mb-1">
+                <label class="block text-sm font-medium text-brand-indigo"
+                    >Last Name</label
+                >
+                <span
+                    class="text-xs italic text-gray-400"
+                    x-text="addEmployeeLastNameHint"
+                ></span>
+            </div>
+            <input
+                type="text"
+                name="last_name"
+                value="{{ employee_form.last_name.value|default:'' }}"
+                @input="addEmployeeLastName = $event.target.value"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
             {% if employee_form.last_name.errors %}
             <p class="text-sm text-brand-coral mt-1">
                 {{ employee_form.last_name.errors.0 }}
@@ -54,10 +83,27 @@
             {% endif %}
         </div>
         <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1"
-                >Role</label
+            <div class="flex items-baseline justify-between mb-1">
+                <label class="block text-sm font-medium text-brand-indigo"
+                    >Role</label
+                >
+                <span
+                    class="text-xs italic text-gray-400"
+                    x-text="addEmployeeRoleHint"
+                ></span>
+            </div>
+            <select
+                name="role"
+                @input="addEmployeeRole = $event.target.value"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             >
-            {{ employee_form.role }}
+                <option value="">Please select a role</option>
+                {% for value, label in employee_form.role.field.choices %}
+                {% if value %}
+                <option value="{{ value }}" {% if value|stringformat:"s" == employee_form.role.value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+                {% endif %}
+                {% endfor %}
+            </select>
             {% if employee_form.role.errors %}
             <p class="text-sm text-brand-coral mt-1">
                 {{ employee_form.role.errors.0 }}
@@ -65,10 +111,22 @@
             {% endif %}
         </div>
         <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1"
-                >Email</label
-            >
-            {{ employee_form.email }}
+            <div class="flex items-baseline justify-between mb-1">
+                <label class="block text-sm font-medium text-brand-indigo"
+                    >Email</label
+                >
+                <span
+                    class="text-xs italic text-gray-400"
+                    x-text="addEmployeeEmailHint"
+                ></span>
+            </div>
+            <input
+                type="email"
+                name="email"
+                value="{{ employee_form.email.value|default:'' }}"
+                @input="addEmployeeEmail = $event.target.value"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+            />
             {% if employee_form.email.errors %}
             <p class="text-sm text-brand-coral mt-1">
                 {{ employee_form.email.errors.0 }}
@@ -76,10 +134,18 @@
             {% endif %}
         </div>
         <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1"
-                >Start Date</label
-            >
-            {{ employee_form.start_date }}
+            <div class="flex items-baseline justify-between mb-1">
+                <label class="block text-sm font-medium text-brand-indigo"
+                    >Start Date</label
+                >
+                <span
+                    class="text-xs italic text-gray-400"
+                    x-text="addEmployeeStartDateHint"
+                ></span>
+            </div>
+            <div @input="addEmployeeStartDate = $event.target.value">
+                {{ employee_form.start_date }}
+            </div>
             {% if employee_form.start_date.errors %}
             <p class="text-sm text-brand-coral mt-1">
                 {{ employee_form.start_date.errors.0 }}
@@ -105,6 +171,8 @@
             </button>
             <button
                 type="submit"
+                :disabled="!addEmployeeCanSave"
+                :class="addEmployeeCanSave ? '' : 'opacity-50 cursor-not-allowed'"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
             >
                 Save
