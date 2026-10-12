@@ -7,6 +7,65 @@
         <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
         <title>{% block title %}{{ app_name }}{% endblock %}</title>
         {% tailwind_css %}
+        <style>
+            /*
+             * Shared enter/exit transitions for <dialog> modals.
+             *
+             * Usage: <dialog class="modal-animate ..."> with x-data that
+             * tracks `closing` and an x-effect that calls showModal() /
+             * close() around a 200ms window.
+             *
+             * `@starting-style` provides the "from" state for the enter
+             * animation. Browsers without support fall back to an
+             * instant appear, which is fine.
+             *
+             * Centering is done here via transform so the scale
+             * animation composes cleanly with the position.
+             */
+            dialog.modal-animate {
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                transition: opacity 200ms ease-out, transform 200ms ease-out;
+            }
+            dialog.modal-animate[open] {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            @starting-style {
+                dialog.modal-animate[open] {
+                    opacity: 0;
+                    transform: translate(-50%, -50%) scale(0.96);
+                }
+            }
+            dialog.modal-animate.is-closing {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.96);
+            }
+
+            dialog.modal-animate::backdrop {
+                background: rgba(0, 0, 0, 0);
+                transition: background 200ms ease-out;
+            }
+            dialog.modal-animate[open]::backdrop {
+                background: rgba(0, 0, 0, 0.4);
+            }
+            @starting-style {
+                dialog.modal-animate[open]::backdrop {
+                    background: rgba(0, 0, 0, 0);
+                }
+            }
+            dialog.modal-animate.is-closing::backdrop {
+                background: rgba(0, 0, 0, 0);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                dialog.modal-animate,
+                dialog.modal-animate::backdrop {
+                    transition: none;
+                }
+            }
+        </style>
         {% comment %}
           Both scripts load with `defer` so parsing isn't blocked and
           the DOM is fully available when they run. Order matters:

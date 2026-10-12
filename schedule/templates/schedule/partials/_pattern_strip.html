@@ -1,0 +1,50 @@
+<div
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
+    x-data="patternStrip()"
+>
+    <div class="p-4 border-b border-gray-200">
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Pattern history
+        </h2>
+        <p class="text-xs text-gray-500 mt-1">
+            Jump between this employee's saved patterns. The highlighted
+            chip is the one currently loaded in the form below. Use the
+            arrows to page through newer and older patterns.
+        </p>
+    </div>
+    <div class="flex items-center gap-2 p-2" id="pattern-strip">
+        <button
+            type="button"
+            @click="goNewer()"
+            :disabled="!canGoNewer"
+            class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-brand-indigo hover:bg-brand-offwhite disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            aria-label="Newer patterns"
+        >
+            ←
+        </button>
+        <div class="flex-1 flex items-center justify-center gap-2 overflow-hidden">
+            {% for entry in patterns_recent %}
+            <a
+                href="{% url 'employee_defaults' employee.pk %}?pattern={{ entry.pattern.pk }}"
+                x-show="isVisible({{ forloop.counter0 }})"
+                style="display: none;"
+                class="pattern-chip flex-1 min-w-0 text-center px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors whitespace-nowrap {% if entry.is_current %}border-brand-coral text-brand-coral bg-brand-coral/5{% else %}border-gray-300 text-gray-700 hover:border-brand-coral/60 hover:text-brand-coral{% endif %}"
+                data-index="{{ forloop.counter0 }}"
+                {% if entry.is_current %}data-current="1"{% endif %}
+            >
+                {{ entry.pattern.effective_from|date:"M j, Y" }}
+                {% if entry.pattern.cycle_weeks > 1 %}· {{ entry.pattern.cycle_weeks }}w{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        <button
+            type="button"
+            @click="goOlder()"
+            :disabled="!canGoOlder"
+            class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-brand-indigo hover:bg-brand-offwhite disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            aria-label="Older patterns"
+        >
+            →
+        </button>
+    </div>
+</div>

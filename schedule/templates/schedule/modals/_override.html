@@ -1,59 +1,17 @@
-<style>
-    /* Override modal enter/exit transitions. Browsers without
-       @starting-style fall back to an instant appear. */
-    #override-modal {
-        transform: translate(-50%, -50%);
-        transition: opacity 200ms ease-out, transform 200ms ease-out;
-    }
-    #override-modal[open] {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
-    @starting-style {
-        #override-modal[open] {
-            opacity: 0;
-            transform: translate(-50%, -50%) scale(0.96);
-        }
-    }
-    #override-modal.is-closing {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.96);
-    }
-
-    #override-modal::backdrop {
-        background: rgba(0, 0, 0, 0);
-        transition: background 200ms ease-out;
-    }
-    #override-modal[open]::backdrop {
-        background: rgba(0, 0, 0, 0.4);
-    }
-    @starting-style {
-        #override-modal[open]::backdrop {
-            background: rgba(0, 0, 0, 0);
-        }
-    }
-    #override-modal.is-closing::backdrop {
-        background: rgba(0, 0, 0, 0);
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        #override-modal,
-        #override-modal::backdrop {
-            transition: none;
-        }
-    }
-</style>
-
 <dialog
     id="override-modal"
+    x-data="{ closing: false }"
     x-effect="
         if (isOpen && !$el.open) $el.showModal();
-        if (!isOpen && $el.open) $el.close();
+        if (!isOpen && $el.open && !closing) {
+            closing = true;
+            setTimeout(() => { $el.close(); closing = false; }, 200);
+        }
     "
-    :class="{ 'is-closing': isClosing }"
-    @cancel.prevent="closeModal()"
-    @close="isOpen = false; isClosing = false;"
-    class="fixed top-1/2 left-1/2 rounded-xl p-0 w-full max-w-sm m-0"
+    :class="{ 'is-closing': closing }"
+    @cancel.prevent="isOpen = false"
+    @close="isOpen = false"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form
         method="post"
@@ -151,7 +109,7 @@
             <div class="flex gap-2">
                 <button
                     type="button"
-                    @click="closeModal()"
+                    @click="isOpen = false"
                     class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
                 >
                     Cancel
@@ -177,7 +135,6 @@
     document.addEventListener("alpine:init", () => {
         Alpine.data("overrideModal", () => ({
             isOpen: false,
-            isClosing: false,
 
             postUrl: "",
             targetSelector: "",
@@ -204,7 +161,7 @@
                     if (e.detail.elt?.id !== "override-form") return;
                     const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
                     if (retarget === "#override-error") return;
-                    if (e.detail.successful) this.closeModal();
+                    if (e.detail.successful) this.isOpen = false;
                 });
             },
 
@@ -217,21 +174,12 @@
                 this.endTime = d.end || "";
                 this.hasOverride = d.hasOverride === "1";
                 this.serverError = "";
-                this.isClosing = false;
                 this.isOpen = true;
 
                 this.$nextTick(() => {
                     const form = document.getElementById("override-form");
                     if (form && window.htmx) htmx.process(form);
                 });
-            },
-
-            closeModal() {
-                if (this.isClosing || !this.isOpen) return;
-                this.isClosing = true;
-                setTimeout(() => {
-                    this.isOpen = false;
-                }, 200);
             },
 
             parseTime(str) {
