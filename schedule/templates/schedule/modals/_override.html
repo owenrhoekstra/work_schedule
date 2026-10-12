@@ -20,6 +20,7 @@
         hx-swap="outerHTML"
         x-bind:hx-post="postUrl || null"
         x-bind:hx-target="targetSelector || null"
+        @input="overrideDirty = true"
     >
         {% csrf_token %}
         <h2
@@ -42,9 +43,13 @@
         ></p>
         <div class="grid grid-cols-2 gap-3">
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
-                    >Start</label
-                >
+                <div class="flex items-baseline justify-between mb-1">
+                    <label class="text-sm font-medium text-brand-indigo">Start</label>
+                    <span
+                        class="text-xs italic text-gray-400 ml-2 truncate"
+                        x-text="startHint"
+                    ></span>
+                </div>
                 <input
                     type="text"
                     name="start_time"
@@ -56,9 +61,13 @@
                 />
             </div>
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
-                    >End</label
-                >
+                <div class="flex items-baseline justify-between mb-1">
+                    <label class="text-sm font-medium text-brand-indigo">End</label>
+                    <span
+                        class="text-xs italic text-gray-400 ml-2 truncate"
+                        x-text="endHint"
+                    ></span>
+                </div>
                 <input
                     type="text"
                     name="end_time"

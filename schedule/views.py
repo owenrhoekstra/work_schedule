@@ -1347,8 +1347,12 @@ def set_override(request, employee_pk, date_iso):
             if rows:
                 return render(
                     request,
-                    "schedule/_schedule_row.html",
-                    {"row": rows[0]},
+                    "schedule/partials/_schedule_row.html",
+                    {
+                        "row": rows[0],
+                        "is_management": request.user.is_superuser
+                        or request.user.groups.filter(name="Management").exists(),
+                    },
                 )
             return HttpResponse(status=204)
         return redirect(back)
