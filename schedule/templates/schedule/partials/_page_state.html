@@ -74,10 +74,18 @@ add-employee modal is a plain Django form with no Alpine involvement.
                 });
 
                 this.$el.addEventListener("htmx:afterRequest", (e) => {
-                    if (e.detail.elt?.id !== "override-form") return;
-                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
-                    if (retarget === "#override-error") return;
-                    if (e.detail.successful) this.overrideOpen = false;
+                    const id = e.detail.elt?.id;
+
+                    if (id === "override-form") {
+                        const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
+                        if (retarget === "#override-error") return;
+                        if (e.detail.successful) this.overrideOpen = false;
+                        return;
+                    }
+
+                    if (id === "day-form") {
+                        if (e.detail.successful) this.dayOpen = false;
+                    }
                 });
             },
 
@@ -150,6 +158,15 @@ add-employee modal is a plain Django form with no Alpine involvement.
                 this.daySubtitle = d.dateLabel;
                 this.dayHasStatus = !!d.currentStatus;
                 this.dayOpen = true;
+
+                // htmx reads hx-post when it processes a form, not at
+                // request time. Alpine updates the bound attribute on
+                // the next microtask; re-process after that so htmx
+                // sees the new URL before the user submits.
+                this.$nextTick(() => {
+                    const form = document.getElementById("day-form");
+                    if (form && window.htmx) htmx.process(form);
+                });
             },
 
             parseTime(str) {

@@ -89,6 +89,20 @@
         {% endcomment %}
         <script src="{% static 'js/htmx.min.js' %}" defer></script>
         <script src="{% static 'js/alpine.min.js' %}" defer></script>
+        <script>
+            /*
+             * Re-initialize Alpine on content HTMX has swapped into the
+             * DOM. HTMX parses and inserts new HTML, but Alpine doesn't
+             * know about the new elements until initTree walks them.
+             * Safe to call repeatedly — Alpine skips elements that are
+             * already initialized.
+             */
+            document.addEventListener("htmx:afterSwap", (e) => {
+                if (!window.Alpine) return;
+                const root = e.detail.elt || e.detail.target;
+                if (root) Alpine.initTree(root);
+            });
+        </script>
     </head>
     <body
         class="min-h-screen bg-brand-offwhite font-sans"

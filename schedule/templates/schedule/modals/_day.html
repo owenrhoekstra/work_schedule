@@ -18,6 +18,9 @@
         method="post"
         id="day-form"
         :action="dayPostUrl"
+        x-bind:hx-post="dayPostUrl || null"
+        hx-target="#schedule-table"
+        hx-swap="outerHTML"
         class="p-6 space-y-4"
     >
         {% csrf_token %}

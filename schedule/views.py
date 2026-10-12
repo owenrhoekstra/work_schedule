@@ -1426,6 +1426,23 @@ def set_day_override(request, date_iso):
     elif action in ("closed", "holiday"):
         DayOverride.objects.update_or_create(date=d, defaults={"status": action})
 
+    # HTMX path: return the updated schedule table so the swap replaces
+    # every affected cell for this date. A day override affects the
+    # whole column plus the day header, so swapping the table is
+    # simpler and cheaper to reason about than tracking N+1 out-of-
+    # band swaps.
+    if request.headers.get("HX-Request") == "true":
+        week_start = _week_start(d)
+        rows, day_headers = _build_schedule_rows(week_start)
+        return render(
+            request,
+            "schedule/partials/_schedule_table.html",
+            {
+                "rows": rows,
+                "day_headers": day_headers,
+            },
+        )
+
     return redirect(back)
 
 
