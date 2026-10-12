@@ -71,7 +71,7 @@ This partial is a straight lift from home.html — no behavior change.
         </thead>
         <tbody>
             {% for row in rows %}
-                {% include "schedule/_schedule_row.html" with row=row %}
+                {% include "schedule/partials/_schedule_row.html" with row=row %}
             {% endfor %}
         </tbody>
     </table>

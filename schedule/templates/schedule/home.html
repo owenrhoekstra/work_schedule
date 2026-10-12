@@ -4,25 +4,25 @@
     class="max-w-7xl mx-auto px-6 py-10"
     {% if perms.schedule.add_shift or perms.schedule.delete_shift %}x-data="overrideModal()"{% endif %}
 >
-    {% include "schedule/_page_header.html" %}
+    {% include "schedule/partials/_page_header.html" %}
 
     {% if perms.schedule.add_employee %}
-        {% include "schedule/_add_employee_modal.html" %}
+        {% include "schedule/modals/_add_employee.html" %}
     {% endif %}
 
     {% if is_management %}
-        {% include "schedule/_print_modal.html" %}
+        {% include "schedule/modals/_print.html" %}
     {% endif %}
 
     {% if perms.schedule.add_shift or perms.schedule.delete_shift %}
-        {% include "schedule/_override_modal.html" %}
+        {% include "schedule/modals/_override.html" %}
     {% endif %}
 
     {% if perms.schedule.change_shift %}
-        {% include "schedule/_day_modal.html" %}
+        {% include "schedule/modals/_day.html" %}
     {% endif %}
 
-    {% include "schedule/_schedule_table.html" %}
+    {% include "schedule/partials/_schedule_table.html" %}
 </div>
 
 {% if show_add_employee_modal %}

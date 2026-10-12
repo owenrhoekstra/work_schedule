@@ -603,7 +603,7 @@ def home(request):
     context = _home_context(week_start)
     if request.user.has_perm("schedule.add_employee"):
         context["employee_form"] = EmployeeForm()
-    return render(request, "home.html", context)
+    return render(request, "schedule/home.html", context)
 
 
 @login_required
@@ -662,7 +662,7 @@ def add_employee(request):
     context = _home_context(_week_start(timezone.localdate()))
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
-    return render(request, "home.html", context)
+    return render(request, "schedule/home.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -760,7 +760,7 @@ def _render_employee_page(
 
     return render(
         request,
-        "employee_defaults.html",
+        "schedule/employee_defaults.html",
         {
             "employee": employee,
             "identity_form": identity_form or EmployeeForm(instance=employee),
@@ -1457,7 +1457,7 @@ def settings_home(request):
         "roles": Role.objects.all(),
         "today": today,
     }
-    return render(request, "settings.html", context)
+    return render(request, "schedule/settings.html", context)
 
 
 @login_required
