@@ -696,7 +696,7 @@ def add_employee(request):
     context = _home_context(_week_start(timezone.localdate()))
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
-    return render(request, "home.html", context)
+    return render(request, "schedule/home.html", context)
 
 
 # ---------------------------------------------------------------------------
