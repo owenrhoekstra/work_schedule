@@ -9,6 +9,20 @@
         {% tailwind_css %}
         <style>
             /*
+             * Restore the native date picker.
+             *
+             * Tailwind's preflight (via @tailwindcss/forms, if installed)
+             * applies `appearance: none` to [type='date'], which strips
+             * Safari's segmented picker and calendar icon, leaving a
+             * plain text box. We override it here. The rule is placed
+             * after {% tailwind_css %} so on equal specificity it wins.
+             */
+            input[type="date"] {
+                -webkit-appearance: auto;
+                appearance: auto;
+            }
+
+            /*
              * Shared enter/exit transitions for <dialog> modals.
              *
              * Usage: <dialog class="modal-animate ..."> with x-data that

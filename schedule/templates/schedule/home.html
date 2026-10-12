@@ -2,8 +2,12 @@
 {% block content %}
 <div
     class="max-w-7xl mx-auto px-6 py-10"
-    {% if perms.schedule.add_shift or perms.schedule.delete_shift %}x-data="overrideModal()"{% endif %}
+    x-data="schedulePage({
+        showAddEmployee: {{ show_add_employee_modal|yesno:'true,false' }},
+    })"
 >
+    {% include "schedule/partials/_page_state.html" %}
+
     {% include "schedule/partials/_page_header.html" %}
 
     {% if perms.schedule.add_employee %}
@@ -24,9 +28,4 @@
 
     {% include "schedule/partials/_schedule_table.html" %}
 </div>
-
-{% if show_add_employee_modal %}
-<script>
-    document.getElementById("add-employee-modal").showModal();
-</script>
-{% endif %} {% endblock %}
+{% endblock %}

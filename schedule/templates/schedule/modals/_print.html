@@ -1,6 +1,17 @@
 <dialog
     id="print-modal"
-    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+    x-data="{ closing: false }"
+    x-effect="
+        if (printOpen && !$el.open) $el.showModal();
+        if (!printOpen && $el.open && !closing) {
+            closing = true;
+            setTimeout(() => { $el.close(); closing = false; }, 200);
+        }
+    "
+    :class="{ 'is-closing': closing }"
+    @cancel.prevent="printOpen = false"
+    @close="printOpen = false"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form method="get" action="{% url 'print_schedule' %}" class="p-6 space-y-4">
         <h2 class="font-display text-lg font-bold text-brand-indigo">
@@ -53,7 +64,7 @@
         <div class="flex justify-end gap-2 pt-2">
             <button
                 type="button"
-                onclick="document.getElementById('print-modal').close()"
+                @click="printOpen = false"
                 class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
             >
                 Cancel

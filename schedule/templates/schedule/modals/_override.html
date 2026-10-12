@@ -2,15 +2,15 @@
     id="override-modal"
     x-data="{ closing: false }"
     x-effect="
-        if (isOpen && !$el.open) $el.showModal();
-        if (!isOpen && $el.open && !closing) {
+        if (overrideOpen && !$el.open) $el.showModal();
+        if (!overrideOpen && $el.open && !closing) {
             closing = true;
             setTimeout(() => { $el.close(); closing = false; }, 200);
         }
     "
     :class="{ 'is-closing': closing }"
-    @cancel.prevent="isOpen = false"
-    @close="isOpen = false"
+    @cancel.prevent="overrideOpen = false"
+    @close="overrideOpen = false"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form
@@ -109,7 +109,7 @@
             <div class="flex gap-2">
                 <button
                     type="button"
-                    @click="isOpen = false"
+                    @click="overrideOpen = false"
                     class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
                 >
                     Cancel
@@ -130,127 +130,3 @@
         </div>
     </form>
 </dialog>
-
-<script>
-    document.addEventListener("alpine:init", () => {
-        Alpine.data("overrideModal", () => ({
-            isOpen: false,
-
-            postUrl: "",
-            targetSelector: "",
-
-            title: "",
-            subtitle: "",
-            hasOverride: false,
-
-            startTime: "",
-            endTime: "",
-
-            serverError: "",
-
-            init() {
-                this.$el.addEventListener("htmx:beforeSwap", (e) => {
-                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
-                    if (retarget === "#override-error") {
-                        this.serverError = e.detail.xhr.responseText;
-                        e.detail.shouldSwap = false;
-                    }
-                });
-
-                this.$el.addEventListener("htmx:afterRequest", (e) => {
-                    if (e.detail.elt?.id !== "override-form") return;
-                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
-                    if (retarget === "#override-error") return;
-                    if (e.detail.successful) this.isOpen = false;
-                });
-            },
-
-            openFromButton(d) {
-                this.postUrl = d.url;
-                this.targetSelector = "#" + d.rowTarget;
-                this.title = d.title;
-                this.subtitle = d.subtitle;
-                this.startTime = d.start || "";
-                this.endTime = d.end || "";
-                this.hasOverride = d.hasOverride === "1";
-                this.serverError = "";
-                this.isOpen = true;
-
-                this.$nextTick(() => {
-                    const form = document.getElementById("override-form");
-                    if (form && window.htmx) htmx.process(form);
-                });
-            },
-
-            parseTime(str) {
-                const s = (str || "").trim().replace(/\./g, ":").toUpperCase();
-                if (!s) return null;
-
-                let m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
-                if (m) {
-                    let h = parseInt(m[1], 10);
-                    const min = parseInt(m[2], 10);
-                    if (m[3] === "AM") h = h === 12 ? 0 : h;
-                    else if (m[3] === "PM") h = h === 12 ? h : h + 12;
-                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
-                    return h * 60 + min;
-                }
-
-                m = s.match(/^(\d{4})$/);
-                if (m) {
-                    const h = parseInt(m[1].slice(0, 2), 10);
-                    const min = parseInt(m[1].slice(2), 10);
-                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
-                    return h * 60 + min;
-                }
-
-                m = s.match(/^(\d{1,2})\s*(AM|PM)$/);
-                if (m) {
-                    let h = parseInt(m[1], 10);
-                    if (m[2] === "AM") h = h === 12 ? 0 : h;
-                    else h = h === 12 ? h : h + 12;
-                    if (h < 0 || h > 23) return null;
-                    return h * 60;
-                }
-
-                return null;
-            },
-
-            get startIsEmpty() { return !this.startTime.trim(); },
-            get endIsEmpty() { return !this.endTime.trim(); },
-            get bothEmpty() { return this.startIsEmpty && this.endIsEmpty; },
-            get missingOne() {
-                return (
-                    (this.startIsEmpty && !this.endIsEmpty) ||
-                    (!this.startIsEmpty && this.endIsEmpty)
-                );
-            },
-            get startIsInvalid() {
-                return !this.startIsEmpty && this.parseTime(this.startTime) === null;
-            },
-            get endIsInvalid() {
-                return !this.endIsEmpty && this.parseTime(this.endTime) === null;
-            },
-            get rangeIsInvalid() {
-                if (this.startIsEmpty || this.endIsEmpty) return false;
-                const s = this.parseTime(this.startTime);
-                const e = this.parseTime(this.endTime);
-                if (s === null || e === null) return false;
-                return e <= s;
-            },
-            get clientError() {
-                if (this.missingOne) return "Set both start and end time, or leave both empty.";
-                if (this.startIsInvalid || this.endIsInvalid) return "Use a time like 9:00 AM or 09:00.";
-                if (this.rangeIsInvalid) return "End time must be after start time.";
-                return "";
-            },
-            get displayError() { return this.serverError || this.clientError; },
-            get canSave() {
-                if (this.bothEmpty || this.missingOne) return false;
-                if (this.startIsInvalid || this.endIsInvalid) return false;
-                if (this.rangeIsInvalid) return false;
-                return true;
-            },
-        }));
-    });
-</script>

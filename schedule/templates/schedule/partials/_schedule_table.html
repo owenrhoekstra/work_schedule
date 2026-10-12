@@ -35,7 +35,7 @@ This partial is a straight lift from home.html — no behavior change.
                         data-date="{{ header.date_iso }}"
                         data-date-label="{{ header.label }}, {{ header.date_label }}"
                         data-current-status="{{ header.day_status }}"
-                        onclick="openDayModal(this)"
+                        @click="openDay($el.dataset)"
                     >
                         <div>{{ header.label }}</div>
                         <div class="text-xs font-normal opacity-80">
