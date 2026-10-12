@@ -35,6 +35,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Min, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -615,12 +616,15 @@ def add_employee(request):
     linked to another Employee, link it automatically. Optionally send
     a welcome email when `notify` is set.
 
-    The Employee save runs in a transaction so the post-save signals
-    (which create the initial EmploymentPeriod and ShiftPattern) commit
-    or roll back together with the Employee row. Without this, a
-    failure in either signal could leave an Employee without a
-    pattern — a state the defaults handler refuses to edit.
+    Responds two ways:
+
+    - Plain POST → redirect to home (full page reload).
+    - HTMX POST → swap the schedule table on success; swap just the
+      form back into the modal on validation failure so the dialog
+      stays open with errors and the user's input preserved.
     """
+    is_htmx = request.headers.get("HX-Request") == "true"
+
     if request.method == "POST":
         form = EmployeeForm(request.POST)
         if form.is_valid():
@@ -638,8 +642,6 @@ def add_employee(request):
 
                 employee.save()
 
-            # Notification runs outside the transaction so an email
-            # failure doesn't roll back a successfully created employee.
             if request.POST.get("notify"):
                 ok, error = notifications.send_welcome_email(employee)
                 if ok:
@@ -655,14 +657,46 @@ def add_employee(request):
             else:
                 messages.success(request, f"{employee} added.")
 
+            if is_htmx:
+                week_start = _week_start(timezone.localdate())
+                rows, day_headers = _build_schedule_rows(week_start)
+
+                # Render the table (primary swap target) and the
+                # messages container (out-of-band swap). HTMX takes
+                # the first non-oob element as the primary response
+                # and processes the rest as oob swaps.
+                table_html = render_to_string(
+                    "schedule/partials/_schedule_table.html",
+                    {"rows": rows, "day_headers": day_headers},
+                    request=request,
+                )
+                messages_html = render_to_string(
+                    "partials/_messages.html",
+                    {"hx_oob": True},
+                    request=request,
+                )
+                return HttpResponse(table_html + messages_html)
+
             return redirect("home")
+
+        # Form invalid. Re-render just the form and swap it into the
+        # dialog as innerHTML so the modal stays open.
+        if is_htmx:
+            response = render(
+                request,
+                "schedule/modals/_add_employee_form.html",
+                {"employee_form": form},
+            )
+            response["HX-Retarget"] = "#add-employee-modal"
+            response["HX-Reswap"] = "innerHTML"
+            return response
     else:
         form = EmployeeForm()
 
     context = _home_context(_week_start(timezone.localdate()))
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
-    return render(request, "schedule/home.html", context)
+    return render(request, "home.html", context)
 
 
 # ---------------------------------------------------------------------------

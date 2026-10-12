@@ -85,6 +85,48 @@ add-employee modal is a plain Django form with no Alpine involvement.
 
                     if (id === "day-form") {
                         if (e.detail.successful) this.dayOpen = false;
+                        return;
+                    }
+
+                    if (id === "add-employee-form") {
+                        const retarget = e.detail.xhr?.getResponseHeader(
+                            "HX-Retarget"
+                        );
+
+                        // Failure: server retargets the form back into
+                        // the modal. Reset dirty so tooltips don't
+                        // double up with the red server errors.
+                        if (retarget === "#add-employee-modal") {
+                            this.addEmployeeDirty = false;
+                            return;
+                        }
+
+                        if (!e.detail.successful) return;
+
+                        // Success: reset the form to a clean slate so
+                        // the next open doesn't show stale errors or
+                        // values. The table has already been swapped
+                        // by HTMX.
+                        const modal = document.getElementById("add-employee-modal");
+                        if (modal) {
+                            modal
+                                .querySelectorAll("p.text-brand-coral")
+                                .forEach((p) => p.remove());
+                            modal.querySelectorAll("[name]").forEach((el) => {
+                                if (el.type === "checkbox") {
+                                    el.checked = false;
+                                } else {
+                                    el.value = "";
+                                }
+                            });
+                        }
+                        this.addEmployeeFirstName = "";
+                        this.addEmployeeLastName = "";
+                        this.addEmployeeRole = "";
+                        this.addEmployeeEmail = "";
+                        this.addEmployeeStartDate = "";
+                        this.addEmployeeDirty = false;
+                        this.addEmployeeOpen = false;
                     }
                 });
             },
@@ -167,6 +209,29 @@ add-employee modal is a plain Django form with no Alpine involvement.
                     const form = document.getElementById("day-form");
                     if (form && window.htmx) htmx.process(form);
                 });
+            },
+
+            openAddEmployee() {
+                // Django renders today's date into the field on page
+                // load, but we clear the form after each successful
+                // save and the modal isn't re-rendered. Force the
+                // date back to today on every open from the header
+                // button. The auto-open path (server error re-render)
+                // does not call this — it wants the submitted values.
+                const d = new Date();
+                const today = `${d.getFullYear()}-${String(
+                    d.getMonth() + 1
+                ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+                const modal = document.getElementById("add-employee-modal");
+                if (modal) {
+                    const dateInput = modal.querySelector('[name="start_date"]');
+                    if (dateInput) dateInput.value = today;
+                }
+
+                this.addEmployeeStartDate = today;
+                this.addEmployeeDirty = false;
+                this.addEmployeeOpen = true;
             },
 
             parseTime(str) {

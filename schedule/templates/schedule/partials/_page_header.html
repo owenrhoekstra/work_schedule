@@ -70,7 +70,7 @@
         {% endif %}
         {% if perms.schedule.add_employee %}
         <button
-            @click="addEmployeeOpen = true"
+            @click="openAddEmployee()"
             class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
         >
             + Add Employee

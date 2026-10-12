@@ -1,0 +1,22 @@
+{% comment %}
+Flash messages container. Rendered on every page load from base.html,
+and re-rendered on HTMX actions that set messages, using out-of-band
+swap. The container is always present in the DOM (even when empty) so
+the oob swap has a target.
+
+When `hx_oob` is truthy, the fragment tags itself for out-of-band
+replacement of #messages.
+{% endcomment %}
+<div
+    id="messages"
+    class="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6{% if not messages %} empty:hidden{% endif %}"
+    {% if hx_oob %}hx-swap-oob="outerHTML:#messages"{% endif %}
+>
+    {% for message in messages %}
+    <div
+        class="rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 mb-2 text-sm {% if message.tags == 'error' %}bg-brand-coral/10 border border-brand-coral/30 text-brand-coral{% else %}bg-brand-indigo/5 border border-brand-indigo/20 text-brand-indigo{% endif %}"
+    >
+        {{ message }}
+    </div>
+    {% endfor %}
+</div>

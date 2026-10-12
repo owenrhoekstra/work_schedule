@@ -166,17 +166,7 @@
         </nav>
 
         <main>
-            {% if messages %}
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
-                {% for message in messages %}
-                <div
-                    class="rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 mb-2 text-sm {% if message.tags == 'error' %}bg-brand-coral/10 border border-brand-coral/30 text-brand-coral{% else %}bg-brand-indigo/5 border border-brand-indigo/20 text-brand-indigo{% endif %}"
-                >
-                    {{ message }}
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
+            {% include "partials/_messages.html" %}
             {% block content %}{% endblock %}
         </main>
     </body>
