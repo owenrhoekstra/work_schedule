@@ -95,7 +95,9 @@ class HomeScheduleRenderingTests(TestCase):
         new_recep = make_employee(
             email="new@x.com", role=self.role_b, start_date=date(2024, 1, 1)
         )
-        mgr = make_employee(email="m@x.com", role=self.role_a)
+        mgr = make_employee(
+            email="m@x.com", role=self.role_a, start_date=self.early_start
+        )
 
         resp = self.client.get(reverse("home"), {"week": self.mon.isoformat()})
         employees = [row["employee"] for row in resp.context["rows"]]
