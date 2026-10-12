@@ -17,13 +17,17 @@
         <div class="p-6 space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                    <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    <label
+                        for="{{ identity_form.title.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1"
                         >Title</label
                     >
                     {{ identity_form.title }}
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="block text-sm font-medium text-brand-indigo mb-1"
+                    <label
+                        for="{{ identity_form.first_name.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1"
                         >First Name</label
                     >
                     {{ identity_form.first_name }}
@@ -36,7 +40,9 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                <label
+                    for="{{ identity_form.last_name.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
                     >Last Name</label
                 >
                 {{ identity_form.last_name }}
@@ -48,7 +54,9 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                <label
+                    for="{{ identity_form.role.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
                     >Role</label
                 >
                 {{ identity_form.role }}
@@ -60,7 +68,9 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                <label
+                    for="{{ identity_form.email.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
                     >Email</label
                 >
                 {{ identity_form.email }}
@@ -72,7 +82,9 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-brand-indigo mb-1"
+                <label
+                    for="{{ identity_form.start_date.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
                     >Start Date</label
                 >
                 {{ identity_form.start_date }}

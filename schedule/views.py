@@ -811,6 +811,7 @@ def _render_employee_page(
             "editing_pattern": edit_pattern,
             "pattern_is_earliest": pattern_is_earliest,
             "this_week_start_iso": this_week_start.isoformat(),
+            "today_iso": timezone.localdate().isoformat(),
         },
     )
 

@@ -9,7 +9,7 @@ replacement of #messages.
 {% endcomment %}
 <div
     id="messages"
-    class="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6{% if not messages %} empty:hidden{% endif %}"
+    class="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6{% if not messages %} hidden{% endif %}"
     {% if hx_oob %}hx-swap-oob="outerHTML:#messages"{% endif %}
 >
     {% for message in messages %}

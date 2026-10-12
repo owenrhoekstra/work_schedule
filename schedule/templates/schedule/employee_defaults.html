@@ -4,6 +4,7 @@
     x-data="employeeDefaults({
         firstTimeSetup: {{ first_time_setup|yesno:'true,false' }},
         thisWeekStart: '{{ this_week_start_iso }}',
+        todayIso: '{{ today_iso }}',
         initialCycleWeeks: {{ pattern.cycle_weeks|default:1 }},
     })"
 >
@@ -48,14 +49,6 @@
     {% endif %}
 </div>
 
-{% if can_change %}
-    {% if is_management %}
-        {% include "schedule/modals/_deactivate.html" %}
-    {% endif %}
-    {% include "schedule/modals/_retroactive_confirm.html" %}
-    {% include "schedule/modals/_delete_pattern_confirm.html" %}
-{% endif %}
-
 <script>
     document.addEventListener("alpine:init", () => {
         Alpine.data("employeeDefaults", (opts) => ({
@@ -66,6 +59,7 @@
 
             // ---- Deactivate modal -----------------------------------
             deactivateDate: "",
+            todayIso: opts.todayIso,
 
             // ---- Retroactive confirm --------------------------------
             retroactiveDate: "",
@@ -93,18 +87,15 @@
             // ---- Deactivate -----------------------------------------
 
             openDeactivate() {
-                this.deactivateDate = new Date().toISOString().slice(0, 10);
+                // Use the server's notion of today so a manager in
+                // Toronto at 11pm doesn't get tomorrow's date from
+                // toISOString()'s UTC conversion.
+                this.deactivateDate = this.todayIso;
                 this.deactivateOpen = true;
             },
 
             // ---- Retroactive confirm --------------------------------
 
-            /**
-             * Intercept the defaults form submit. If the effective
-             * date lands in the past and this isn't first-time setup,
-             * show the confirm dialog instead of submitting. The
-             * Confirm button sets `retroactiveConfirmed` and re-submits.
-             */
             handleDefaultsSubmit(e) {
                 if (this.retroactiveConfirmed) return;
                 if (this.firstTimeSetup) return;
@@ -118,10 +109,7 @@
             },
 
             confirmRetroactive() {
-                // Set the Alpine flag so handleDefaultsSubmit's guard passes on
-                // the re-submit below.
                 this.retroactiveConfirmed = true;
-                // Also set the hidden form field so the server sees the flag.
                 const hidden = document.getElementById("retroactive-confirmed");
                 if (hidden) hidden.value = "1";
                 this.retroactiveOpen = false;
