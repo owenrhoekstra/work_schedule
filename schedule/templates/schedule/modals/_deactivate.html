@@ -24,11 +24,15 @@
         </h2>
         <p class="text-sm text-gray-500">{{ employee }}</p>
         <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1">
+            <label
+                for="deactivate-last-day"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+            >
                 Last day
             </label>
             <input
                 type="date"
+                id="deactivate-last-day"
                 name="last_day"
                 x-model="deactivateDate"
                 required

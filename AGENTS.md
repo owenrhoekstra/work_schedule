@@ -317,9 +317,15 @@ final authority.
 Even though we're not building it, a few habits preserve the ability to
 add it later:
 
-- **Every new domain model gets a `company` FK when it's created.**
-  Even if there's only one company for now, retrofitting a foreign key
-  to existing data is the expensive part.
+- **Design new domain models with a company FK in mind.** Do not add
+  the FK until a `Company` model exists — nothing to point at. But when
+  you design a model's schema, ask "does this belong to a company or
+  a team in the future?" and shape the fields so adding the FK later
+  is a one-column migration, not a restructure.
+- **When the Company model does land**, every existing domain model
+  gets the FK in the same migration batch. Retrofitting a foreign key
+  to populated tables is the expensive part; doing it while they're
+  small is cheap.
 - **New queryset helpers take a `company` parameter in their signature.**
   Even if the caller passes a single default company today.
 - **`app_name` resolution is centralized** in
