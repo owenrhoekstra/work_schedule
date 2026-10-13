@@ -1,0 +1,31 @@
+{% extends "base.html" %} {% block title %} Home - {{ app_name }} {% endblock %}
+{% block content %}
+<div
+    class="max-w-7xl mx-auto px-6 py-10"
+    x-data="schedulePage({
+        showAddEmployee: {{ show_add_employee_modal|yesno:'true,false' }},
+    })"
+>
+    {% include "schedule/partials/_page_state.html" %}
+
+    {% include "schedule/partials/_page_header.html" %}
+
+    {% if perms.schedule.add_employee %}
+        {% include "schedule/modals/_add_employee.html" %}
+    {% endif %}
+
+    {% if is_management %}
+        {% include "schedule/modals/_print.html" %}
+    {% endif %}
+
+    {% if perms.schedule.add_shift or perms.schedule.delete_shift %}
+        {% include "schedule/modals/_override.html" %}
+    {% endif %}
+
+    {% if perms.schedule.change_shift %}
+        {% include "schedule/modals/_day.html" %}
+    {% endif %}
+
+    {% include "schedule/partials/_schedule_table.html" %}
+</div>
+{% endblock %}

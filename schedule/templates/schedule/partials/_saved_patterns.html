@@ -1,0 +1,101 @@
+<section
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+>
+    <div class="p-4 border-b border-gray-200">
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Saved patterns
+        </h2>
+        <p class="text-xs text-gray-500 mt-1">
+            Oldest first. Click a date to expand its hours. Edit loads
+            a pattern into the form above. Only the earliest pattern
+            can't be deleted — it anchors the schedule from the
+            employee's start date.
+        </p>
+    </div>
+    {% for entry in patterns %}
+    <div class="border-t border-gray-200" x-data="{ open: false }">
+        <div class="flex items-center justify-between p-3 gap-3">
+            <button
+                type="button"
+                @click="open = !open"
+                class="flex items-center gap-2 flex-1 text-left"
+            >
+                <span
+                    class="text-gray-400 text-sm transition-transform"
+                    :style="open ? 'transform: rotate(90deg)' : ''"
+                    >▸</span
+                >
+                <span class="text-brand-indigo">
+                    Effective from
+                    {{ entry.pattern.effective_from|date:"F j, Y" }}
+                    {% if entry.pattern.cycle_weeks > 1 %}· {{ entry.pattern.cycle_weeks }}w cycle{% endif %}
+                </span>
+            </button>
+            {% if can_change or can_delete %}
+            <div class="flex items-center gap-3 shrink-0">
+                {% if can_change %}
+                <a
+                    href="{% url 'employee_defaults' employee.pk %}?pattern={{ entry.pattern.pk }}"
+                    class="text-sm font-medium text-brand-coral hover:underline"
+                    >Edit</a
+                >
+                {% endif %}
+                {% if can_delete and not entry.is_earliest %}
+                <form
+                    method="post"
+                    action="{% url 'delete_pattern' entry.pattern.pk %}"
+                    @submit.prevent="requestDelete($el, $el.dataset.patternDate)"
+                    data-pattern-date="{{ entry.pattern.effective_from|date:'F j, Y' }}"
+                    class="inline"
+                >
+                    {% csrf_token %}
+                    <button
+                        type="submit"
+                        class="text-sm font-medium text-gray-500 hover:text-brand-coral"
+                    >
+                        Delete
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        <div
+            x-show="open"
+            style="display: none;"
+            class="px-4 pb-4 pt-1 bg-brand-offwhite/20"
+        >
+            {% for week in entry.weeks %}
+            {% if entry.weeks|length > 1 %}
+            <div
+                class="text-xs font-medium text-gray-500 uppercase tracking-wide mt-3 mb-1"
+            >
+                Week {{ week.label }}
+            </div>
+            {% endif %}
+            <table class="min-w-full border-collapse">
+                <tbody>
+                    {% for row in week.rows %}
+                    <tr class="border-t border-gray-200 first:border-t-0">
+                        <td class="py-1.5 pr-4 text-sm text-gray-700 w-32">
+                            {{ row.label }}
+                        </td>
+                        <td class="py-1.5 text-sm">
+                            {% if row.shift %}
+                            <span class="text-brand-indigo"
+                                >{{ row.shift.start_time|time:'g:i A' }} –
+                                {{ row.shift.end_time|time:'g:i A' }}</span
+                            >
+                            {% else %}
+                            <span class="text-gray-400">OFF</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</section>

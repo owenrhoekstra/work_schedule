@@ -16,7 +16,7 @@
   },
   {
     "label": "pre-commit checks",
-    "command": "echo '── Django check ──' && uv run python manage.py check && echo '── Test suite ──' && uv run python manage.py test && echo '── Lockfile check ──' && uv lock --check && echo '── All checks passed ──'",
+    "command": "uv run python manage.py collectstatic --noinput && echo '── Django check ──' && uv run python manage.py check && echo '── Test suite ──' && uv run python manage.py test && echo '── Lockfile check ──' && uv lock --check && echo '── All checks passed ──'",
   },
   {
     "label": "create superuser",

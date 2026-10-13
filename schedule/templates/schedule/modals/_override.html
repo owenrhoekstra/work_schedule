@@ -1,0 +1,141 @@
+<dialog
+    id="override-modal"
+    x-data="{ closing: false }"
+    x-effect="
+        if (overrideOpen && !$el.open) $el.showModal();
+        if (!overrideOpen && $el.open && !closing) {
+            closing = true;
+            setTimeout(() => { $el.close(); closing = false; }, 200);
+        }
+    "
+    :class="{ 'is-closing': closing }"
+    @cancel.prevent="overrideOpen = false"
+    @close="overrideOpen = false"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <form
+        method="post"
+        id="override-form"
+        class="p-6 space-y-4"
+        hx-swap="outerHTML"
+        x-bind:hx-post="postUrl || null"
+        x-bind:hx-target="targetSelector || null"
+        @input="overrideDirty = true"
+    >
+        {% csrf_token %}
+        <h2
+            id="override-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+            x-text="title || 'Edit shift'"
+        >
+            Edit shift
+        </h2>
+        <p
+            id="override-subtitle"
+            class="text-sm text-gray-500"
+            x-text="subtitle"
+        ></p>
+        <p
+            id="override-error"
+            class="text-sm text-brand-coral empty:hidden"
+            role="alert"
+            x-text="displayError"
+        ></p>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <div class="flex items-baseline justify-between mb-1">
+                    <label class="text-sm font-medium text-brand-indigo">Start</label>
+                    <span
+                        class="text-xs italic text-gray-400 ml-2 truncate"
+                        x-text="startHint"
+                    ></span>
+                </div>
+                <input
+                    type="text"
+                    name="start_time"
+                    id="override-start"
+                    placeholder="HH:MM"
+                    x-model="startTime"
+                    @input="serverError = ''"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+            <div>
+                <div class="flex items-baseline justify-between mb-1">
+                    <label class="text-sm font-medium text-brand-indigo">End</label>
+                    <span
+                        class="text-xs italic text-gray-400 ml-2 truncate"
+                        x-text="endHint"
+                    ></span>
+                </div>
+                <input
+                    type="text"
+                    name="end_time"
+                    id="override-end"
+                    placeholder="HH:MM"
+                    x-model="endTime"
+                    @input="serverError = ''"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                />
+            </div>
+        </div>
+        <p class="text-xs text-gray-500">
+            Use 24-hour time like <code>09:00</code> or 12-hour like
+            <code>9:00 AM</code>.
+        </p>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee
+        </label>
+        <div class="flex justify-between gap-2 pt-2">
+            <div class="flex gap-2">
+                {% if perms.schedule.delete_shift %}
+                <button
+                    type="submit"
+                    name="action"
+                    value="off"
+                    class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                >
+                    Mark off
+                </button>
+                <button
+                    type="submit"
+                    name="action"
+                    value="reset"
+                    id="override-reset-btn"
+                    x-show="hasOverride"
+                    class="text-sm font-medium text-brand-coral hover:underline px-2 py-2"
+                >
+                    Reset to default
+                </button>
+                {% endif %}
+            </div>
+            <div class="flex gap-2">
+                <button
+                    type="button"
+                    @click="overrideOpen = false"
+                    class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >
+                    Cancel
+                </button>
+                {% if perms.schedule.add_shift %}
+                <button
+                    type="submit"
+                    name="action"
+                    value="save"
+                    :disabled="!canSave"
+                    :class="canSave ? '' : 'opacity-50 cursor-not-allowed'"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                >
+                    Save
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</dialog>

@@ -7,8 +7,107 @@
         <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
         <title>{% block title %}{{ app_name }}{% endblock %}</title>
         {% tailwind_css %}
+        <style>
+            /*
+             * Restore the native date picker.
+             *
+             * Tailwind's preflight (via @tailwindcss/forms, if installed)
+             * applies `appearance: none` to [type='date'], which strips
+             * Safari's segmented picker and calendar icon, leaving a
+             * plain text box. We override it here. The rule is placed
+             * after {% tailwind_css %} so on equal specificity it wins.
+             */
+            input[type="date"] {
+                -webkit-appearance: auto;
+                appearance: auto;
+            }
+
+            /*
+             * Shared enter/exit transitions for <dialog> modals.
+             *
+             * Usage: <dialog class="modal-animate ..."> with x-data that
+             * tracks `closing` and an x-effect that calls showModal() /
+             * close() around a 200ms window.
+             *
+             * `@starting-style` provides the "from" state for the enter
+             * animation. Browsers without support fall back to an
+             * instant appear, which is fine.
+             *
+             * Centering is done here via transform so the scale
+             * animation composes cleanly with the position.
+             */
+            dialog.modal-animate {
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                transition: opacity 200ms ease-out, transform 200ms ease-out;
+            }
+            dialog.modal-animate[open] {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            @starting-style {
+                dialog.modal-animate[open] {
+                    opacity: 0;
+                    transform: translate(-50%, -50%) scale(0.96);
+                }
+            }
+            dialog.modal-animate.is-closing {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.96);
+            }
+
+            dialog.modal-animate::backdrop {
+                background: rgba(0, 0, 0, 0);
+                transition: background 200ms ease-out;
+            }
+            dialog.modal-animate[open]::backdrop {
+                background: rgba(0, 0, 0, 0.4);
+            }
+            @starting-style {
+                dialog.modal-animate[open]::backdrop {
+                    background: rgba(0, 0, 0, 0);
+                }
+            }
+            dialog.modal-animate.is-closing::backdrop {
+                background: rgba(0, 0, 0, 0);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                dialog.modal-animate,
+                dialog.modal-animate::backdrop {
+                    transition: none;
+                }
+            }
+        </style>
+        {% comment %}
+          Both scripts load with `defer` so parsing isn't blocked and
+          the DOM is fully available when they run. Order matters:
+          Alpine must not run before the DOM is ready. `defer`
+          guarantees script order and post-DOM execution, so putting
+          HTMX first is fine.
+        {% endcomment %}
+        <script src="{% static 'js/htmx.min.js' %}" defer></script>
+        <script src="{% static 'js/alpine.min.js' %}" defer></script>
+        <script>
+            /*
+             * Re-initialize Alpine on content HTMX has swapped into the
+             * DOM. HTMX parses and inserts new HTML, but Alpine doesn't
+             * know about the new elements until initTree walks them.
+             * Safe to call repeatedly — Alpine skips elements that are
+             * already initialized.
+             */
+            document.addEventListener("htmx:afterSwap", (e) => {
+                if (!window.Alpine) return;
+                const root = e.detail.elt || e.detail.target;
+                if (root) Alpine.initTree(root);
+            });
+        </script>
     </head>
-    <body class="min-h-screen bg-brand-offwhite font-sans">
+    <body
+        class="min-h-screen bg-brand-offwhite font-sans"
+        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+    >
         <nav
             class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 sm:py-4 bg-brand-indigo"
         >
@@ -67,17 +166,7 @@
         </nav>
 
         <main>
-            {% if messages %}
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
-                {% for message in messages %}
-                <div
-                    class="rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 mb-2 text-sm {% if message.tags == 'error' %}bg-brand-coral/10 border border-brand-coral/30 text-brand-coral{% else %}bg-brand-indigo/5 border border-brand-indigo/20 text-brand-indigo{% endif %}"
-                >
-                    {{ message }}
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
+            {% include "partials/_messages.html" %}
             {% block content %}{% endblock %}
         </main>
     </body>

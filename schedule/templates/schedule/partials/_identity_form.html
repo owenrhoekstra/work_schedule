@@ -1,0 +1,126 @@
+<details
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
+    {% if identity_form.errors %}open{% endif %}
+>
+    <summary
+        class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
+    >
+        <h2 class="font-display text-lg font-bold text-brand-indigo">
+            Employee Details
+        </h2>
+        <span class="text-gray-400 text-sm">▾</span>
+    </summary>
+    <form method="post" class="border-t border-gray-200">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="identity" />
+
+        <div class="p-6 space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                    <label
+                        for="{{ identity_form.title.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >Title</label
+                    >
+                    {{ identity_form.title }}
+                </div>
+                <div class="sm:col-span-2">
+                    <label
+                        for="{{ identity_form.first_name.id_for_label }}"
+                        class="block text-sm font-medium text-brand-indigo mb-1"
+                        >First Name</label
+                    >
+                    {{ identity_form.first_name }}
+                    {% if identity_form.first_name.errors %}
+                    <p class="text-sm text-brand-coral mt-1">
+                        {{ identity_form.first_name.errors.0 }}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label
+                    for="{{ identity_form.last_name.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Last Name</label
+                >
+                {{ identity_form.last_name }}
+                {% if identity_form.last_name.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ identity_form.last_name.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label
+                    for="{{ identity_form.role.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Role</label
+                >
+                {{ identity_form.role }}
+                {% if identity_form.role.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ identity_form.role.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label
+                    for="{{ identity_form.email.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Email</label
+                >
+                {{ identity_form.email }}
+                {% if identity_form.email.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ identity_form.email.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label
+                    for="{{ identity_form.start_date.id_for_label }}"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Start Date</label
+                >
+                {{ identity_form.start_date }}
+                <p class="text-xs text-gray-500 mt-1">
+                    First day on the schedule. Can be in the past.
+                </p>
+                {% if identity_form.start_date.errors %}
+                <p class="text-sm text-brand-coral mt-1">
+                    {{ identity_form.start_date.errors.0 }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if can_change %}
+        <div
+            class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
+        >
+            {% if is_management %}
+            <button
+                type="button"
+                @click="openDeactivate()"
+                class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
+            >
+                Set Last Day
+            </button>
+            {% else %}
+            <span></span>
+            {% endif %}
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save details
+            </button>
+        </div>
+        {% endif %}
+    </form>
+</details>

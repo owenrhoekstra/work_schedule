@@ -17,3 +17,5 @@ htmlcov/
 *.log
 checklists.txt
 scripts/
+TODO.md
+AGENTS.md

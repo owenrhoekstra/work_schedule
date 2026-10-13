@@ -35,6 +35,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Min, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -407,7 +408,7 @@ def _pattern_summary(pattern):
 # ---------------------------------------------------------------------------
 
 
-def _build_schedule_rows(week_start):
+def _build_schedule_rows(week_start, employee_pk=None):
     """Build the render-ready rows and day headers for one week.
 
     Each cell carries a `kind` string used by the print view to style
@@ -424,9 +425,15 @@ def _build_schedule_rows(week_start):
     week and grouped by employee in Python, so the per-employee loop
     below doesn't fire one query per row. For a multi-week print this
     is N queries per week down to 1.
+
+    When `employee_pk` is given, only that employee's row is built.
+    Used by the HTMX override path to render a single updated row
+    without walking the whole roster.
     """
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
     employees = list(_employees_for_week(week_start))
+    if employee_pk is not None:
+        employees = [e for e in employees if e.pk == employee_pk]
     day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
 
     # One query for every override in this week, grouped by employee.
@@ -597,7 +604,7 @@ def home(request):
     context = _home_context(week_start)
     if request.user.has_perm("schedule.add_employee"):
         context["employee_form"] = EmployeeForm()
-    return render(request, "home.html", context)
+    return render(request, "schedule/home.html", context)
 
 
 @login_required
@@ -609,12 +616,34 @@ def add_employee(request):
     linked to another Employee, link it automatically. Optionally send
     a welcome email when `notify` is set.
 
-    The Employee save runs in a transaction so the post-save signals
-    (which create the initial EmploymentPeriod and ShiftPattern) commit
-    or roll back together with the Employee row. Without this, a
-    failure in either signal could leave an Employee without a
-    pattern — a state the defaults handler refuses to edit.
+    Responds two ways:
+
+    - Plain POST → redirect to home (full page reload).
+    - HTMX POST → swap the schedule table on success; swap just the
+      form back into the modal on validation failure so the dialog
+      stays open with errors and the user's input preserved.
+
+    The user's viewed week is preserved across both response paths.
+    The form carries a hidden `week` field seeded from the schedule
+    table on the current page, so an employee added while viewing a
+    past or future week lands back on that same week rather than
+    jumping to the current one.
     """
+    is_htmx = request.headers.get("HX-Request") == "true"
+
+    # Resolve the viewed week from the hidden form field, falling back
+    # to the current week if missing or unparseable.
+    viewed_week = None
+    if request.method == "POST":
+        raw_week = request.POST.get("week", "").strip()
+        if raw_week:
+            try:
+                viewed_week = _week_start(date.fromisoformat(raw_week))
+            except ValueError:
+                viewed_week = None
+    if viewed_week is None:
+        viewed_week = _week_start(timezone.localdate())
+
     if request.method == "POST":
         form = EmployeeForm(request.POST)
         if form.is_valid():
@@ -632,8 +661,6 @@ def add_employee(request):
 
                 employee.save()
 
-            # Notification runs outside the transaction so an email
-            # failure doesn't roll back a successfully created employee.
             if request.POST.get("notify"):
                 ok, error = notifications.send_welcome_email(employee)
                 if ok:
@@ -649,14 +676,50 @@ def add_employee(request):
             else:
                 messages.success(request, f"{employee} added.")
 
-            return redirect("home")
+            if is_htmx:
+                rows, day_headers = _build_schedule_rows(viewed_week)
+
+                # Render the table (primary swap target) and the
+                # messages container (out-of-band swap). HTMX takes
+                # the first non-oob element as the primary response
+                # and processes the rest as oob swaps.
+                table_html = render_to_string(
+                    "schedule/partials/_schedule_table.html",
+                    {"rows": rows, "day_headers": day_headers},
+                    request=request,
+                )
+                messages_html = render_to_string(
+                    "partials/_messages.html",
+                    {"hx_oob": True},
+                    request=request,
+                )
+                return HttpResponse(table_html + messages_html)
+
+            # Plain POST: land on the same week the user was viewing.
+            return redirect(f"{reverse('home')}?week={viewed_week.isoformat()}")
+
+        # Form invalid. HTMX path: swap the form back into the dialog
+        # as innerHTML so the modal stays open. Pass week_start so the
+        # hidden field survives the round trip.
+        if is_htmx:
+            response = render(
+                request,
+                "schedule/modals/_add_employee_form.html",
+                {
+                    "employee_form": form,
+                    "week_start": viewed_week,
+                },
+            )
+            response["HX-Retarget"] = "#add-employee-modal"
+            response["HX-Reswap"] = "innerHTML"
+            return response
     else:
         form = EmployeeForm()
 
-    context = _home_context(_week_start(timezone.localdate()))
+    context = _home_context(viewed_week)
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
-    return render(request, "home.html", context)
+    return render(request, "schedule/home.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +817,7 @@ def _render_employee_page(
 
     return render(
         request,
-        "employee_defaults.html",
+        "schedule/employee_defaults.html",
         {
             "employee": employee,
             "identity_form": identity_form or EmployeeForm(instance=employee),
@@ -771,6 +834,7 @@ def _render_employee_page(
             "editing_pattern": edit_pattern,
             "pattern_is_earliest": pattern_is_earliest,
             "this_week_start_iso": this_week_start.isoformat(),
+            "today_iso": timezone.localdate().isoformat(),
         },
     )
 
@@ -900,7 +964,7 @@ def _handle_defaults_post(request, employee):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = date.fromisoformat(raw_effective)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         messages.error(request, "Please pick a valid effective date.")
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
@@ -1028,7 +1092,7 @@ def _handle_defaults_post(request, employee):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", target.cycle_weeks))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = target.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1282,8 +1346,17 @@ def set_override(request, employee_pk, date_iso):
 
     If `notify` is set and the cell actually changed, sends a shift
     change email to the employee — subject to eligibility rules.
+
+    Responds two ways:
+
+    - Plain POST → redirect back to the schedule (full page reload).
+    - HTMX POST (HX-Request header) → return just the updated row so
+      HTMX can swap it in place. On validation errors, retarget the
+      response into the modal's `#override-error` element so the user
+      sees the message without losing their input.
     """
     action = request.POST.get("action")
+    is_htmx = request.headers.get("HX-Request") == "true"
 
     if action in ("off", "reset"):
         if not request.user.has_perm("schedule.delete_shift"):
@@ -1305,6 +1378,52 @@ def set_override(request, employee_pk, date_iso):
     back = _home_url_for(override_date)
     old_display = _cell_display(employee, override_date)
 
+    def _respond_error(message):
+        """Return the correct shape for a validation error.
+
+        HTMX: retarget into the modal's error slot, leave the row and
+        the modal's inputs alone.
+        Plain POST: flash the message and redirect, as before.
+        """
+        if is_htmx:
+            response = HttpResponse(message)
+            response["HX-Retarget"] = "#override-error"
+            response["HX-Reswap"] = "innerHTML"
+            return response
+        messages.error(request, message)
+        return redirect(back)
+
+    def _respond_success():
+        """Return the correct shape for a successful save.
+
+        HTMX: return the updated row partial for outerHTML swap, plus
+        the messages container as an out-of-band swap so any flash
+        message set during the save (e.g. notification-send failures)
+        surfaces without a page reload.
+        Plain POST: redirect back to the schedule.
+        """
+        if is_htmx:
+            week_start = _week_start(override_date)
+            rows, _ = _build_schedule_rows(week_start, employee_pk=employee.pk)
+            if rows:
+                row_html = render_to_string(
+                    "schedule/partials/_schedule_row.html",
+                    {
+                        "row": rows[0],
+                        "is_management": request.user.is_superuser
+                        or request.user.groups.filter(name="Management").exists(),
+                    },
+                    request=request,
+                )
+                messages_html = render_to_string(
+                    "partials/_messages.html",
+                    {"hx_oob": True},
+                    request=request,
+                )
+                return HttpResponse(row_html + messages_html)
+            return HttpResponse(status=204)
+        return redirect(back)
+
     if action == "reset":
         ShiftOverride.objects.filter(employee=employee, date=override_date).delete()
     elif action == "off":
@@ -1318,14 +1437,11 @@ def set_override(request, employee_pk, date_iso):
             start = _parse_time(request.POST.get("start_time"))
             end = _parse_time(request.POST.get("end_time"))
         except ValueError as exc:
-            messages.error(request, str(exc))
-            return redirect(back)
+            return _respond_error(str(exc))
         if start is None or end is None:
-            messages.error(request, "Set both start and end time.")
-            return redirect(back)
+            return _respond_error("Set both start and end time.")
         if end <= start:
-            messages.error(request, "End time must be after start time.")
-            return redirect(back)
+            return _respond_error("End time must be after start time.")
         ShiftOverride.objects.update_or_create(
             employee=employee,
             date=override_date,
@@ -1347,12 +1463,15 @@ def set_override(request, employee_pk, date_iso):
                 ],
                 kind="override",
             )
+            # Set the message regardless of HTMX. On HTMX responses
+            # the message rides back on an out-of-band swap of the
+            # messages container (see _respond_success).
             if ok:
                 messages.success(request, f"Notification sent to {employee.email}.")
             else:
                 messages.warning(request, error or "Notification not sent.")
 
-    return redirect(back)
+    return _respond_success()
 
 
 @login_required
@@ -1372,6 +1491,23 @@ def set_day_override(request, date_iso):
         DayOverride.objects.filter(date=d).delete()
     elif action in ("closed", "holiday"):
         DayOverride.objects.update_or_create(date=d, defaults={"status": action})
+
+    # HTMX path: return the updated schedule table so the swap replaces
+    # every affected cell for this date. A day override affects the
+    # whole column plus the day header, so swapping the table is
+    # simpler and cheaper to reason about than tracking N+1 out-of-
+    # band swaps.
+    if request.headers.get("HX-Request") == "true":
+        week_start = _week_start(d)
+        rows, day_headers = _build_schedule_rows(week_start)
+        return render(
+            request,
+            "schedule/partials/_schedule_table.html",
+            {
+                "rows": rows,
+                "day_headers": day_headers,
+            },
+        )
 
     return redirect(back)
 
@@ -1408,7 +1544,7 @@ def settings_home(request):
         "roles": Role.objects.all(),
         "today": today,
     }
-    return render(request, "settings.html", context)
+    return render(request, "schedule/settings.html", context)
 
 
 @login_required
@@ -1670,7 +1806,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 

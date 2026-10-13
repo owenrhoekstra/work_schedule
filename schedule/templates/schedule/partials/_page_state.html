@@ -1,0 +1,326 @@
+{% comment %}
+Alpine component registration for the home page.
+
+Included once from home.html. Registers the `schedulePage` component
+that owns state for the override and day-override modals. The
+add-employee modal is a plain Django form with no Alpine involvement.
+{% endcomment %}
+<script>
+    document.addEventListener("alpine:init", () => {
+        Alpine.data("schedulePage", (opts = {}) => ({
+            // ---- Add-employee modal state -----------------------------
+            // Set from the server when the form fails validation and
+            // the page re-renders with show_add_employee_modal=True.
+            // Alpine opens the modal on init in that case, with the
+            // same animation as a manual open.
+            addEmployeeOpen: !!opts.showAddEmployee,
+
+            // Mirrored from the DOM via @input. Not bound with x-model
+            // — see file header comment for why.
+            addEmployeeFirstName: "",
+            addEmployeeLastName: "",
+            addEmployeeRole: "",
+            addEmployeeEmail: "",
+            addEmployeeStartDate: "",
+
+            // Suppress hints until the user has interacted with the
+            // form. Prevents yelling at them on first open.
+            addEmployeeDirty: false,
+
+            // ---- Print modal state ------------------------------------
+            printOpen: false,
+
+            // ---- Override modal state ---------------------------------
+            overrideOpen: false,
+            overrideDirty: false,
+            postUrl: "",
+            targetSelector: "",
+            title: "",
+            subtitle: "",
+            hasOverride: false,
+            startTime: "",
+            endTime: "",
+            serverError: "",
+
+            // ---- Day-override modal state -----------------------------
+            dayOpen: false,
+            dayPostUrl: "",
+            daySubtitle: "",
+            dayHasStatus: false,
+
+            init() {
+                // Populate add-employee state from the server-rendered
+                // DOM. Runs before Alpine processes any bindings, so
+                // the values we capture are the ones Django wrote.
+                const modal = document.getElementById("add-employee-modal");
+                if (modal) {
+                    const read = (name) => {
+                        const el = modal.querySelector(`[name="${name}"]`);
+                        return el ? el.value : "";
+                    };
+                    this.addEmployeeFirstName = read("first_name");
+                    this.addEmployeeLastName = read("last_name");
+                    this.addEmployeeRole = read("role");
+                    this.addEmployeeEmail = read("email");
+                    this.addEmployeeStartDate = read("start_date");
+                }
+
+                this.$el.addEventListener("htmx:beforeSwap", (e) => {
+                    const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
+                    if (retarget === "#override-error") {
+                        this.serverError = e.detail.xhr.responseText;
+                        e.detail.shouldSwap = false;
+                    }
+                });
+
+                this.$el.addEventListener("htmx:afterRequest", (e) => {
+                    const id = e.detail.elt?.id;
+
+                    if (id === "override-form") {
+                        const retarget = e.detail.xhr?.getResponseHeader("HX-Retarget");
+                        if (retarget === "#override-error") return;
+                        if (e.detail.successful) this.overrideOpen = false;
+                        return;
+                    }
+
+                    if (id === "day-form") {
+                        if (e.detail.successful) this.dayOpen = false;
+                        return;
+                    }
+
+                    if (id === "add-employee-form") {
+                        const retarget = e.detail.xhr?.getResponseHeader(
+                            "HX-Retarget"
+                        );
+
+                        // Failure: server retargets the form back into
+                        // the modal. Reset dirty so tooltips don't
+                        // double up with the red server errors.
+                        if (retarget === "#add-employee-modal") {
+                            this.addEmployeeDirty = false;
+                            return;
+                        }
+
+                        if (!e.detail.successful) return;
+
+                        // Success: reset the form to a clean slate so
+                        // the next open doesn't show stale errors or
+                        // values. The table has already been swapped
+                        // by HTMX.
+                        //
+                        // Hidden inputs are left alone. The CSRF token
+                        // and the week field both live in hidden
+                        // inputs; clearing them would break the next
+                        // submission (403 on missing token) and lose
+                        // the viewed week.
+                        const modal = document.getElementById("add-employee-modal");
+                        if (modal) {
+                            modal
+                                .querySelectorAll("p.text-brand-coral")
+                                .forEach((p) => p.remove());
+                            modal.querySelectorAll("[name]").forEach((el) => {
+                                if (el.type === "checkbox") {
+                                    el.checked = false;
+                                } else if (el.type !== "hidden") {
+                                    el.value = "";
+                                }
+                            });
+                        }
+                        this.addEmployeeFirstName = "";
+                        this.addEmployeeLastName = "";
+                        this.addEmployeeRole = "";
+                        this.addEmployeeEmail = "";
+                        this.addEmployeeStartDate = "";
+                        this.addEmployeeDirty = false;
+                        this.addEmployeeOpen = false;
+                    }
+                });
+            },
+
+            // ---- Add-employee tooltips --------------------------------
+            //
+            // Neutral guidance, not error messages. Server-side errors
+            // still surface under the field in red via Django's form.
+            // These only appear once the user has interacted with the
+            // form so nothing is visible on first open.
+
+            get addEmployeeFirstNameHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeFirstName.trim()) return "Please enter a first name";
+                return "";
+            },
+            get addEmployeeLastNameHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeLastName.trim()) return "Please enter a last name";
+                return "";
+            },
+            get addEmployeeRoleHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeRole) return "Please select a role";
+                return "";
+            },
+            get addEmployeeEmailHint() {
+                if (!this.addEmployeeDirty) return "";
+                const v = this.addEmployeeEmail.trim();
+                if (!v) return "Please enter an email";
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return "That doesn't look like an email";
+                return "";
+            },
+            get addEmployeeStartDateHint() {
+                if (!this.addEmployeeDirty) return "";
+                if (!this.addEmployeeStartDate) return "Please pick a start date";
+                return "";
+            },
+            get addEmployeeCanSave() {
+                return (
+                    this.addEmployeeFirstName.trim() !== "" &&
+                    this.addEmployeeLastName.trim() !== "" &&
+                    this.addEmployeeRole !== "" &&
+                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.addEmployeeEmail.trim()) &&
+                    this.addEmployeeStartDate !== ""
+                );
+            },
+
+            openOverride(d) {
+                this.postUrl = d.url;
+                this.targetSelector = "#" + d.rowTarget;
+                this.title = d.title;
+                this.subtitle = d.subtitle;
+                this.startTime = d.start || "";
+                this.endTime = d.end || "";
+                this.hasOverride = d.hasOverride === "1";
+                this.serverError = "";
+                this.overrideDirty = false;
+                this.overrideOpen = true;
+
+                this.$nextTick(() => {
+                    const form = document.getElementById("override-form");
+                    if (form && window.htmx) htmx.process(form);
+                });
+            },
+
+            openDay(d) {
+                const dialog = document.getElementById("day-modal");
+                const template = dialog.dataset.urlTemplate;
+                this.dayPostUrl = template.replace("PLACEHOLDER", d.date);
+                this.daySubtitle = d.dateLabel;
+                this.dayHasStatus = !!d.currentStatus;
+                this.dayOpen = true;
+
+                // htmx reads hx-post when it processes a form, not at
+                // request time. Alpine updates the bound attribute on
+                // the next microtask; re-process after that so htmx
+                // sees the new URL before the user submits.
+                this.$nextTick(() => {
+                    const form = document.getElementById("day-form");
+                    if (form && window.htmx) htmx.process(form);
+                });
+            },
+
+            openAddEmployee() {
+                // Django renders today's date into the field on page
+                // load, but we clear the form after each successful
+                // save and the modal isn't re-rendered. Force the
+                // date back to today on every open from the header
+                // button. The auto-open path (server error re-render)
+                // does not call this — it wants the submitted values.
+                const d = new Date();
+                const today = `${d.getFullYear()}-${String(
+                    d.getMonth() + 1
+                ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+                const modal = document.getElementById("add-employee-modal");
+                if (modal) {
+                    const dateInput = modal.querySelector('[name="start_date"]');
+                    if (dateInput) dateInput.value = today;
+                }
+
+                this.addEmployeeStartDate = today;
+                this.addEmployeeDirty = false;
+                this.addEmployeeOpen = true;
+            },
+
+            parseTime(str) {
+                const s = (str || "").trim().replace(/\./g, ":").toUpperCase();
+                if (!s) return null;
+
+                let m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
+                if (m) {
+                    let h = parseInt(m[1], 10);
+                    const min = parseInt(m[2], 10);
+                    if (m[3] === "AM") h = h === 12 ? 0 : h;
+                    else if (m[3] === "PM") h = h === 12 ? h : h + 12;
+                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+                    return h * 60 + min;
+                }
+
+                m = s.match(/^(\d{4})$/);
+                if (m) {
+                    const h = parseInt(m[1].slice(0, 2), 10);
+                    const min = parseInt(m[1].slice(2), 10);
+                    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+                    return h * 60 + min;
+                }
+
+                m = s.match(/^(\d{1,2})\s*(AM|PM)$/);
+                if (m) {
+                    let h = parseInt(m[1], 10);
+                    if (m[2] === "AM") h = h === 12 ? 0 : h;
+                    else h = h === 12 ? h : h + 12;
+                    if (h < 0 || h > 23) return null;
+                    return h * 60;
+                }
+
+                return null;
+            },
+
+            get startIsEmpty() { return !this.startTime.trim(); },
+            get endIsEmpty() { return !this.endTime.trim(); },
+            get bothEmpty() { return this.startIsEmpty && this.endIsEmpty; },
+            get missingOne() {
+                return (
+                    (this.startIsEmpty && !this.endIsEmpty) ||
+                    (!this.startIsEmpty && this.endIsEmpty)
+                );
+            },
+            get startIsInvalid() {
+                return !this.startIsEmpty && this.parseTime(this.startTime) === null;
+            },
+            get endIsInvalid() {
+                return !this.endIsEmpty && this.parseTime(this.endTime) === null;
+            },
+            get rangeIsInvalid() {
+                if (this.startIsEmpty || this.endIsEmpty) return false;
+                const s = this.parseTime(this.startTime);
+                const e = this.parseTime(this.endTime);
+                if (s === null || e === null) return false;
+                return e <= s;
+            },
+            // Per-field hints, tooltip-style. Only appear once the user
+            // has touched the form. Short text so it fits in the label
+            // row of a half-width column.
+            get startHint() {
+                if (!this.overrideDirty) return "";
+                if (this.missingOne && this.startIsEmpty) return "Or clear both";
+                if (this.startIsInvalid) return "e.g. 9:00 AM";
+                return "";
+            },
+            get endHint() {
+                if (!this.overrideDirty) return "";
+                if (this.missingOne && this.endIsEmpty) return "Or clear both";
+                if (this.endIsInvalid) return "e.g. 5:00 PM";
+                if (this.rangeIsInvalid) return "After start";
+                return "";
+            },
+            // Red slot only carries server-side errors now. Client-side
+            // issues render as tooltips next to their fields instead.
+            get displayError() { return this.serverError; },
+            get canSave() {
+                if (this.bothEmpty || this.missingOne) return false;
+                if (this.startIsInvalid || this.endIsInvalid) return false;
+                if (this.rangeIsInvalid) return false;
+                return true;
+            },
+        }));
+    });
+</script>

@@ -1,0 +1,17 @@
+<dialog
+    id="add-employee-modal"
+    x-data="{ closing: false }"
+    x-effect="
+        if (addEmployeeOpen && !$el.open) $el.showModal();
+        if (!addEmployeeOpen && $el.open && !closing) {
+            closing = true;
+            setTimeout(() => { $el.close(); closing = false; }, 200);
+        }
+    "
+    :class="{ 'is-closing': closing }"
+    @cancel.prevent="addEmployeeOpen = false"
+    @close="addEmployeeOpen = false"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    {% include "schedule/modals/_add_employee_form.html" %}
+</dialog>
