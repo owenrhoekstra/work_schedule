@@ -107,6 +107,12 @@ add-employee modal is a plain Django form with no Alpine involvement.
                         // the next open doesn't show stale errors or
                         // values. The table has already been swapped
                         // by HTMX.
+                        //
+                        // Hidden inputs are left alone. The CSRF token
+                        // and the week field both live in hidden
+                        // inputs; clearing them would break the next
+                        // submission (403 on missing token) and lose
+                        // the viewed week.
                         const modal = document.getElementById("add-employee-modal");
                         if (modal) {
                             modal
@@ -115,7 +121,7 @@ add-employee modal is a plain Django form with no Alpine involvement.
                             modal.querySelectorAll("[name]").forEach((el) => {
                                 if (el.type === "checkbox") {
                                     el.checked = false;
-                                } else {
+                                } else if (el.type !== "hidden") {
                                     el.value = "";
                                 }
                             });
