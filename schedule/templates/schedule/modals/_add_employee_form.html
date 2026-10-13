@@ -9,6 +9,11 @@
     class="p-6 space-y-4"
 >
     {% csrf_token %}
+    <input
+        type="hidden"
+        name="week"
+        value="{{ week_start|date:'Y-m-d' }}"
+    />
     <h2 class="font-display text-lg font-bold text-brand-indigo">
         Add Employee
     </h2>

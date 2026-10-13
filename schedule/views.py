@@ -622,8 +622,27 @@ def add_employee(request):
     - HTMX POST → swap the schedule table on success; swap just the
       form back into the modal on validation failure so the dialog
       stays open with errors and the user's input preserved.
+
+    The user's viewed week is preserved across both response paths.
+    The form carries a hidden `week` field seeded from the schedule
+    table on the current page, so an employee added while viewing a
+    past or future week lands back on that same week rather than
+    jumping to the current one.
     """
     is_htmx = request.headers.get("HX-Request") == "true"
+
+    # Resolve the viewed week from the hidden form field, falling back
+    # to the current week if missing or unparseable.
+    viewed_week = None
+    if request.method == "POST":
+        raw_week = request.POST.get("week", "").strip()
+        if raw_week:
+            try:
+                viewed_week = _week_start(date.fromisoformat(raw_week))
+            except ValueError:
+                viewed_week = None
+    if viewed_week is None:
+        viewed_week = _week_start(timezone.localdate())
 
     if request.method == "POST":
         form = EmployeeForm(request.POST)
@@ -658,8 +677,7 @@ def add_employee(request):
                 messages.success(request, f"{employee} added.")
 
             if is_htmx:
-                week_start = _week_start(timezone.localdate())
-                rows, day_headers = _build_schedule_rows(week_start)
+                rows, day_headers = _build_schedule_rows(viewed_week)
 
                 # Render the table (primary swap target) and the
                 # messages container (out-of-band swap). HTMX takes
@@ -677,15 +695,20 @@ def add_employee(request):
                 )
                 return HttpResponse(table_html + messages_html)
 
-            return redirect("home")
+            # Plain POST: land on the same week the user was viewing.
+            return redirect(f"{reverse('home')}?week={viewed_week.isoformat()}")
 
-        # Form invalid. Re-render just the form and swap it into the
-        # dialog as innerHTML so the modal stays open.
+        # Form invalid. HTMX path: swap the form back into the dialog
+        # as innerHTML so the modal stays open. Pass week_start so the
+        # hidden field survives the round trip.
         if is_htmx:
             response = render(
                 request,
                 "schedule/modals/_add_employee_form.html",
-                {"employee_form": form},
+                {
+                    "employee_form": form,
+                    "week_start": viewed_week,
+                },
             )
             response["HX-Retarget"] = "#add-employee-modal"
             response["HX-Reswap"] = "innerHTML"
@@ -693,7 +716,7 @@ def add_employee(request):
     else:
         form = EmployeeForm()
 
-    context = _home_context(_week_start(timezone.localdate()))
+    context = _home_context(viewed_week)
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
     return render(request, "schedule/home.html", context)
@@ -1373,22 +1396,31 @@ def set_override(request, employee_pk, date_iso):
     def _respond_success():
         """Return the correct shape for a successful save.
 
-        HTMX: return the updated row partial for outerHTML swap.
+        HTMX: return the updated row partial for outerHTML swap, plus
+        the messages container as an out-of-band swap so any flash
+        message set during the save (e.g. notification-send failures)
+        surfaces without a page reload.
         Plain POST: redirect back to the schedule.
         """
         if is_htmx:
             week_start = _week_start(override_date)
             rows, _ = _build_schedule_rows(week_start, employee_pk=employee.pk)
             if rows:
-                return render(
-                    request,
+                row_html = render_to_string(
                     "schedule/partials/_schedule_row.html",
                     {
                         "row": rows[0],
                         "is_management": request.user.is_superuser
                         or request.user.groups.filter(name="Management").exists(),
                     },
+                    request=request,
                 )
+                messages_html = render_to_string(
+                    "partials/_messages.html",
+                    {"hx_oob": True},
+                    request=request,
+                )
+                return HttpResponse(row_html + messages_html)
             return HttpResponse(status=204)
         return redirect(back)
 
@@ -1431,14 +1463,13 @@ def set_override(request, employee_pk, date_iso):
                 ],
                 kind="override",
             )
-            # In HTMX mode we skip the flash messages — the page didn't
-            # reload, so a message would sit in the session and appear
-            # unexpectedly on the next full navigation.
-            if not is_htmx:
-                if ok:
-                    messages.success(request, f"Notification sent to {employee.email}.")
-                else:
-                    messages.warning(request, error or "Notification not sent.")
+            # Set the message regardless of HTMX. On HTMX responses
+            # the message rides back on an out-of-band swap of the
+            # messages container (see _respond_success).
+            if ok:
+                messages.success(request, f"Notification sent to {employee.email}.")
+            else:
+                messages.warning(request, error or "Notification not sent.")
 
     return _respond_success()
 
