@@ -79,7 +79,7 @@
     </div>
     {% endif %}
 
-    <div class="flex border-b border-gray-200" role="tablist">
+    <div class="flex border-b border-gray-200 overflow-x-auto" role="tablist">
         {% for week in weeks %}
         <button
             type="button"
@@ -88,7 +88,7 @@
             :class="isTabActive({{ week.offset }})
                 ? 'border-brand-coral text-brand-indigo'
                 : 'border-transparent text-gray-500 hover:text-brand-indigo'"
-            class="px-5 py-3 text-sm font-medium border-b-2 transition-colors"
+            class="px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
             role="tab"
         >
             Week {{ week.label }}
@@ -101,56 +101,58 @@
         x-show="isPanelVisible({{ week.offset }})"
         {% if week.offset != 0 %}style="display: none;"{% endif %}
     >
-        <table class="min-w-full border-collapse">
-            <thead>
-                <tr class="bg-brand-offwhite">
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Day
-                    </th>
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Start
-                    </th>
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        End
-                    </th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in week.rows %}
-                <tr class="border-t border-gray-200">
-                    <td class="p-3 font-medium text-brand-indigo">
-                        {{ row.label }}
-                    </td>
-                    <td class="p-3">
-                        <input
-                            type="text"
-                            name="week_{{ week.offset }}_day_{{ row.day }}_start"
-                            value="{{ row.shift.start_time|time:'g:i A' }}"
-                            placeholder="HH:MM"
-                            {% if not can_change %}disabled{% endif %}
-                            class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
-                        />
-                    </td>
-                    <td class="p-3">
-                        <input
-                            type="text"
-                            name="week_{{ week.offset }}_day_{{ row.day }}_end"
-                            value="{{ row.shift.end_time|time:'g:i A' }}"
-                            placeholder="HH:MM"
-                            {% if not can_change %}disabled{% endif %}
-                            class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
-                        />
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="overflow-x-auto">
+            <table class="min-w-full border-collapse">
+                <thead>
+                    <tr class="bg-brand-offwhite">
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Day
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Start
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            End
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in week.rows %}
+                    <tr class="border-t border-gray-200">
+                        <td class="p-3 font-medium text-brand-indigo whitespace-nowrap">
+                            {{ row.label }}
+                        </td>
+                        <td class="p-3">
+                            <input
+                                type="text"
+                                name="week_{{ week.offset }}_day_{{ row.day }}_start"
+                                value="{{ row.shift.start_time|time:'g:i A' }}"
+                                placeholder="HH:MM"
+                                {% if not can_change %}disabled{% endif %}
+                                class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                            />
+                        </td>
+                        <td class="p-3">
+                            <input
+                                type="text"
+                                name="week_{{ week.offset }}_day_{{ row.day }}_end"
+                                value="{{ row.shift.end_time|time:'g:i A' }}"
+                                placeholder="HH:MM"
+                                {% if not can_change %}disabled{% endif %}
+                                class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                            />
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
     {% endfor %}
 
