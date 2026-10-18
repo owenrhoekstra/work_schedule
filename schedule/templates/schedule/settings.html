@@ -20,107 +20,109 @@
                 >+ Add Employee</a
             >
         </div>
-        <table class="min-w-full border-collapse">
-            <thead>
-                <tr class="bg-brand-offwhite">
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Name
-                    </th>
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Role
-                    </th>
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Email
-                    </th>
-                    <th
-                        class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                    >
-                        Started
-                    </th>
-                    <th class="p-3"></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for emp in employees %}
-                <tr
-                    class="border-t border-gray-200 {% if emp.last_day %}bg-brand-coral/5{% endif %}"
-                >
-                    <td class="p-3 text-brand-indigo font-medium">
-                        {{ emp }}
-                        {% if emp.last_day %}
-                        <span class="ml-2 text-xs font-medium text-brand-coral">
-                            Last day {{ emp.last_day|date:"Y-m-d" }}
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td class="p-3 text-gray-500">{{ emp.role }}</td>
-                    <td class="p-3 text-gray-500">{{ emp.email }}</td>
-                    <td class="p-3 text-gray-500 text-sm">
-                        {{ emp.start_date|date:"Y-m-d" }}
-                    </td>
-                    <td class="p-3 text-right whitespace-nowrap">
-                        <a
-                            href="{% url 'employee_defaults' emp.id %}"
-                            class="text-sm font-medium text-brand-coral hover:underline mr-4"
-                            >Edit</a
+        <div class="overflow-x-auto">
+            <table class="min-w-full border-collapse">
+                <thead>
+                    <tr class="bg-brand-offwhite">
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
                         >
-                        {% if not emp.last_day %}
-                        <form
-                            method="post"
-                            action="{% url 'send_welcome' emp.id %}"
-                            class="inline mr-4"
+                            Name
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
                         >
-                            {% csrf_token %}
-                            <button
-                                type="submit"
-                                class="text-sm font-medium text-brand-coral hover:underline"
+                            Role
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Email
+                        </th>
+                        <th
+                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                        >
+                            Started
+                        </th>
+                        <th class="p-3"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr
+                        class="border-t border-gray-200 {% if emp.last_day %}bg-brand-coral/5{% endif %}"
+                    >
+                        <td class="p-3 text-brand-indigo font-medium whitespace-nowrap">
+                            {{ emp }}
+                            {% if emp.last_day %}
+                            <span class="ml-2 text-xs font-medium text-brand-coral">
+                                Last day {{ emp.last_day|date:"Y-m-d" }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="p-3 text-gray-500 whitespace-nowrap">{{ emp.role }}</td>
+                        <td class="p-3 text-gray-500 whitespace-nowrap">{{ emp.email }}</td>
+                        <td class="p-3 text-gray-500 text-sm whitespace-nowrap">
+                            {{ emp.start_date|date:"Y-m-d" }}
+                        </td>
+                        <td class="p-3 text-right whitespace-nowrap">
+                            <a
+                                href="{% url 'employee_defaults' emp.id %}"
+                                class="text-sm font-medium text-brand-coral hover:underline mr-4"
+                                >Edit</a
                             >
-                                Send welcome email
-                            </button>
-                        </form>
-                        {% endif %}
-                        {% if emp.last_day %}
-                        <form
-                            method="post"
-                            action="{% url 'settings_cancel_deactivation' emp.id %}"
-                            class="inline"
-                        >
-                            {% csrf_token %}
-                            <button
-                                type="submit"
-                                class="text-sm font-medium text-gray-500 hover:text-brand-indigo"
+                            {% if not emp.last_day %}
+                            <form
+                                method="post"
+                                action="{% url 'send_welcome' emp.id %}"
+                                class="inline mr-4"
                             >
-                                Cancel deactivation
+                                {% csrf_token %}
+                                <button
+                                    type="submit"
+                                    class="text-sm font-medium text-brand-coral hover:underline whitespace-nowrap"
+                                >
+                                    Send welcome email
+                                </button>
+                            </form>
+                            {% endif %}
+                            {% if emp.last_day %}
+                            <form
+                                method="post"
+                                action="{% url 'settings_cancel_deactivation' emp.id %}"
+                                class="inline"
+                            >
+                                {% csrf_token %}
+                                <button
+                                    type="submit"
+                                    class="text-sm font-medium text-gray-500 hover:text-brand-indigo whitespace-nowrap"
+                                >
+                                    Cancel deactivation
+                                </button>
+                            </form>
+                            {% else %}
+                            <button
+                                type="button"
+                                data-employee-id="{{ emp.id }}"
+                                data-employee-name="{{ emp }}"
+                                onclick="openDeactivateModal(this)"
+                                class="text-sm font-medium text-gray-500 hover:text-brand-coral whitespace-nowrap"
+                            >
+                                Deactivate
                             </button>
-                        </form>
-                        {% else %}
-                        <button
-                            type="button"
-                            data-employee-id="{{ emp.id }}"
-                            data-employee-name="{{ emp }}"
-                            onclick="openDeactivateModal(this)"
-                            class="text-sm font-medium text-gray-500 hover:text-brand-coral"
-                        >
-                            Deactivate
-                        </button>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="5" class="p-3 text-gray-500 text-center">
-                        No active employees.
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="p-3 text-gray-500 text-center">
+                            No active employees.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </section>
 
     <!-- Former Employees -->
@@ -140,50 +142,52 @@
                 </h2>
                 <span class="text-gray-400 text-sm">▾</span>
             </summary>
-            <table class="min-w-full border-collapse border-t border-gray-200">
-                <thead>
-                    <tr class="bg-brand-offwhite">
-                        <th
-                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                        >
-                            Name
-                        </th>
-                        <th
-                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                        >
-                            Role
-                        </th>
-                        <th
-                            class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
-                        >
-                            Last day
-                        </th>
-                        <th class="p-3"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for emp in former_employees %}
-                    <tr class="border-t border-gray-200">
-                        <td class="p-3 text-brand-indigo">{{ emp }}</td>
-                        <td class="p-3 text-gray-500">{{ emp.role }}</td>
-                        <td class="p-3 text-gray-500 text-sm">
-                            {{ emp.last_day|date:"Y-m-d" }}
-                        </td>
-                        <td class="p-3 text-right whitespace-nowrap">
-                            <button
-                                type="button"
-                                data-employee-id="{{ emp.id }}"
-                                data-employee-name="{{ emp }}"
-                                onclick="openReactivateModal(this)"
-                                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors"
+            <div class="overflow-x-auto border-t border-gray-200">
+                <table class="min-w-full border-collapse">
+                    <thead>
+                        <tr class="bg-brand-offwhite">
+                            <th
+                                class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
                             >
-                                Reactivate
-                            </button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                                Name
+                            </th>
+                            <th
+                                class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                            >
+                                Role
+                            </th>
+                            <th
+                                class="text-left p-3 font-display text-sm font-medium text-brand-indigo"
+                            >
+                                Last day
+                            </th>
+                            <th class="p-3"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for emp in former_employees %}
+                        <tr class="border-t border-gray-200">
+                            <td class="p-3 text-brand-indigo whitespace-nowrap">{{ emp }}</td>
+                            <td class="p-3 text-gray-500 whitespace-nowrap">{{ emp.role }}</td>
+                            <td class="p-3 text-gray-500 text-sm whitespace-nowrap">
+                                {{ emp.last_day|date:"Y-m-d" }}
+                            </td>
+                            <td class="p-3 text-right whitespace-nowrap">
+                                <button
+                                    type="button"
+                                    data-employee-id="{{ emp.id }}"
+                                    data-employee-name="{{ emp }}"
+                                    onclick="openReactivateModal(this)"
+                                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-1.5 transition-colors whitespace-nowrap"
+                                >
+                                    Reactivate
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </details>
     </section>
     {% endif %}
@@ -200,13 +204,14 @@
         <ul>
             {% for title in titles %}
             <li
-                class="flex items-center justify-between p-3 border-t border-gray-200"
+                class="flex items-center justify-between gap-3 p-3 border-t border-gray-200"
             >
-                <span class="text-brand-indigo">{{ title.name }}</span>
+                <span class="text-brand-indigo truncate">{{ title.name }}</span>
                 <form
                     method="post"
                     action="{% url 'settings_delete_title' title.id %}"
                     onsubmit="return confirm('Delete this title?');"
+                    class="shrink-0"
                 >
                     {% csrf_token %}
                     <button
@@ -232,11 +237,11 @@
                 name="name"
                 placeholder="New title (e.g. Dr.)"
                 required
-                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             />
             <button
                 type="submit"
-                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors shrink-0"
             >
                 Add
             </button>
@@ -255,15 +260,15 @@
         <ul>
             {% for role in roles %}
             <li
-                class="flex items-center justify-between p-3 border-t border-gray-200"
+                class="flex items-center justify-between gap-3 p-3 border-t border-gray-200"
             >
-                <div class="flex items-center gap-3">
-                    <span class="text-xs text-gray-400 w-8 text-right"
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="text-xs text-gray-400 w-8 text-right shrink-0"
                         >{{ role.display_order }}</span
                     >
-                    <span class="text-brand-indigo">{{ role.name }}</span>
+                    <span class="text-brand-indigo truncate">{{ role.name }}</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1 shrink-0">
                     <form
                         method="post"
                         action="{% url 'settings_move_role' role.id 'up' %}"
@@ -323,11 +328,11 @@
                 name="name"
                 placeholder="New role (e.g. Manager)"
                 required
-                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             />
             <button
                 type="submit"
-                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors shrink-0"
             >
                 Add
             </button>
@@ -339,6 +344,7 @@
 <dialog
     id="deactivate-modal"
     data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
+    data-today="{{ today|date:'Y-m-d' }}"
     class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form method="post" id="deactivate-form" class="p-6 space-y-4">
@@ -395,6 +401,7 @@
 <dialog
     id="reactivate-modal"
     data-url-template="{% url 'settings_reactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
+    data-today="{{ today|date:'Y-m-d' }}"
     class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form method="post" id="reactivate-form" class="p-6 space-y-4">
@@ -459,9 +466,7 @@
             d.employeeId
         );
         document.getElementById("deactivate-name").textContent = d.employeeName;
-        document.getElementById("deactivate-date").value = new Date()
-            .toISOString()
-            .slice(0, 10);
+        document.getElementById("deactivate-date").value = dialog.dataset.today;
         dialog.showModal();
     }
 
@@ -475,9 +480,7 @@
             d.employeeId
         );
         document.getElementById("reactivate-name").textContent = d.employeeName;
-        document.getElementById("reactivate-date").value = new Date()
-            .toISOString()
-            .slice(0, 10);
+        document.getElementById("reactivate-date").value = dialog.dataset.today;
         dialog.showModal();
     }
 </script>
