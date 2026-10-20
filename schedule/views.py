@@ -758,22 +758,50 @@ def _employee_page_context(
     Used by both `_render_employee_page` (full page) and the HTMX
     fragment response in `delete_pattern`. Keeping them in one place
     means the two views can't drift out of sync.
+
+    Three modes drive this page:
+
+    - **edit** (`?pattern=X`): editing a specific saved pattern. Form
+      anchors to that pattern's effective_from and the strip
+      highlights it.
+    - **first_setup** (no patterns yet have shifts): defining the
+      employee's first schedule. Form anchors to the initial pattern's
+      effective_from; strip highlights it since it's the only pattern.
+    - **forward** (default): the user is making a forward change from
+      the current week. Form anchors to this week's Monday, shift grid
+      shows the currently-effective pattern's shifts, and no chip is
+      highlighted. Saving creates a new pattern from that week or
+      edits the one already there — existing future patterns are not
+      touched.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
-
-    form_source = edit_pattern or latest
+    currently_effective = _pattern_for_week(employee, this_week_start)
 
     first_time_setup = edit_pattern is None and (
         latest is None or not latest.shifts.exists()
     )
 
     if edit_pattern is not None:
+        form_source = edit_pattern
         default_effective_from = edit_pattern.effective_from
+        form_mode = "edit"
+        highlighted_pk = edit_pattern.pk
     elif first_time_setup and latest is not None:
+        form_source = latest
         default_effective_from = latest.effective_from
+        form_mode = "first_setup"
+        highlighted_pk = latest.pk
     else:
-        default_effective_from = this_week_start
+        # Forward mode. Show the pattern that's actually running
+        # this week, not whichever pattern happens to have the
+        # largest effective_from (which could be a future one).
+        form_source = currently_effective or latest
+        # Don't anchor before the employee's start week.
+        start_date_floor = _week_start(employee.start_date)
+        default_effective_from = max(this_week_start, start_date_floor)
+        form_mode = "forward"
+        highlighted_pk = None
 
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
@@ -792,7 +820,7 @@ def _employee_page_context(
     patterns_recent = [
         {
             "pattern": p,
-            "is_current": form_source is not None and p.pk == form_source.pk,
+            "is_current": highlighted_pk is not None and p.pk == highlighted_pk,
         }
         for p in reversed(all_patterns)
     ]
@@ -811,6 +839,7 @@ def _employee_page_context(
         "last_day": employee.last_day,
         "default_effective_from": default_effective_from,
         "first_time_setup": first_time_setup,
+        "form_mode": form_mode,
         "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
         "editing_pattern": edit_pattern,
         "pattern_is_earliest": pattern_is_earliest,
@@ -913,17 +942,21 @@ def _handle_defaults_post(request, employee):
     but only within the range allowed by the employee's start week, the
     target's neighbors, and the earliest-pattern anchoring rule.
 
-    **Free-form save.** No `target_pattern`. The submitted effective
-    date is compared against the latest pattern:
+    **Default forward mode.** No `target_pattern`. The submitted date
+    is compared against the patterns table:
 
-    - Same date → edit the latest pattern in place.
-    - Earlier date → move the latest pattern's date back.
-    - Later date → create a new pattern at the submitted date, cloning
-      the latest pattern's shifts.
+    - If a pattern already exists at that effective_from → edit it in
+      place.
+    - Otherwise → create a new pattern at that date, cloning the
+      currently-effective pattern's shifts as a starting point.
 
-    In every path, the effective date must sit on or after the Monday
-    of the week containing the employee's start_date. Patterns are
-    Monday-aligned, so this is the earliest week a pattern can govern.
+    Note the difference from earlier behaviour: default mode no longer
+    "moves the latest pattern" when the submitted date is earlier than
+    the latest. That interaction produced surprising results when the
+    latest pattern was in the future — saving from a today-anchored
+    form would silently relocate the future pattern. Default mode
+    now only touches the pattern at the exact submitted week (if one
+    exists); existing future patterns stay intact.
 
     Retroactive changes — anything effective before this week's Monday
     — require explicit confirmation via the `retroactive_confirmed`
@@ -958,7 +991,7 @@ def _handle_defaults_post(request, employee):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = date.fromisoformat(raw_effective)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         messages.error(request, "Please pick a valid effective date.")
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
@@ -1060,33 +1093,26 @@ def _handle_defaults_post(request, employee):
 
         mode = "edit"
     else:
-        current_start = _week_start(latest.effective_from)
-        predecessor = (
-            employee.patterns.filter(effective_from__lt=current_start)
-            .exclude(pk=latest.pk)
-            .order_by("-effective_from")
-            .first()
-        )
-        if effective_from < current_start:
-            if predecessor and effective_from <= predecessor.effective_from:
-                messages.error(
-                    request,
-                    f"Effective date must be after the previous pattern's "
-                    f"start ({predecessor.effective_from}).",
-                )
-                return redirect("employee_defaults", pk=employee.pk)
-            target = latest
-            mode = "move"
-        elif effective_from == current_start:
-            target = latest
+        # Default forward mode: touch only the pattern at
+        # effective_from, if one exists. Otherwise create a new one
+        # cloned from the currently-effective pattern's shifts. Never
+        # "move" the latest pattern — that behavior was only correct
+        # when the latest pattern was the one being edited, which is
+        # no longer the case in default mode.
+        existing = employee.patterns.filter(
+            effective_from=effective_from
+        ).first()
+        if existing:
+            target = existing
             mode = "edit"
         else:
-            target = latest
+            source = _pattern_for_week(employee, effective_from) or latest
+            target = source
             mode = "create"
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", target.cycle_weeks))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = target.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1144,7 +1170,7 @@ def _handle_defaults_post(request, employee):
 
     try:
         with transaction.atomic():
-            if mode in ("edit", "move"):
+            if mode == "edit":
                 updates = []
                 if target.cycle_weeks != cycle_weeks:
                     target.cycle_weeks = cycle_weeks

@@ -8,22 +8,18 @@ as a fragment. The employee header and identity form are deliberately
 outside — they don't change when a pattern is deleted, and swapping
 them would drop the open `<details>` state and lose the user's
 position in the form.
-
-Any change to the content that gets rendered here must be reflected
-in views.py's _employee_page_context so the full-page render and the
-fragment render stay in sync.
 {% endcomment %}
 <div id="employee-content">
     {% if patterns_recent|length > 1 %}
         {% include "schedule/partials/_pattern_strip.html" %}
     {% endif %}
 
-    {% if can_delete and pattern and not pattern_is_earliest %}
+    {% if can_delete and editing_pattern and not pattern_is_earliest %}
     <form
         method="post"
-        action="{% url 'delete_pattern' pattern.pk %}"
+        action="{% url 'delete_pattern' editing_pattern.pk %}"
         id="delete-loaded-pattern"
-        hx-post="{% url 'delete_pattern' pattern.pk %}"
+        hx-post="{% url 'delete_pattern' editing_pattern.pk %}"
         hx-target="#employee-content"
         hx-swap="outerHTML"
         class="hidden"
@@ -32,7 +28,7 @@ fragment render stay in sync.
         <input
             type="hidden"
             name="current_pattern"
-            value="{{ pattern.pk }}"
+            value="{{ editing_pattern.pk }}"
         />
     </form>
     {% endif %}
