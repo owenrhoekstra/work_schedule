@@ -222,11 +222,26 @@ def _latest_pattern(employee):
 def _pattern_for_week(employee, week_start):
     """The ShiftPattern active for the week starting week_start.
 
+    Returns the pattern whose [effective_from, effective_to) range
+    contains week_start. effective_to is exclusive and None means
+    open-ended.
+
+    If multiple patterns match — possible during the transition to
+    explicit end dates, when the old form can still create overlapping
+    patterns — the one with the greatest effective_from wins. This
+    preserves the previous "latest pattern" behavior for that legacy
+    state so nothing regresses before the form is rewritten.
+
     Iterates over the (prefetched) patterns relation in Python so the
     schedule render doesn't fire one query per employee. Returns None
     if no pattern covers the week.
     """
-    candidates = [p for p in employee.patterns.all() if p.effective_from <= week_start]
+    candidates = [
+        p
+        for p in employee.patterns.all()
+        if p.effective_from <= week_start
+        and (p.effective_to is None or week_start < p.effective_to)
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.effective_from)
