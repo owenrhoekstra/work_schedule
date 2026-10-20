@@ -57,10 +57,10 @@
                 {% if not can_change %}disabled{% endif %}
                 class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             >
-                <option value="1">1 week</option>
-                <option value="2">2 weeks</option>
-                <option value="3">3 weeks</option>
-                <option value="4">4 weeks</option>
+                <option value="1" {% if pattern.cycle_weeks == 1 %}selected{% endif %}>1 week</option>
+                <option value="2" {% if pattern.cycle_weeks == 2 %}selected{% endif %}>2 weeks</option>
+                <option value="3" {% if pattern.cycle_weeks == 3 %}selected{% endif %}>3 weeks</option>
+                <option value="4" {% if pattern.cycle_weeks == 4 %}selected{% endif %}>4 weeks</option>
             </select>
         </div>
     </div>

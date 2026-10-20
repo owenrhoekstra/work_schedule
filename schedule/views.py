@@ -770,28 +770,12 @@ def _employee_page_context(
 ):
     """Build the shared context for the employee page.
 
-    Used by both `_render_employee_page` (full page) and the HTMX
-    fragment response in `delete_pattern`. Keeping them in one place
-    means the two views can't drift out of sync.
-
-    Three modes drive this page:
-
-    - **edit** (`?pattern=X`): editing a specific saved pattern. Form
-      anchors to that pattern's effective_from and the strip
-      highlights it.
-    - **first_setup** (no patterns yet have shifts): defining the
-      employee's first schedule. Form anchors to the initial pattern's
-      effective_from; strip highlights it since it's the only pattern.
-    - **forward** (default): the user is making a forward change from
-      the current week. Form anchors to this week's Monday, shift grid
-      shows the currently-effective pattern's shifts, and no chip is
-      highlighted. Saving creates a new pattern from that week or
-      edits the one already there — existing future patterns are not
-      touched.
+    Used by both `_render_employee_page` and the HTMX fragment
+    responses. Keeps the two renders in sync.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
-    currently_effective = _pattern_for_week(employee, this_week_start)
+    current = _pattern_for_week(employee, this_week_start)
 
     first_time_setup = edit_pattern is None and (
         latest is None or not latest.shifts.exists()
@@ -800,23 +784,13 @@ def _employee_page_context(
     if edit_pattern is not None:
         form_source = edit_pattern
         default_effective_from = edit_pattern.effective_from
-        form_mode = "edit"
-        highlighted_pk = edit_pattern.pk
     elif first_time_setup and latest is not None:
         form_source = latest
         default_effective_from = latest.effective_from
-        form_mode = "first_setup"
-        highlighted_pk = latest.pk
     else:
-        # Forward mode. Show the pattern that's actually running
-        # this week, not whichever pattern happens to have the
-        # largest effective_from (which could be a future one).
-        form_source = currently_effective or latest
-        # Don't anchor before the employee's start week.
+        form_source = current or latest
         start_date_floor = _week_start(employee.start_date)
         default_effective_from = max(this_week_start, start_date_floor)
-        form_mode = "forward"
-        highlighted_pk = None
 
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
@@ -832,29 +806,30 @@ def _employee_page_context(
         for p in all_patterns
     ]
 
-    patterns_recent = [
-        {
-            "pattern": p,
-            "is_current": highlighted_pk is not None and p.pk == highlighted_pk,
-        }
-        for p in reversed(all_patterns)
-    ]
-
     pattern_is_earliest = form_source is not None and form_source.pk == earliest_pk
+
+    # Reading view: the pattern shown in the "Currently scheduled" card,
+    # and the live cycle week (1..N) to highlight in the chips.
+    current_week_pairs = _pattern_summary(current) if current else []
+    current_cycle_label = None
+    if current is not None and current.cycle_weeks > 1:
+        offset = _week_offset_for(this_week_start, current)
+        current_cycle_label = WEEK_LABELS[offset]
 
     return {
         "employee": employee,
         "identity_form": identity_form or EmployeeForm(instance=employee),
         "pattern": form_source,
+        "current_pattern": current,
+        "current_weeks": current_week_pairs,
+        "current_cycle_label": current_cycle_label,
         "patterns": patterns,
-        "patterns_recent": patterns_recent,
         "weeks": _build_default_weeks(form_source) if form_source else [],
         "can_change": can_change,
         "can_delete": request.user.has_perm("schedule.delete_shift"),
         "last_day": employee.last_day,
         "default_effective_from": default_effective_from,
         "first_time_setup": first_time_setup,
-        "form_mode": form_mode,
         "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
         "editing_pattern": edit_pattern,
         "pattern_is_earliest": pattern_is_earliest,

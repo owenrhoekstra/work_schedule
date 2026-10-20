@@ -1,19 +1,23 @@
 {% comment %}
-The re-renderable body of the employee page: pattern strip, hidden
-delete form for the loaded pattern, defaults form, and saved patterns
-list.
+Re-renderable content region for the employee page.
 
-Extracted so delete_pattern's HTMX branch can return just this region
-as a fragment. The employee header and identity form are deliberately
-outside — they don't change when a pattern is deleted, and swapping
-them would drop the open `<details>` state and lose the user's
-position in the form.
+Until Session 5, this contains the pre-redesign form (strip, defaults
+form, saved patterns). The redesign will shrink this dramatically: the
+strip goes away, the form moves to /schedule/change/ and /schedule/add/,
+and the saved list moves to the full history disclosure.
+
+x-data is on this wrapper rather than an outer container because the
+reading page above doesn't need Alpine; only the embedded form does.
 {% endcomment %}
-<div id="employee-content">
-    {% if patterns_recent|length > 1 %}
-        {% include "schedule/partials/_pattern_strip.html" %}
-    {% endif %}
-
+<div
+    id="employee-content"
+    x-data="employeeDefaults({
+        firstTimeSetup: {{ first_time_setup|yesno:'true,false' }},
+        thisWeekStart: '{{ this_week_start_iso }}',
+        todayIso: '{{ today_iso }}',
+        initialCycleWeeks: {{ pattern.cycle_weeks|default:1 }},
+    })"
+>
     {% if can_delete and editing_pattern and not pattern_is_earliest %}
     <form
         method="post"
@@ -35,12 +39,7 @@ position in the form.
 
     {% include "schedule/partials/_defaults_form.html" %}
 
-    <p class="text-xs text-gray-500 mb-6">
-        Use 24-hour time like <code>09:00</code> or 12-hour like
-        <code>9:00 AM</code>. Leave both fields empty for a day off.
-    </p>
-
-    {% if patterns|length > 1 %}
+    {% if patterns|length > 0 %}
         {% include "schedule/partials/_saved_patterns.html" %}
     {% endif %}
 </div>
