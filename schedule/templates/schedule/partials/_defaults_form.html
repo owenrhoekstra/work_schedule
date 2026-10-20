@@ -53,7 +53,7 @@
             <select
                 name="cycle_weeks"
                 id="cycle-weeks-select"
-                x-model.number="cycleWeeks"
+                @input="cycleWeeks = parseInt($event.target.value, 10) || 1"
                 {% if not can_change %}disabled{% endif %}
                 class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             >
@@ -76,6 +76,15 @@
             class="font-medium text-brand-coral hover:underline ml-1"
             >Cancel edit</a
         >
+    </div>
+    {% elif form_mode == "forward" %}
+    <div
+        class="px-4 py-3 bg-brand-indigo/5 border-b border-brand-indigo/20 text-sm text-brand-indigo"
+    >
+        Making changes effective
+        <strong>{{ default_effective_from|date:"F j, Y" }}</strong>,
+        based on the currently-scheduled shifts. Saving will create or
+        update the pattern for that week.
     </div>
     {% endif %}
 
@@ -170,10 +179,11 @@
     </label>
     <div class="flex items-center justify-between gap-3 p-4">
         <div>
-            {% if can_delete and pattern and not pattern_is_earliest %}
+            {% if can_delete and editing_pattern and not pattern_is_earliest %}
             <button
                 type="button"
-                @click="requestDelete($refs.deleteLoadedForm, '{{ pattern.effective_from|date:'F j, Y' }}')"
+                data-pattern-date="{{ editing_pattern.effective_from|date:'F j, Y' }}"
+                @click="requestDelete(document.getElementById('delete-loaded-pattern'), $el.dataset.patternDate)"
                 class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
             >
                 Delete this pattern

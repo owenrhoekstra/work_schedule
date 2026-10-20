@@ -12,32 +12,7 @@
         {% include "schedule/partials/_employee_header.html" %}
         {% include "schedule/partials/_identity_form.html" %}
 
-        {% if patterns_recent|length > 1 %}
-            {% include "schedule/partials/_pattern_strip.html" %}
-        {% endif %}
-
-        {% if can_delete and pattern and not pattern_is_earliest %}
-        <form
-            method="post"
-            action="{% url 'delete_pattern' pattern.pk %}"
-            id="delete-loaded-pattern"
-            x-ref="deleteLoadedForm"
-            class="hidden"
-        >
-            {% csrf_token %}
-        </form>
-        {% endif %}
-
-        {% include "schedule/partials/_defaults_form.html" %}
-
-        <p class="text-xs text-gray-500 mb-6">
-            Use 24-hour time like <code>09:00</code> or 12-hour like
-            <code>9:00 AM</code>. Leave both fields empty for a day off.
-        </p>
-
-        {% if patterns|length > 1 %}
-            {% include "schedule/partials/_saved_patterns.html" %}
-        {% endif %}
+        {% include "schedule/partials/_employee_content.html" %}
     </div>
 
     {% if can_change %}
@@ -76,20 +51,50 @@
             activeOffset: 0,
 
             init() {
+                // Seed cycleWeeks from the server-rendered select so
+                // the component matches the loaded pattern on boot.
+                // Mirrored from the DOM on every HTMX swap as well —
+                // see the afterSwap listener below.
+                const select = document.getElementById("cycle-weeks-select");
+                if (select) {
+                    this.cycleWeeks =
+                        parseInt(select.value, 10) || opts.initialCycleWeeks;
+                }
+
                 // If cycle length shrinks below the active tab, fall
                 // back to the first tab so the user isn't looking at
                 // a panel that's no longer in the pattern.
                 this.$watch("cycleWeeks", (value) => {
                     if (this.activeOffset >= value) this.activeOffset = 0;
                 });
+
+                // After delete_pattern swaps the content fragment in,
+                // the DOM contains a fresh form and strip. Re-sync
+                // state from the newly-rendered DOM so tab visibility
+                // and the retroactive-confirm suppression reflect the
+                // pattern that's actually loaded now.
+                this.$el.addEventListener("htmx:afterSwap", (e) => {
+                    if (e.detail.target?.id !== "employee-content") return;
+
+                    this.$nextTick(() => {
+                        const newSelect = document.getElementById(
+                            "cycle-weeks-select"
+                        );
+                        if (newSelect) {
+                            this.cycleWeeks =
+                                parseInt(newSelect.value, 10) || 1;
+                        } else {
+                            this.cycleWeeks = 1;
+                        }
+                        this.activeOffset = 0;
+                        this.retroactiveConfirmed = false;
+                    });
+                });
             },
 
             // ---- Deactivate -----------------------------------------
 
             openDeactivate() {
-                // Use the server's notion of today so a manager in
-                // Toronto at 11pm doesn't get tomorrow's date from
-                // toISOString()'s UTC conversion.
                 this.deactivateDate = this.todayIso;
                 this.deactivateOpen = true;
             },
@@ -126,8 +131,11 @@
             },
 
             confirmDelete() {
+                // requestSubmit() fires the submit event so HTMX sees
+                // it. form.submit() bypasses the event entirely, which
+                // would bypass HTMX and navigate normally.
                 if (this.pendingDeleteForm) {
-                    this.pendingDeleteForm.submit();
+                    this.pendingDeleteForm.requestSubmit();
                 }
                 this.deletePatternOpen = false;
                 this.pendingDeleteForm = null;
