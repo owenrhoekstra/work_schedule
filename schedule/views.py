@@ -925,43 +925,34 @@ def _handle_defaults_post(request, employee):
 
     Two entry paths:
 
-    **Directed edit.** The form carries a `target_pattern` hidden field
-    (set when the manager clicked Edit on a specific saved pattern).
-    That pattern is edited in place — date, cycle length, and shifts.
-    No new pattern is created. The submitted date may move the pattern,
-    but only within the range allowed by the employee's start week, the
-    target's neighbors, and the earliest-pattern anchoring rule.
+    **Directed edit** (``?pattern=X``). Carries a ``target_pattern``
+    hidden field. The submitted date may move the pattern within the
+    gap between its neighbors. Kept for backward compatibility while
+    the old form is still on the reading page; retired when the
+    dedicated pattern-edit page lands.
 
-    **Default forward mode.** No `target_pattern`. The submitted date
-    is compared against the patterns table:
+    **Free-form save.** No ``target_pattern``. The submitted date is
+    the only determinant of what happens:
 
-    - If a pattern already exists at that effective_from → edit it in
-      place.
-    - Otherwise → create a new pattern at that date, cloning the
-      currently-effective pattern's shifts as a starting point.
+    - A pattern already starts on that week → edit it in place.
+    - A pattern covers that week but started earlier → split it. The
+      covering pattern is truncated to end the week before, and a new
+      pattern is created at the submitted week inheriting the old
+      end date.
+    - No pattern covers that week → create a new pattern there,
+      ending where the next pattern starts (or open-ended if none
+      follows).
 
-    Note the difference from earlier behaviour: default mode no longer
-    "moves the latest pattern" when the submitted date is earlier than
-    the latest. That interaction produced surprising results when the
-    latest pattern was in the future — saving from a today-anchored
-    form would silently relocate the future pattern. Default mode
-    now only touches the pattern at the exact submitted week (if one
-    exists); existing future patterns stay intact.
-
-    Retroactive changes — anything effective before this week's Monday
-    — require explicit confirmation via the `retroactive_confirmed`
-    POST field, unless the employee is being set up for the first time
-    (latest pattern has no shifts yet). The template intercepts
-    submission and shows a dialog; this guard catches the case where
-    JavaScript is disabled or bypassed.
+    Retroactive changes — anything effective before this week's
+    Monday — require explicit confirmation via the
+    ``retroactive_confirmed`` POST field, unless the employee is
+    being set up for the first time (latest pattern has no shifts
+    yet).
 
     All validation runs before any database writes. The writes are
     wrapped in a transaction so a failure leaves no partial state.
     """
     latest = _latest_pattern(employee)
-    if latest is None:
-        messages.error(request, "No pattern exists for this employee.")
-        return redirect("employee_defaults", pk=employee.pk)
 
     # ----- Identify the target pattern, if directed edit ---------------
 
@@ -986,9 +977,6 @@ def _handle_defaults_post(request, employee):
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
 
-    # The pattern can't start before the employee was hired. Patterns
-    # are Monday-aligned, so the floor is the Monday of the week
-    # containing the employee's start date.
     start_date_floor = _week_start(employee.start_date)
     if effective_from < start_date_floor:
         messages.error(
@@ -999,13 +987,8 @@ def _handle_defaults_post(request, employee):
         return redirect("employee_defaults", pk=employee.pk)
 
     this_week_start = _week_start(timezone.localdate())
+    is_first_time = not Shift.objects.filter(pattern__employee=employee).exists()
 
-    # First-time setup: the latest pattern has no shifts yet, so saving
-    # is defining the schedule, not rewriting it. The retroactive
-    # warning would be misleading — there's no history to change.
-    is_first_time = not latest.shifts.exists()
-
-    # Retroactive guard.
     if (
         effective_from < this_week_start
         and not is_first_time
@@ -1027,7 +1010,7 @@ def _handle_defaults_post(request, employee):
     if directed_target is not None:
         target = directed_target
 
-        # 1. No other pattern may already own the submitted date.
+        # No other pattern may already own the submitted date.
         if (
             employee.patterns.filter(effective_from=effective_from)
             .exclude(pk=target.pk)
@@ -1039,8 +1022,7 @@ def _handle_defaults_post(request, employee):
             )
             return redirect("employee_defaults", pk=employee.pk)
 
-        # 2. The pattern's date must stay strictly inside the gap between
-        #    its neighbors.
+        # Date must stay strictly between the neighbors.
         prev_pattern = (
             employee.patterns.filter(effective_from__lt=target.effective_from)
             .exclude(pk=target.pk)
@@ -1068,10 +1050,6 @@ def _handle_defaults_post(request, employee):
             )
             return redirect("employee_defaults", pk=employee.pk)
 
-        # 3. The earliest pattern anchors the schedule from the
-        #    employee's start date. It may move earlier (extending the
-        #    anchor) but never forward — that would leave weeks before
-        #    it with no pattern.
         earliest = employee.patterns.order_by("effective_from").first()
         if earliest and earliest.pk == target.pk:
             if effective_from > _week_start(earliest.effective_from):
@@ -1083,30 +1061,30 @@ def _handle_defaults_post(request, employee):
 
         mode = "edit"
     else:
-        # Default forward mode: touch only the pattern at
-        # effective_from, if one exists. Otherwise create a new one
-        # cloned from the currently-effective pattern's shifts. Never
-        # "move" the latest pattern — that behavior was only correct
-        # when the latest pattern was the one being edited, which is
-        # no longer the case in default mode.
-        existing = employee.patterns.filter(
-            effective_from=effective_from
-        ).first()
-        if existing:
-            target = existing
+        # Free-form save: edit-or-split based on the pattern covering
+        # the submitted week.
+        covering = _pattern_for_week(employee, effective_from)
+        if covering is None:
+            target = None
+            mode = "create"
+        elif covering.effective_from == effective_from:
+            target = covering
             mode = "edit"
         else:
-            source = _pattern_for_week(employee, effective_from) or latest
-            target = source
-            mode = "create"
+            target = covering
+            mode = "split"
 
+    default_cycle = (
+        target.cycle_weeks
+        if target is not None
+        else (latest.cycle_weeks if latest else 1)
+    )
     try:
-        cycle_weeks = int(request.POST.get("cycle_weeks", target.cycle_weeks))
+        cycle_weeks = int(request.POST.get("cycle_weeks", default_cycle))
     except (TypeError, ValueError):
-        cycle_weeks = target.cycle_weeks
+        cycle_weeks = default_cycle
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
-    # Validate every submitted cell up front.
     validated_edits = {}
     for week_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
@@ -1153,8 +1131,12 @@ def _handle_defaults_post(request, employee):
 
     # ----- Snapshot for the diff --------------------------------------
 
-    old_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
-    old_cycle = target.cycle_weeks
+    old_shifts = (
+        {(s.week_offset, s.day): s for s in target.shifts.all()}
+        if target is not None
+        else {}
+    )
+    old_cycle = target.cycle_weeks if target is not None else cycle_weeks
 
     # ----- Apply everything in a transaction --------------------------
 
@@ -1166,38 +1148,38 @@ def _handle_defaults_post(request, employee):
                     target.cycle_weeks = cycle_weeks
                     updates.append("cycle_weeks")
                 if target.effective_from != effective_from:
+                    # Only reachable in directed_target mode.
                     target.effective_from = effective_from
                     updates.append("effective_from")
                 if updates:
                     target.save(update_fields=updates)
-            else:  # create
-                if employee.patterns.filter(effective_from=effective_from).exists():
-                    messages.error(
-                        request,
-                        f"A pattern already exists effective from "
-                        f"{effective_from}. Pick a different date.",
-                    )
-                    return redirect("employee_defaults", pk=employee.pk)
 
-                new_pattern = ShiftPattern.objects.create(
+            elif mode == "split":
+                old_effective_to = target.effective_to
+                target.effective_to = effective_from
+                target.save(update_fields=["effective_to"])
+
+                target = ShiftPattern.objects.create(
                     employee=employee,
                     effective_from=effective_from,
+                    effective_to=old_effective_to,
                     cycle_weeks=cycle_weeks,
                 )
 
-                Shift.objects.bulk_create(
-                    [
-                        Shift(
-                            pattern=new_pattern,
-                            week_offset=s.week_offset,
-                            day=s.day,
-                            start_time=s.start_time,
-                            end_time=s.end_time,
-                        )
-                        for s in target.shifts.all()
-                    ]
+            else:  # create
+                next_pattern = (
+                    employee.patterns.filter(effective_from__gt=effective_from)
+                    .order_by("effective_from")
+                    .first()
                 )
-                target = new_pattern
+                target = ShiftPattern.objects.create(
+                    employee=employee,
+                    effective_from=effective_from,
+                    effective_to=(
+                        next_pattern.effective_from if next_pattern else None
+                    ),
+                    cycle_weeks=cycle_weeks,
+                )
 
             for (week_offset, day), value in validated_edits.items():
                 if value is None:
