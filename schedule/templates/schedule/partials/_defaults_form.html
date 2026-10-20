@@ -53,7 +53,7 @@
             <select
                 name="cycle_weeks"
                 id="cycle-weeks-select"
-                x-model.number="cycleWeeks"
+                @input="cycleWeeks = parseInt($event.target.value, 10) || 1"
                 {% if not can_change %}disabled{% endif %}
                 class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             >
@@ -173,7 +173,8 @@
             {% if can_delete and pattern and not pattern_is_earliest %}
             <button
                 type="button"
-                @click="requestDelete($refs.deleteLoadedForm, '{{ pattern.effective_from|date:'F j, Y' }}')"
+                data-pattern-date="{{ pattern.effective_from|date:'F j, Y' }}"
+                @click="requestDelete(document.getElementById('delete-loaded-pattern'), $el.dataset.patternDate)"
                 class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
             >
                 Delete this pattern

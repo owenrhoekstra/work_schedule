@@ -1,0 +1,50 @@
+{% comment %}
+The re-renderable body of the employee page: pattern strip, hidden
+delete form for the loaded pattern, defaults form, and saved patterns
+list.
+
+Extracted so delete_pattern's HTMX branch can return just this region
+as a fragment. The employee header and identity form are deliberately
+outside — they don't change when a pattern is deleted, and swapping
+them would drop the open `<details>` state and lose the user's
+position in the form.
+
+Any change to the content that gets rendered here must be reflected
+in views.py's _employee_page_context so the full-page render and the
+fragment render stay in sync.
+{% endcomment %}
+<div id="employee-content">
+    {% if patterns_recent|length > 1 %}
+        {% include "schedule/partials/_pattern_strip.html" %}
+    {% endif %}
+
+    {% if can_delete and pattern and not pattern_is_earliest %}
+    <form
+        method="post"
+        action="{% url 'delete_pattern' pattern.pk %}"
+        id="delete-loaded-pattern"
+        hx-post="{% url 'delete_pattern' pattern.pk %}"
+        hx-target="#employee-content"
+        hx-swap="outerHTML"
+        class="hidden"
+    >
+        {% csrf_token %}
+        <input
+            type="hidden"
+            name="current_pattern"
+            value="{{ pattern.pk }}"
+        />
+    </form>
+    {% endif %}
+
+    {% include "schedule/partials/_defaults_form.html" %}
+
+    <p class="text-xs text-gray-500 mb-6">
+        Use 24-hour time like <code>09:00</code> or 12-hour like
+        <code>9:00 AM</code>. Leave both fields empty for a day off.
+    </p>
+
+    {% if patterns|length > 1 %}
+        {% include "schedule/partials/_saved_patterns.html" %}
+    {% endif %}
+</div>

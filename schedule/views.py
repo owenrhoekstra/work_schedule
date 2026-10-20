@@ -750,30 +750,14 @@ def _build_default_weeks(pattern):
     return weeks
 
 
-def _render_employee_page(
+def _employee_page_context(
     request, employee, identity_form=None, can_change=True, edit_pattern=None
 ):
-    """Render the merged employee page. Used by both handlers on error.
+    """Build the shared context for the employee page.
 
-    If `edit_pattern` is provided (from the ?pattern= query parameter),
-    the defaults form is populated from that pattern's data and includes
-    a hidden `target_pattern` field so the save handler edits it in
-    place. Otherwise the form is populated from the latest pattern and
-    the save handler picks a mode based on the submitted date.
-
-    Context additions:
-
-    - `patterns` — chronological (oldest first) for the bottom list.
-    - `patterns_recent` — reverse chronological (newest first) for the
-      strip at the top of the page.
-    - `pattern_is_earliest` — whether the currently-loaded pattern is
-      the earliest. Used to hide the form's delete button.
-    - `can_delete` — schedule.delete_shift. Gates the pattern delete
-      controls in the template, matching the boundary enforced by the
-      delete_pattern view.
-    - `first_time_setup` — True when the latest pattern has no shifts
-      yet, so the form anchors to the pattern's own effective_from and
-      the retroactive-confirm dialog is suppressed.
+    Used by both `_render_employee_page` (full page) and the HTMX
+    fragment response in `delete_pattern`. Keeping them in one place
+    means the two views can't drift out of sync.
     """
     latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
@@ -815,29 +799,39 @@ def _render_employee_page(
 
     pattern_is_earliest = form_source is not None and form_source.pk == earliest_pk
 
-    return render(
-        request,
-        "schedule/employee_defaults.html",
-        {
-            "employee": employee,
-            "identity_form": identity_form or EmployeeForm(instance=employee),
-            "pattern": form_source,
-            "patterns": patterns,
-            "patterns_recent": patterns_recent,
-            "weeks": _build_default_weeks(form_source) if form_source else [],
-            "can_change": can_change,
-            "can_delete": request.user.has_perm("schedule.delete_shift"),
-            "last_day": employee.last_day,
-            "default_effective_from": default_effective_from,
-            "first_time_setup": first_time_setup,
-            "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
-            "editing_pattern": edit_pattern,
-            "pattern_is_earliest": pattern_is_earliest,
-            "this_week_start_iso": this_week_start.isoformat(),
-            "today_iso": timezone.localdate().isoformat(),
-        },
-    )
+    return {
+        "employee": employee,
+        "identity_form": identity_form or EmployeeForm(instance=employee),
+        "pattern": form_source,
+        "patterns": patterns,
+        "patterns_recent": patterns_recent,
+        "weeks": _build_default_weeks(form_source) if form_source else [],
+        "can_change": can_change,
+        "can_delete": request.user.has_perm("schedule.delete_shift"),
+        "last_day": employee.last_day,
+        "default_effective_from": default_effective_from,
+        "first_time_setup": first_time_setup,
+        "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
+        "editing_pattern": edit_pattern,
+        "pattern_is_earliest": pattern_is_earliest,
+        "this_week_start_iso": this_week_start.isoformat(),
+        "today_iso": timezone.localdate().isoformat(),
+    }
 
+
+def _render_employee_page(
+    request, employee, identity_form=None, can_change=True, edit_pattern=None
+):
+    """Render the full employee page. Used by the GET path and by both
+    POST handlers on validation errors."""
+    context = _employee_page_context(
+        request,
+        employee,
+        identity_form=identity_form,
+        can_change=can_change,
+        edit_pattern=edit_pattern,
+    )
+    return render(request, "schedule/employee_defaults.html", context)
 
 def _handle_identity_post(request, employee):
     """Save the identity form. Sync the earliest EmploymentPeriod when
@@ -964,7 +958,7 @@ def _handle_defaults_post(request, employee):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = date.fromisoformat(raw_effective)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         messages.error(request, "Please pick a valid effective date.")
         return redirect("employee_defaults", pk=employee.pk)
     effective_from = _week_start(effective_from)
@@ -1092,7 +1086,7 @@ def _handle_defaults_post(request, employee):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", target.cycle_weeks))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = target.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1298,13 +1292,19 @@ def delete_pattern(request, pk):
     pattern for that employee is protected; edit it via the defaults
     form instead.
 
-    Shift overrides within the deleted pattern's window are left in
-    place. They'll be evaluated against the new latest pattern once
-    the deleted one is gone.
+    Responds two ways:
 
-    Authority matches set_override's destructive path: delete_shift,
-    not Management membership. The Settings page keeps management_required
-    for its own destructive actions.
+    - Plain POST → redirect to the employee page (full page reload).
+    - HTMX POST → return the employee-content fragment so the page's
+      strip, form, and saved list swap in place. Any messages
+      (success or the earliest-guard rejection) ride back as an
+      out-of-band swap of the messages container.
+
+    After deleting the pattern that was loaded in the form, the
+    fragment renders with the new latest pattern loaded. If the user
+    was viewing a different pattern (via `?pattern=` or the hidden
+    `current_pattern` field), that pattern stays loaded as long as it
+    still exists.
     """
     today = timezone.localdate()
     pattern = get_object_or_404(
@@ -1313,6 +1313,30 @@ def delete_pattern(request, pk):
         pk=pk,
     )
     employee = pattern.employee
+    is_htmx = request.headers.get("HX-Request") == "true"
+    can_change = request.user.has_perm("schedule.change_shift")
+
+    def _render_content(edit_pattern=None):
+        """Render the content fragment + oob messages for an HTMX
+        response. `edit_pattern` is the pattern to load in the form
+        after the operation — None falls back to the latest."""
+        context = _employee_page_context(
+            request,
+            employee,
+            can_change=can_change,
+            edit_pattern=edit_pattern,
+        )
+        content_html = render_to_string(
+            "schedule/partials/_employee_content.html",
+            context,
+            request=request,
+        )
+        messages_html = render_to_string(
+            "partials/_messages.html",
+            {"hx_oob": True},
+            request=request,
+        )
+        return HttpResponse(content_html + messages_html)
 
     earliest = employee.patterns.order_by("effective_from").first()
     if earliest and earliest.pk == pattern.pk:
@@ -1320,11 +1344,26 @@ def delete_pattern(request, pk):
             request,
             "Can't delete the earliest pattern. Edit it instead.",
         )
+        if is_htmx:
+            return _render_content(edit_pattern=earliest)
         return redirect("employee_defaults", pk=employee.pk)
+
+    # What pattern was the user viewing before the delete? Sent as a
+    # hidden field from both delete forms. If it still exists after
+    # the delete, keep it loaded; otherwise fall back to the new
+    # latest.
+    current_pk = request.POST.get("current_pattern", "").strip()
 
     effective = pattern.effective_from
     pattern.delete()
     messages.success(request, f"Deleted pattern effective from {effective}.")
+
+    if is_htmx:
+        edit_pattern = None
+        if current_pk and current_pk != str(pk):
+            edit_pattern = employee.patterns.filter(pk=current_pk).first()
+        return _render_content(edit_pattern=edit_pattern)
+
     return redirect("employee_defaults", pk=employee.pk)
 
 
@@ -1806,7 +1845,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 
