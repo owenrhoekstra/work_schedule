@@ -214,11 +214,6 @@ def _home_url_for(date_):
 # ---------------------------------------------------------------------------
 
 
-def _latest_pattern(employee):
-    """The most recently defined pattern for this employee."""
-    return employee.patterns.order_by("-effective_from").first()
-
-
 def _pattern_for_week(employee, week_start):
     """The ShiftPattern active for the week starting week_start.
 
@@ -765,32 +760,15 @@ def _build_default_weeks(pattern):
     return weeks
 
 
-def _employee_page_context(
-    request, employee, identity_form=None, can_change=True, edit_pattern=None
-):
-    """Build the shared context for the employee page.
+def _employee_page_context(request, employee, identity_form=None, can_change=True):
+    """Build the shared context for the employee reading page.
 
-    Used by both `_render_employee_page` and the HTMX fragment
-    responses. Keeps the two renders in sync.
+    Renders the two-column layout: employee identity on the left,
+    currently-scheduled pattern on the right, full pattern history
+    below in a disclosure.
     """
-    latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
     current = _pattern_for_week(employee, this_week_start)
-
-    first_time_setup = edit_pattern is None and (
-        latest is None or not latest.shifts.exists()
-    )
-
-    if edit_pattern is not None:
-        form_source = edit_pattern
-        default_effective_from = edit_pattern.effective_from
-    elif first_time_setup and latest is not None:
-        form_source = latest
-        default_effective_from = latest.effective_from
-    else:
-        form_source = current or latest
-        start_date_floor = _week_start(employee.start_date)
-        default_effective_from = max(this_week_start, start_date_floor)
 
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
@@ -806,11 +784,7 @@ def _employee_page_context(
         for p in all_patterns
     ]
 
-    pattern_is_earliest = form_source is not None and form_source.pk == earliest_pk
-
-    # Reading view: the pattern shown in the "Currently scheduled" card,
-    # and the live cycle week (1..N) to highlight in the chips.
-    current_week_pairs = _pattern_summary(current) if current else []
+    current_weeks = _pattern_summary(current) if current else []
     current_cycle_label = None
     if current is not None and current.cycle_weeks > 1:
         offset = _week_offset_for(this_week_start, current)
@@ -818,37 +792,27 @@ def _employee_page_context(
 
     return {
         "employee": employee,
-        "identity_form": identity_form or EmployeeForm(instance=employee),
-        "pattern": form_source,
+        "identity_form": (
+            identity_form if identity_form is not None else EmployeeForm(instance=employee)
+        ),
         "current_pattern": current,
-        "current_weeks": current_week_pairs,
+        "current_weeks": current_weeks,
         "current_cycle_label": current_cycle_label,
         "patterns": patterns,
-        "weeks": _build_default_weeks(form_source) if form_source else [],
         "can_change": can_change,
         "can_delete": request.user.has_perm("schedule.delete_shift"),
         "last_day": employee.last_day,
-        "default_effective_from": default_effective_from,
-        "first_time_setup": first_time_setup,
-        "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
-        "editing_pattern": edit_pattern,
-        "pattern_is_earliest": pattern_is_earliest,
-        "this_week_start_iso": this_week_start.isoformat(),
-        "today_iso": timezone.localdate().isoformat(),
     }
 
 
-def _render_employee_page(
-    request, employee, identity_form=None, can_change=True, edit_pattern=None
-):
-    """Render the full employee page. Used by the GET path and by both
-    POST handlers on validation errors."""
+def _render_employee_page(request, employee, identity_form=None, can_change=True):
+    """Render the employee reading page. Used by the GET path and by
+    `_handle_identity_post` on validation errors."""
     context = _employee_page_context(
         request,
         employee,
         identity_form=identity_form,
         can_change=can_change,
-        edit_pattern=edit_pattern,
     )
     return render(request, "schedule/employee_defaults.html", context)
 
@@ -918,319 +882,6 @@ def _handle_identity_post(request, employee):
                         earliest_pattern.save(update_fields=["effective_from"])
 
     messages.success(request, f"Saved {employee}.")
-    return redirect("employee_defaults", pk=employee.pk)
-
-
-def _handle_defaults_post(request, employee):
-    """Save default hour shifts as a shift pattern.
-
-    Two entry paths:
-
-    **Directed edit** (``?pattern=X``). Carries a ``target_pattern``
-    hidden field. The submitted date may move the pattern within the
-    gap between its neighbors. Kept for backward compatibility while
-    the old form is still on the reading page; retired when the
-    dedicated pattern-edit page lands.
-
-    **Free-form save.** No ``target_pattern``. The submitted date is
-    the only determinant of what happens:
-
-    - A pattern already starts on that week → edit it in place.
-    - A pattern covers that week but started earlier → split it. The
-      covering pattern is truncated to end the week before, and a new
-      pattern is created at the submitted week inheriting the old
-      end date.
-    - No pattern covers that week → create a new pattern there,
-      ending where the next pattern starts (or open-ended if none
-      follows).
-
-    Retroactive changes — anything effective before this week's
-    Monday — require explicit confirmation via the
-    ``retroactive_confirmed`` POST field, unless the employee is
-    being set up for the first time (latest pattern has no shifts
-    yet).
-
-    All validation runs before any database writes. The writes are
-    wrapped in a transaction so a failure leaves no partial state.
-    """
-    latest = _latest_pattern(employee)
-
-    # ----- Identify the target pattern, if directed edit ---------------
-
-    target_pk = request.POST.get("target_pattern", "").strip()
-    directed_target = None
-    if target_pk:
-        directed_target = employee.patterns.filter(pk=target_pk).first()
-        if directed_target is None:
-            messages.error(
-                request,
-                "The pattern you were editing no longer exists.",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-    # ----- Parse and validate inputs (no writes yet) ------------------
-
-    raw_effective = request.POST.get("effective_from", "").strip()
-    try:
-        effective_from = date.fromisoformat(raw_effective)
-    except ValueError, TypeError:
-        messages.error(request, "Please pick a valid effective date.")
-        return redirect("employee_defaults", pk=employee.pk)
-    effective_from = _week_start(effective_from)
-
-    start_date_floor = _week_start(employee.start_date)
-    if effective_from < start_date_floor:
-        messages.error(
-            request,
-            f"Effective date can't be before the employee's start "
-            f"week ({start_date_floor}).",
-        )
-        return redirect("employee_defaults", pk=employee.pk)
-
-    this_week_start = _week_start(timezone.localdate())
-    is_first_time = not Shift.objects.filter(pattern__employee=employee).exists()
-
-    if (
-        effective_from < this_week_start
-        and not is_first_time
-        and request.POST.get("retroactive_confirmed") != "1"
-    ):
-        messages.error(
-            request,
-            "Effective date is in the past. Confirm the retroactive change to proceed.",
-        )
-        return _render_employee_page(
-            request,
-            employee,
-            can_change=True,
-            edit_pattern=directed_target,
-        )
-
-    # ----- Select the target and mode ----------------------------------
-
-    if directed_target is not None:
-        target = directed_target
-
-        # No other pattern may already own the submitted date.
-        if (
-            employee.patterns.filter(effective_from=effective_from)
-            .exclude(pk=target.pk)
-            .exists()
-        ):
-            messages.error(
-                request,
-                f"Another pattern is already effective from {effective_from}.",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-        # Date must stay strictly between the neighbors.
-        prev_pattern = (
-            employee.patterns.filter(effective_from__lt=target.effective_from)
-            .exclude(pk=target.pk)
-            .order_by("-effective_from")
-            .first()
-        )
-        next_pattern = (
-            employee.patterns.filter(effective_from__gt=target.effective_from)
-            .exclude(pk=target.pk)
-            .order_by("effective_from")
-            .first()
-        )
-        if prev_pattern and effective_from <= prev_pattern.effective_from:
-            messages.error(
-                request,
-                f"Effective date must be after the previous pattern's "
-                f"start ({prev_pattern.effective_from}).",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-        if next_pattern and effective_from >= next_pattern.effective_from:
-            messages.error(
-                request,
-                f"Effective date must be before the next pattern's "
-                f"start ({next_pattern.effective_from}).",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-        earliest = employee.patterns.order_by("effective_from").first()
-        if earliest and earliest.pk == target.pk:
-            if effective_from > _week_start(earliest.effective_from):
-                messages.error(
-                    request,
-                    "The earliest pattern can only move earlier, not later.",
-                )
-                return redirect("employee_defaults", pk=employee.pk)
-
-        mode = "edit"
-    else:
-        # Free-form save: edit-or-split based on the pattern covering
-        # the submitted week.
-        covering = _pattern_for_week(employee, effective_from)
-        if covering is None:
-            target = None
-            mode = "create"
-        elif covering.effective_from == effective_from:
-            target = covering
-            mode = "edit"
-        else:
-            target = covering
-            mode = "split"
-
-    default_cycle = (
-        target.cycle_weeks
-        if target is not None
-        else (latest.cycle_weeks if latest else 1)
-    )
-    try:
-        cycle_weeks = int(request.POST.get("cycle_weeks", default_cycle))
-    except TypeError, ValueError:
-        cycle_weeks = default_cycle
-    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
-
-    validated_edits = {}
-    for week_offset in range(MAX_CYCLE_WEEKS):
-        for day in DAYS:
-            start_key = f"week_{week_offset}_day_{day}_start"
-            end_key = f"week_{week_offset}_day_{day}_end"
-
-            if start_key not in request.POST or end_key not in request.POST:
-                continue
-
-            raw_start = request.POST[start_key]
-            raw_end = request.POST[end_key]
-
-            try:
-                start = _parse_time(raw_start)
-                end = _parse_time(raw_end)
-            except ValueError as exc:
-                messages.error(
-                    request,
-                    f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}",
-                )
-                return redirect("employee_defaults", pk=employee.pk)
-
-            if (start is None) != (end is None):
-                messages.error(
-                    request,
-                    f"Week {WEEK_LABELS[week_offset]} "
-                    f"{DAY_LABELS_FULL[day]}: set both start and end, "
-                    f"or leave both empty.",
-                )
-                return redirect("employee_defaults", pk=employee.pk)
-
-            if start and end:
-                if end <= start:
-                    messages.error(
-                        request,
-                        f"Week {WEEK_LABELS[week_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: end time must be after "
-                        f"start time.",
-                    )
-                    return redirect("employee_defaults", pk=employee.pk)
-                validated_edits[(week_offset, day)] = (start, end)
-            else:
-                validated_edits[(week_offset, day)] = None
-
-    # ----- Snapshot for the diff --------------------------------------
-
-    old_shifts = (
-        {(s.week_offset, s.day): s for s in target.shifts.all()}
-        if target is not None
-        else {}
-    )
-    old_cycle = target.cycle_weeks if target is not None else cycle_weeks
-
-    # ----- Apply everything in a transaction --------------------------
-
-    try:
-        with transaction.atomic():
-            if mode == "edit":
-                updates = []
-                if target.cycle_weeks != cycle_weeks:
-                    target.cycle_weeks = cycle_weeks
-                    updates.append("cycle_weeks")
-                if target.effective_from != effective_from:
-                    # Only reachable in directed_target mode.
-                    target.effective_from = effective_from
-                    updates.append("effective_from")
-                if updates:
-                    target.save(update_fields=updates)
-
-            elif mode == "split":
-                old_effective_to = target.effective_to
-                target.effective_to = effective_from
-                target.save(update_fields=["effective_to"])
-
-                target = ShiftPattern.objects.create(
-                    employee=employee,
-                    effective_from=effective_from,
-                    effective_to=old_effective_to,
-                    cycle_weeks=cycle_weeks,
-                )
-
-            else:  # create
-                next_pattern = (
-                    employee.patterns.filter(effective_from__gt=effective_from)
-                    .order_by("effective_from")
-                    .first()
-                )
-                target = ShiftPattern.objects.create(
-                    employee=employee,
-                    effective_from=effective_from,
-                    effective_to=(
-                        next_pattern.effective_from if next_pattern else None
-                    ),
-                    cycle_weeks=cycle_weeks,
-                )
-
-            for (week_offset, day), value in validated_edits.items():
-                if value is None:
-                    Shift.objects.filter(
-                        pattern=target, week_offset=week_offset, day=day
-                    ).delete()
-                else:
-                    start, end = value
-                    Shift.objects.update_or_create(
-                        pattern=target,
-                        week_offset=week_offset,
-                        day=day,
-                        defaults={"start_time": start, "end_time": end},
-                    )
-    except IntegrityError:
-        messages.error(
-            request,
-            "Someone else just saved a pattern for that date. Try again.",
-        )
-        return redirect("employee_defaults", pk=employee.pk)
-
-    # ----- Notify ------------------------------------------------------
-
-    if request.POST.get("notify"):
-        new_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
-        changes = _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks)
-
-        cycle_change = None
-        if cycle_weeks != old_cycle:
-            cycle_change = {
-                "old_cycle": old_cycle,
-                "new_cycle": cycle_weeks,
-                "new_weeks": _new_week_details(target, old_cycle, cycle_weeks),
-            }
-
-        if changes or cycle_change:
-            ok, error = notifications.send_shift_changes_email(
-                employee, changes, kind="default", cycle_change=cycle_change
-            )
-            if ok:
-                messages.success(request, f"Notification sent to {employee.email}.")
-            else:
-                messages.warning(request, error or "Notification not sent.")
-        else:
-            messages.info(request, "No changes to notify.")
-
-    messages.success(
-        request,
-        f"Default hours saved, effective from {target.effective_from}.",
-    )
     return redirect("employee_defaults", pk=employee.pk)
 
 
@@ -1739,14 +1390,11 @@ def pattern_form_preview(request, pk):
 @login_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_defaults(request, pk):
-    """Render or handle the merged identity + defaults page.
+    """Render or handle the employee reading page.
 
-    POST bodies carry a `form` field that routes to the identity or
-    defaults handler.
-
-    The optional `?pattern=<uuid>` query parameter loads a specific
-    saved pattern into the defaults form for editing. Without it, the
-    form is populated from the latest pattern.
+    POST bodies carry a `form` field that routes to the identity
+    handler. The schedule-editing flow lives on /schedule/change/ and
+    /schedule/add/ — not on this page.
     """
     today = timezone.localdate()
     employee = get_object_or_404(
@@ -1762,23 +1410,14 @@ def employee_defaults(request, pk):
         form_type = request.POST.get("form")
         if form_type == "identity":
             return _handle_identity_post(request, employee)
-        if form_type == "defaults":
-            return _handle_defaults_post(request, employee)
 
         messages.error(request, "Unknown form submission.")
         return redirect("employee_defaults", pk=pk)
-
-    # GET — optional ?pattern=<uuid> to pre-load a specific pattern
-    edit_pattern = None
-    pattern_param = request.GET.get("pattern", "").strip()
-    if pattern_param:
-        edit_pattern = employee.patterns.filter(pk=pattern_param).first()
 
     return _render_employee_page(
         request,
         employee,
         can_change=can_change,
-        edit_pattern=edit_pattern,
     )
 
 
@@ -1788,24 +1427,12 @@ def employee_defaults(request, pk):
 def delete_pattern(request, pk):
     """Delete a ShiftPattern and every shift inside it.
 
-    The pattern must belong to an employee who's still on the roster —
-    same active-employee filter used by the defaults page. The earliest
-    pattern for that employee is protected; edit it via the defaults
-    form instead.
+    The pattern must belong to an employee who's still on the roster.
+    The earliest pattern for that employee is protected; edit it via
+    the schedule-change page instead.
 
-    Responds two ways:
-
-    - Plain POST → redirect to the employee page (full page reload).
-    - HTMX POST → return the employee-content fragment so the page's
-      strip, form, and saved list swap in place. Any messages
-      (success or the earliest-guard rejection) ride back as an
-      out-of-band swap of the messages container.
-
-    After deleting the pattern that was loaded in the form, the
-    fragment renders with the new latest pattern loaded. If the user
-    was viewing a different pattern (via `?pattern=` or the hidden
-    `current_pattern` field), that pattern stays loaded as long as it
-    still exists.
+    Shift overrides within the deleted pattern's window are left in
+    place. They'll be evaluated against the newly-effective pattern.
     """
     today = timezone.localdate()
     pattern = get_object_or_404(
@@ -1814,30 +1441,6 @@ def delete_pattern(request, pk):
         pk=pk,
     )
     employee = pattern.employee
-    is_htmx = request.headers.get("HX-Request") == "true"
-    can_change = request.user.has_perm("schedule.change_shift")
-
-    def _render_content(edit_pattern=None):
-        """Render the content fragment + oob messages for an HTMX
-        response. `edit_pattern` is the pattern to load in the form
-        after the operation — None falls back to the latest."""
-        context = _employee_page_context(
-            request,
-            employee,
-            can_change=can_change,
-            edit_pattern=edit_pattern,
-        )
-        content_html = render_to_string(
-            "schedule/partials/_employee_content.html",
-            context,
-            request=request,
-        )
-        messages_html = render_to_string(
-            "partials/_messages.html",
-            {"hx_oob": True},
-            request=request,
-        )
-        return HttpResponse(content_html + messages_html)
 
     earliest = employee.patterns.order_by("effective_from").first()
     if earliest and earliest.pk == pattern.pk:
@@ -1845,26 +1448,11 @@ def delete_pattern(request, pk):
             request,
             "Can't delete the earliest pattern. Edit it instead.",
         )
-        if is_htmx:
-            return _render_content(edit_pattern=earliest)
         return redirect("employee_defaults", pk=employee.pk)
-
-    # What pattern was the user viewing before the delete? Sent as a
-    # hidden field from both delete forms. If it still exists after
-    # the delete, keep it loaded; otherwise fall back to the new
-    # latest.
-    current_pk = request.POST.get("current_pattern", "").strip()
 
     effective = pattern.effective_from
     pattern.delete()
     messages.success(request, f"Deleted pattern effective from {effective}.")
-
-    if is_htmx:
-        edit_pattern = None
-        if current_pk and current_pk != str(pk):
-            edit_pattern = employee.patterns.filter(pk=current_pk).first()
-        return _render_content(edit_pattern=edit_pattern)
-
     return redirect("employee_defaults", pk=employee.pk)
 
 

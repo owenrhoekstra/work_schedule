@@ -1,19 +1,6 @@
-<section
-    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
->
-    <div class="p-4 border-b border-gray-200">
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Saved patterns
-        </h2>
-        <p class="text-xs text-gray-500 mt-1">
-            Oldest first. Click a date to expand its hours. Edit loads
-            a pattern into the form above. Only the earliest pattern
-            can't be deleted — it anchors the schedule from the
-            employee's start date.
-        </p>
-    </div>
+<section class="border-t border-gray-200">
     {% for entry in patterns %}
-    <div class="border-t border-gray-200" x-data="{ open: false }">
+    <div class="border-t border-gray-200 first:border-t-0" x-data="{ open: false }">
         <div class="flex items-center justify-between p-3 gap-3">
             <button
                 type="button"
@@ -28,7 +15,11 @@
                 <span class="text-brand-indigo">
                     Effective from
                     {{ entry.pattern.effective_from|date:"F j, Y" }}
-                    {% if entry.pattern.cycle_weeks > 1 %}· {{ entry.pattern.cycle_weeks }}w cycle{% endif %}
+                    {% if entry.pattern.effective_to %}
+                    through {{ entry.pattern.effective_to|date:"F j, Y" }}
+                    {% else %}
+                    · ongoing
+                    {% endif %}
                 </span>
             </button>
             {% if can_change or can_delete %}
@@ -44,21 +35,12 @@
                 <form
                     method="post"
                     action="{% url 'delete_pattern' entry.pattern.pk %}"
-                    hx-post="{% url 'delete_pattern' entry.pattern.pk %}"
-                    hx-target="#employee-content"
-                    hx-swap="outerHTML"
-                    data-pattern-date="{{ entry.pattern.effective_from|date:'F j, Y' }}"
+                    onsubmit="return confirm('Delete this pattern? This cannot be undone.');"
                     class="inline"
                 >
                     {% csrf_token %}
-                    <input
-                        type="hidden"
-                        name="current_pattern"
-                        value="{{ editing_pattern.pk|default:'' }}"
-                    />
                     <button
-                        type="button"
-                        @click="requestDelete($el.closest('form'), $el.closest('form').dataset.patternDate)"
+                        type="submit"
                         class="text-sm font-medium text-gray-500 hover:text-brand-coral"
                     >
                         Delete
