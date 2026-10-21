@@ -73,4 +73,19 @@ urlpatterns = [
     ),
     path("print/", views.print_schedule, name="print_schedule"),
     path("qr/", views.qr_code, name="qr_code"),
+    path(
+        "employees/<uuid:pk>/schedule/change/",
+        views.schedule_change,
+        name="schedule_change",
+    ),
+    path(
+        "employees/<uuid:pk>/schedule/add/",
+        views.schedule_add,
+        name="schedule_add",
+    ),
+    path(
+        "employees/<uuid:pk>/schedule/preview/",
+        views.pattern_form_preview,
+        name="pattern_form_preview",
+    ),
 ]

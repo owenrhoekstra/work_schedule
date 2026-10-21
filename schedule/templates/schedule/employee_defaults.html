@@ -31,7 +31,6 @@
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <!-- Left: stable identity -->
         <section
             class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-1 flex flex-col"
         >
@@ -70,7 +69,6 @@
             </div>
         </section>
 
-        <!-- Right: current schedule -->
         <section
             class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2"
         >
@@ -146,123 +144,41 @@
                 Not scheduled this week.
             </p>
             {% endif %}
+
+            {% if can_change %}
+            <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
+                <a
+                    href="{% url 'schedule_change' employee.pk %}"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                    >Change from this week</a
+                >
+                <a
+                    href="{% url 'schedule_add' employee.pk %}"
+                    class="font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-4 py-2 transition-colors"
+                    >Add future pattern</a
+                >
+            </div>
+            {% endif %}
         </section>
     </div>
 
-    <!-- Temporary: existing form still lives here until Session 5 -->
-    {% include "schedule/partials/_employee_content.html" %}
-</div>
-
-{% if can_change %}
-    {% if is_management %}
-        {% include "schedule/modals/_deactivate.html" %}
+    {% if patterns %}
+    <details
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+    >
+        <summary
+            class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
+        >
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Full pattern history
+                <span class="text-sm font-normal text-gray-500 ml-2"
+                    >({{ patterns|length }})</span
+                >
+            </h2>
+            <span class="text-gray-400 text-sm">▾</span>
+        </summary>
+        {% include "schedule/partials/_saved_patterns.html" %}
+    </details>
     {% endif %}
-    {% include "schedule/modals/_retroactive_confirm.html" %}
-    {% include "schedule/modals/_delete_pattern_confirm.html" %}
-{% endif %}
-
-<script>
-    document.addEventListener("alpine:init", () => {
-        Alpine.data("employeeDefaults", (opts) => ({
-            deactivateOpen: false,
-            retroactiveOpen: false,
-            deletePatternOpen: false,
-
-            deactivateDate: "",
-            todayIso: opts.todayIso,
-
-            retroactiveDate: "",
-            retroactiveConfirmed: false,
-            firstTimeSetup: opts.firstTimeSetup,
-            thisWeekStart: opts.thisWeekStart,
-
-            pendingDeleteForm: null,
-            pendingDeleteDate: "",
-
-            cycleWeeks: opts.initialCycleWeeks,
-            activeOffset: 0,
-
-            init() {
-                const select = document.getElementById("cycle-weeks-select");
-                if (select) {
-                    this.cycleWeeks =
-                        parseInt(select.value, 10) || opts.initialCycleWeeks;
-                }
-
-                this.$watch("cycleWeeks", (value) => {
-                    if (this.activeOffset >= value) this.activeOffset = 0;
-                });
-
-                this.$el.addEventListener("htmx:afterSwap", (e) => {
-                    if (e.detail.target?.id !== "employee-content") return;
-                    this.$nextTick(() => {
-                        const newSelect = document.getElementById(
-                            "cycle-weeks-select"
-                        );
-                        if (newSelect) {
-                            this.cycleWeeks =
-                                parseInt(newSelect.value, 10) || 1;
-                        } else {
-                            this.cycleWeeks = 1;
-                        }
-                        this.activeOffset = 0;
-                        this.retroactiveConfirmed = false;
-                    });
-                });
-            },
-
-            openDeactivate() {
-                this.deactivateDate = this.todayIso;
-                this.deactivateOpen = true;
-            },
-
-            handleDefaultsSubmit(e) {
-                if (this.retroactiveConfirmed) return;
-                if (this.firstTimeSetup) return;
-                const dateInput = document.getElementById("effective-from");
-                if (!dateInput || !dateInput.value) return;
-                if (dateInput.value >= this.thisWeekStart) return;
-
-                e.preventDefault();
-                this.retroactiveDate = dateInput.value;
-                this.retroactiveOpen = true;
-            },
-
-            confirmRetroactive() {
-                this.retroactiveConfirmed = true;
-                const hidden = document.getElementById("retroactive-confirmed");
-                if (hidden) hidden.value = "1";
-                this.retroactiveOpen = false;
-                const form = document.getElementById("defaults-form");
-                if (form) form.requestSubmit();
-            },
-
-            requestDelete(form, dateText) {
-                this.pendingDeleteForm = form;
-                this.pendingDeleteDate = dateText || "";
-                this.deletePatternOpen = true;
-            },
-
-            confirmDelete() {
-                if (this.pendingDeleteForm) {
-                    this.pendingDeleteForm.requestSubmit();
-                }
-                this.deletePatternOpen = false;
-                this.pendingDeleteForm = null;
-            },
-
-            setActiveTab(offset) {
-                if (offset >= this.cycleWeeks) return;
-                this.activeOffset = offset;
-            },
-            isTabVisible(offset) { return offset < this.cycleWeeks; },
-            isTabActive(offset) {
-                return offset === this.activeOffset && offset < this.cycleWeeks;
-            },
-            isPanelVisible(offset) {
-                return this.activeOffset === offset && offset < this.cycleWeeks;
-            },
-        }));
-    });
-</script>
+</div>
 {% endblock %}

@@ -1,0 +1,136 @@
+{% comment %}
+Banner, grid, and footer for the pattern writing form. Rendered as
+part of the full page on GET, and re-rendered standalone by
+pattern_form_preview for live HTMX updates as the user changes the
+week or cycle length.
+
+The id must match the hx-target in pattern_form.html.
+{% endcomment %}
+<div id="pattern-form-body" class="space-y-4">
+    {% if errors %}
+    <div
+        class="rounded-lg px-4 py-3 bg-brand-coral/10 border border-brand-coral/30 text-sm text-brand-coral"
+    >
+        {% for error in errors %}
+        <p{% if not forloop.last %} class="mb-1"{% endif %}>{{ error }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if banner %}
+    <div
+        class="rounded-lg px-4 py-3 border text-sm {% if banner.tone == 'warn' %}bg-brand-yellow/15 border-brand-yellow/30 text-brand-indigo{% else %}bg-brand-indigo/5 border-brand-indigo/20 text-brand-indigo{% endif %}"
+    >
+        <p class="font-medium">{{ banner.title }}</p>
+        <p class="mt-1">{{ banner.body }}</p>
+    </div>
+    {% endif %}
+
+    {% if effective_from_iso %}
+    <div class="space-y-4">
+        {% for week in weeks %}
+        <div
+            class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+        >
+            {% if weeks|length > 1 %}
+            <div class="p-3 border-b border-gray-200 bg-brand-offwhite/40">
+                <h3 class="font-display text-sm font-medium text-brand-indigo">
+                    Week {{ week.label }}
+                </h3>
+            </div>
+            {% endif %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full border-collapse text-sm">
+                    <thead>
+                        <tr class="bg-brand-offwhite">
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
+                                Day
+                            </th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
+                                Start
+                            </th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
+                                End
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in week.rows %}
+                        <tr class="border-t border-gray-200">
+                            <td class="p-3 font-medium text-brand-indigo whitespace-nowrap">
+                                {{ row.label }}
+                            </td>
+                            <td class="p-3">
+                                <input
+                                    type="text"
+                                    name="week_{{ week.offset }}_day_{{ row.day }}_start"
+                                    value="{{ row.shift.start_time|time:'g:i A' }}"
+                                    placeholder="HH:MM"
+                                    class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                                />
+                            </td>
+                            <td class="p-3">
+                                <input
+                                    type="text"
+                                    name="week_{{ week.offset }}_day_{{ row.day }}_end"
+                                    value="{{ row.shift.end_time|time:'g:i A' }}"
+                                    placeholder="HH:MM"
+                                    class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                                />
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3"
+    >
+        <label class="flex items-center gap-2 text-sm text-brand-indigo">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee of these changes
+        </label>
+        <label class="flex items-center gap-2 text-sm text-brand-indigo">
+            <input
+                type="checkbox"
+                name="retroactive_confirmed"
+                value="1"
+                class="accent-brand-coral"
+            />
+            This change is retroactive — confirm
+        </label>
+        <p class="text-xs text-gray-500">
+            Use 24-hour time like <code>09:00</code> or 12-hour like
+            <code>9:00 AM</code>. Leave both fields empty for a day off.
+        </p>
+        <div class="flex justify-end gap-2 pt-2">
+            <a
+                href="{{ back_url }}"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >Cancel</a
+            >
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save
+            </button>
+        </div>
+    </div>
+    {% else %}
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-sm text-gray-500"
+    >
+        Pick a week to begin.
+    </div>
+    {% endif %}
+</div>

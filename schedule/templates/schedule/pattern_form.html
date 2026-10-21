@@ -1,0 +1,81 @@
+{% extends "base.html" %} {% block title %}{{ employee }} — Schedule{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <a
+        href="{{ back_url }}"
+        class="text-sm font-medium text-brand-coral hover:underline mb-4 inline-block"
+        >← Back to {{ employee }}</a
+    >
+
+    <h1 class="font-display text-xl sm:text-2xl font-bold text-brand-indigo mb-6">
+        {% if mode == "change" %}
+            Change schedule for {{ employee }}
+        {% else %}
+            Add a pattern for {{ employee }}
+        {% endif %}
+    </h1>
+
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <input type="hidden" name="mode" value="{{ mode }}" />
+
+        <div
+            class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-end gap-4"
+        >
+            <div class="flex-1">
+                <label
+                    for="effective-from"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Week starting</label
+                >
+                <select
+                    name="effective_from"
+                    id="effective-from"
+                    hx-get="{% url 'pattern_form_preview' employee.pk %}"
+                    hx-target="#pattern-form-body"
+                    hx-swap="outerHTML"
+                    hx-include="closest form"
+                    hx-trigger="change"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                >
+                    {% if mode == "add" and not effective_from_iso %}
+                    <option value="">Pick a week…</option>
+                    {% endif %}
+                    {% for iso, label in week_options %}
+                    <option
+                        value="{{ iso }}"
+                        {% if iso == effective_from_iso %}selected{% endif %}
+                    >
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="sm:w-40">
+                <label
+                    for="cycle-weeks"
+                    class="block text-sm font-medium text-brand-indigo mb-1"
+                    >Pattern length</label
+                >
+                <select
+                    name="cycle_weeks"
+                    id="cycle-weeks"
+                    hx-get="{% url 'pattern_form_preview' employee.pk %}"
+                    hx-target="#pattern-form-body"
+                    hx-swap="outerHTML"
+                    hx-include="closest form"
+                    hx-trigger="change"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                >
+                    <option value="1" {% if cycle_weeks == 1 %}selected{% endif %}>1 week</option>
+                    <option value="2" {% if cycle_weeks == 2 %}selected{% endif %}>2 weeks</option>
+                    <option value="3" {% if cycle_weeks == 3 %}selected{% endif %}>3 weeks</option>
+                    <option value="4" {% if cycle_weeks == 4 %}selected{% endif %}>4 weeks</option>
+                </select>
+            </div>
+        </div>
+
+        {% include "schedule/partials/_pattern_form_body.html" %}
+    </form>
+</div>
+{% endblock %}
