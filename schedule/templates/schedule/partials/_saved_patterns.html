@@ -15,8 +15,8 @@
                 <span class="text-brand-indigo">
                     Effective from
                     {{ entry.pattern.effective_from|date:"F j, Y" }}
-                    {% if entry.pattern.effective_to %}
-                    through {{ entry.pattern.effective_to|date:"F j, Y" }}
+                    {% if entry.last_week %}
+                    through {{ entry.last_week|date:"F j, Y" }}
                     {% else %}
                     · ongoing
                     {% endif %}

@@ -250,6 +250,18 @@ def _week_offset_for(week_start, pattern):
     return weeks_since_epoch % pattern.cycle_weeks
 
 
+def _last_week_of(pattern):
+    """The Monday of the last week this pattern covers, or None if open-ended.
+
+    `effective_to` is exclusive — the first week *not* covered — so the
+    last covered week starts seven days earlier. Used for display copy
+    only; resolution logic uses `effective_to` directly.
+    """
+    if pattern is None or pattern.effective_to is None:
+        return None
+    return pattern.effective_to - timedelta(days=7)
+
+
 # ---------------------------------------------------------------------------
 # 6. Employment helpers
 # ---------------------------------------------------------------------------
@@ -780,6 +792,7 @@ def _employee_page_context(request, employee, identity_form=None, can_change=Tru
             "pattern": p,
             "weeks": _pattern_summary(p),
             "is_earliest": p.pk == earliest_pk,
+            "last_week": _last_week_of(p),
         }
         for p in all_patterns
     ]
@@ -790,13 +803,18 @@ def _employee_page_context(request, employee, identity_form=None, can_change=Tru
         offset = _week_offset_for(this_week_start, current)
         current_cycle_label = WEEK_LABELS[offset]
 
+    current_last_week = _last_week_of(current)
+
     return {
         "employee": employee,
         "identity_form": (
-            identity_form if identity_form is not None else EmployeeForm(instance=employee)
+            identity_form
+            if identity_form is not None
+            else EmployeeForm(instance=employee)
         ),
         "current_pattern": current,
         "current_weeks": current_weeks,
+        "current_last_week": current_last_week,
         "current_cycle_label": current_cycle_label,
         "patterns": patterns,
         "can_change": can_change,
@@ -989,9 +1007,10 @@ def _compute_pattern_banner(employee, effective_from):
         }
 
     if covering.effective_from == effective_from:
+        last_week = _last_week_of(covering)
         end_phrase = (
-            f" until Week of {covering.effective_to:%b} {covering.effective_to.day}"
-            if covering.effective_to
+            f" until Week of {last_week:%b} {last_week.day}"
+            if last_week
             else " forward"
         )
         return {
@@ -1008,9 +1027,10 @@ def _compute_pattern_banner(employee, effective_from):
         }
 
     prev_week = effective_from - timedelta(days=7)
+    last_week = _last_week_of(covering)
     end_phrase = (
-        f" until Week of {covering.effective_to:%b} {covering.effective_to.day}"
-        if covering.effective_to
+        f" until Week of {last_week:%b} {last_week.day}"
+        if last_week
         else " forward"
     )
     return {
@@ -1081,7 +1101,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _render_pattern_form(
             request,
             employee,
@@ -1104,7 +1124,7 @@ def _handle_pattern_form_post(request, employee, mode):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1205,6 +1225,7 @@ def _handle_pattern_form_post(request, employee, mode):
                 old_cycle = cycle_weeks
             elif covering.effective_from == effective_from:
                 target = covering
+                old_cycle = target.cycle_weeks
                 updates = []
                 if target.cycle_weeks != cycle_weeks:
                     target.cycle_weeks = cycle_weeks
@@ -1212,9 +1233,9 @@ def _handle_pattern_form_post(request, employee, mode):
                 if updates:
                     target.save(update_fields=updates)
                 old_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
-                old_cycle = cycle_weeks
             else:
                 old_end = covering.effective_to
+                old_cycle = covering.cycle_weeks
                 covering.effective_to = effective_from
                 covering.save(update_fields=["effective_to"])
                 target = ShiftPattern.objects.create(
@@ -1224,7 +1245,6 @@ def _handle_pattern_form_post(request, employee, mode):
                     cycle_weeks=cycle_weeks,
                 )
                 old_shifts = {}
-                old_cycle = cycle_weeks
 
             for (week_offset, day), value in validated_edits.items():
                 if value is None:
@@ -1306,13 +1326,14 @@ def schedule_change(request, pk):
     if request.method == "POST":
         return _handle_pattern_form_post(request, employee, mode="change")
 
-    current = _pattern_for_week(employee, _week_start(today))
+    default_week = max(_week_start(today), _week_start(employee.start_date))
+    current = _pattern_for_week(employee, default_week)
     cycle_weeks = current.cycle_weeks if current else 1
     return _render_pattern_form(
         request,
         employee,
         mode="change",
-        effective_from=_week_start(today),
+        effective_from=default_week,
         cycle_weeks=cycle_weeks,
     )
 
@@ -1372,7 +1393,7 @@ def pattern_form_preview(request, pk):
 
     try:
         cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1383,7 +1404,6 @@ def pattern_form_preview(request, pk):
         effective_from=effective_from,
         cycle_weeks=cycle_weeks,
     )
-    return render(request, "schedule/partials/_pattern_form_body.html", context)
     return render(request, "schedule/partials/_pattern_form_body.html", context)
 
 
@@ -1451,7 +1471,17 @@ def delete_pattern(request, pk):
         return redirect("employee_defaults", pk=employee.pk)
 
     effective = pattern.effective_from
-    pattern.delete()
+    with transaction.atomic():
+        predecessor = (
+            employee.patterns.filter(effective_to=pattern.effective_from)
+            .exclude(pk=pattern.pk)
+            .order_by("-effective_from")
+            .first()
+        )
+        if predecessor is not None:
+            predecessor.effective_to = pattern.effective_to
+            predecessor.save(update_fields=["effective_to"])
+        pattern.delete()
     messages.success(request, f"Deleted pattern effective from {effective}.")
     return redirect("employee_defaults", pk=employee.pk)
 
@@ -1934,7 +1964,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 
