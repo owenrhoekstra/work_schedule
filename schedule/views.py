@@ -2192,8 +2192,21 @@ def settings_cancel_deactivation(request, pk):
     """Reverse a scheduled (or immediate) deactivation.
 
     Reopens the most recently closed period and reactivates the User.
+
+    Redirect target is controlled by the POST body's `next` field:
+    "employee_details" → the employee's details page;
+    "employee_defaults" → the employee's reading page;
+    anything else (default) → settings_home.
     """
     employee = get_object_or_404(Employee, pk=pk)
+
+    next_target = request.POST.get("next", "settings_home")
+    if next_target == "employee_details":
+        redirect_url = reverse("employee_defaults", args=[employee.pk])
+    elif next_target == "employee_defaults":
+        redirect_url = reverse("employee_defaults", args=[employee.pk])
+    else:
+        redirect_url = reverse("settings_home")
 
     with transaction.atomic():
         current = (
@@ -2214,7 +2227,7 @@ def settings_cancel_deactivation(request, pk):
             employee.user.save(update_fields=["is_active"])
 
     messages.success(request, f"{employee}'s deactivation was cancelled.")
-    return redirect("settings_home")
+    return redirect(redirect_url)
 
 
 @login_required

@@ -3,16 +3,22 @@
 Session 7. Identity editing and deactivation move off the reading
 page; the reading page becomes read-only. All details-page access is
 gated on Management (superuser or Management group).
+
+Session 7.5 adds scheduled-deactivation UX: when last_day is set, a
+banner appears and the footer swaps the Set Last Day trigger for a
+Cancel deactivation trigger. Tests for those variants assert on the
+trigger buttons' distinctive `onclick` attributes — the modals
+themselves are always rendered, and their button text overlaps the
+trigger button text, so text-matching produces false positives.
 """
 
 from datetime import date, timedelta
-from unittest.mock import patch
 
 from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from schedule.models import Employee, ShiftPattern
+from schedule.models import ShiftPattern
 
 from .factories import make_employee, make_manager_user, make_role, make_staff_user
 
@@ -83,9 +89,7 @@ class EmployeeDetailsPostTests(TestCase):
     def test_basic_update_redirects_to_reading_page(self):
         resp = self.post_identity(first_name="New")
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(
-            resp.url, reverse("employee_defaults", args=[self.emp.pk])
-        )
+        self.assertEqual(resp.url, reverse("employee_defaults", args=[self.emp.pk]))
         self.emp.refresh_from_db()
         self.assertEqual(self.emp.first_name, "New")
 
@@ -175,9 +179,7 @@ class DeactivationRedirectTests(TestCase):
             },
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(
-            resp.url, reverse("employee_defaults", args=[self.emp.pk])
-        )
+        self.assertEqual(resp.url, reverse("employee_defaults", args=[self.emp.pk]))
 
     def test_missing_next_defaults_to_settings_home(self):
         resp = self.client.post(
@@ -197,3 +199,99 @@ class DeactivationRedirectTests(TestCase):
         )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("settings_home"))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class DetailsScheduledDeactivationTests(TestCase):
+    """Session 7.5: scheduled-deactivation UX on /details/.
+
+    Asserts on the trigger buttons' distinctive `onclick` attributes
+    rather than the visible button text. Both modals are always
+    rendered, and their button text overlaps the trigger button text
+    ("Set Last Day" appears as the deactivate modal's heading;
+    "Cancel deactivation" appears as the cancel modal's confirm
+    button). Text-matching would produce false positives in both
+    directions — attribute-matching is unambiguous.
+    """
+
+    def setUp(self):
+        _manager(self.client)
+        self.emp = make_employee()
+
+    def test_no_last_day_shows_set_last_day_trigger(self):
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertContains(resp, 'onclick="openDeactivateModal(this)"')
+        self.assertNotContains(
+            resp, 'onclick="openCancelDeactivationModal(this)"'
+        )
+        self.assertNotContains(resp, "Scheduled for deactivation")
+
+    def test_last_day_set_shows_banner_and_cancel_trigger(self):
+        self.emp.last_day = date.today() + timedelta(days=14)
+        self.emp.is_active = False
+        self.emp.save(update_fields=["last_day", "is_active"])
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertContains(resp, "Scheduled for deactivation")
+        self.assertContains(
+            resp, 'onclick="openCancelDeactivationModal(this)"'
+        )
+        self.assertNotContains(resp, 'onclick="openDeactivateModal(this)"')
+
+    def test_cancel_deactivation_modal_present(self):
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertContains(resp, 'id="cancel-deactivation-confirm-modal"')
+
+    def test_save_details_modal_present(self):
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertContains(resp, 'id="confirm-save-details-modal"')
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class CancelDeactivationNextTests(TestCase):
+    """settings_cancel_deactivation honours `next` field (Session 7.5)."""
+
+    def setUp(self):
+        _manager(self.client)
+        self.emp = make_employee()
+        self.emp.last_day = date.today() + timedelta(days=7)
+        self.emp.is_active = False
+        self.emp.save(update_fields=["last_day", "is_active"])
+        p = self.emp.periods.filter(end_date__isnull=True).first()
+        if p:
+            p.end_date = self.emp.last_day + timedelta(days=1)
+            p.save(update_fields=["end_date"])
+
+    def test_next_employee_details_redirects_there(self):
+        resp = self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+            {"next": "employee_details"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("employee_details", args=[self.emp.pk]))
+
+    def test_next_employee_defaults_redirects_there(self):
+        resp = self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+            {"next": "employee_defaults"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("employee_defaults", args=[self.emp.pk]))
+
+    def test_missing_next_defaults_to_settings_home(self):
+        resp = self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+            {},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("settings_home"))
+
+    def test_cancel_clears_last_day_and_reopens_period(self):
+        self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+            {"next": "employee_details"},
+        )
+        self.emp.refresh_from_db()
+        self.assertIsNone(self.emp.last_day)
+        self.assertTrue(self.emp.is_active)
+        latest = self.emp.periods.order_by("-start_date").first()
+        self.assertIsNone(latest.end_date)

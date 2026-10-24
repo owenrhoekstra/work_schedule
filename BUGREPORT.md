@@ -7,9 +7,8 @@ suspected), severity, location, fix direction, target session.
 Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
-**Current snapshot:** Sessions 1–7 complete. Sessions 7.5 (planned,
-employee-UX polish), 6.5, 6.6, 8, 9 pending. See "Target" on each
-entry.
+**Current snapshot:** Sessions 1–7.5 complete. Sessions 6.5, 6.6, 8,
+9 pending. See "Target" on each entry.
 
 ---
 
@@ -24,7 +23,7 @@ entry.
 - **Symptom:** Manager types a full week of hours, hits Save, gets one
   bad-cell error ("end time must be after start time"). Form snaps
   back to the covering pattern's values. All typed edits are gone.
-  Affects change and add. The edit page is now protected (see partial
+  Affects change and add. The edit page is protected (see partial
   fix below).
 - **Root cause:** `_pattern_form_context` supports `submitted_shifts`,
   but `_handle_pattern_form_post` never passes it on error paths.
@@ -40,9 +39,8 @@ entry.
   necessary
 - **Partial fix:** the pattern edit page
   (`_handle_pattern_edit_post`) passes `submitted_shifts` on error
-  returns, so editors do not lose typed values there. Only fully-parsed
-  cells are preserved; the cell whose validation failed falls back to
-  blank.
+  returns. Only fully-parsed cells are preserved; the cell whose
+  validation failed falls back to blank.
 
 ### BUG-005 — `restore_local_db.py` lacks `--single-transaction` / `ON_ERROR_STOP`
 
@@ -63,8 +61,6 @@ entry.
 
 ## Session 6 design decisions
 
-Recorded so implementation and future reviews stay consistent.
-
 1. **`effective_from` derivation.** The entry path determines it.
    "Change from this week" → no week picker; the current week is
    implied. "Add future pattern" → explicit week picker. Edit page →
@@ -80,16 +76,15 @@ Recorded so implementation and future reviews stay consistent.
      pattern's `effective_to` (or `None`). Already implemented in
      `delete_pattern`.
    - Otherwise: `None` = open-ended.
-   - **Why `effective_to` exists at all:** it's a pre-migration scaffold
-     for the (much later) bulk-overrides feature, which will use a
-     similar edit-or-split pattern. Until then, no UI sets it directly;
-     the schedule resolver uses it to determine which pattern covers a
-     given week. Don't add direct-edit UI for it.
+   - **Why `effective_to` exists at all:** pre-migration scaffold for
+     the (much later) bulk-overrides feature. Until then, no UI sets
+     it directly; the schedule resolver uses it to determine which
+     pattern covers a given week. Don't add direct-edit UI for it.
 
 3. **Delete confirmation.** Every destructive action requires a
    secondary confirmation. Prefer the modal pattern
-   (`_delete_pattern_confirm.html` already exists in the repo). Browser
-   `confirm()` is acceptable only as a last resort.
+   (`_delete_pattern_confirm.html`). Browser `confirm()` only as a
+   last resort.
 
 4. **Retroactive.** Confirmation required only when **editing an
    already-saved pattern whose `effective_from` is in the past**.
@@ -102,7 +97,8 @@ Recorded so implementation and future reviews stay consistent.
    guard already exists in `delete_pattern`; keep it — hidden UI is
    not a permission.
 
-6. **Prefill.** See separate discussion (deferred; scope TBD).
+6. **Prefill.** See separate discussion (deferred; scope TBD — Session
+   6.6).
 
 ---
 
@@ -110,26 +106,42 @@ Recorded so implementation and future reviews stay consistent.
 
 1. **Read-only reading page.** `employee_defaults` is read-only. All
    identity editing and deactivation live at `/details/`. Reading-page
-   POST dispatch removed entirely.
-2. **`/details/` gated on `@management_required`** (superuser or
-   Management group). Matches "only management can reach the reading
-   page" intent.
+   POST dispatch removed.
+2. **`/details/` gated on `@management_required`.** Matches "only
+   management can reach the reading page" intent.
 3. **Deactivation is a modal, not a page transition.** Every other
    pattern-write flow (change/add/edit) is a full page. Deactivation
    is a single-field confirmation — modal is the right weight.
 4. **Standardize `_deactivate.html`.** Self-contained, no Alpine
    dependency (inline `onclick` + `window.openDeactivateModal`).
    Included from both `settings.html` and `employee_details.html`.
-   Same pattern as `_confirm_discard.html` and
-   `_retroactive_confirm.html`.
 5. **`next` field controls redirect after deactivation.**
    `settings_deactivate_employee` reads `next` from POST:
    `employee_defaults` → reading page; anything else → `settings_home`.
    Whitelist; no arbitrary URL redirects.
 6. **`_confirm_discard.html` is the standard cancel-with-unsaved-state
    pattern.** Any Cancel button that would abandon edits routes through
-   it via `openConfirmDiscardModal(href)`. Currently wired on
-   `_identity_form.html` and `_pattern_form_body.html`.
+   it via `openConfirmDiscardModal(href)`.
+
+---
+
+## Session 7.5 design decisions
+
+1. **Edit CTA lives inside the Employee card on the reading page.**
+   Small filled coral button in the card footer, right-aligned, gated
+   on `is_management`. Label: "Edit employee". No header link.
+2. **Confirmation modal for every details-page commit.**
+   - Set Last Day → `_deactivate.html` (existing)
+   - Cancel deactivation → `_cancel_deactivation_confirm.html` (new)
+   - Save details → `_confirm_save_details.html` (new; always shown —
+     user preference for explicit action every save. Revisit if it
+     becomes noisy.)
+3. **Scheduled-deactivation banner** appears above the identity form
+   fields when `last_day` is set, naming the date and the fact that
+   they're off from the following day.
+4. **Cancel deactivation stays on `/details/`** via
+   `settings_cancel_deactivation` honouring a `next` POST field
+   (mirrors `settings_deactivate_employee`).
 
 ---
 
@@ -138,87 +150,92 @@ Recorded so implementation and future reviews stay consistent.
 ### UX-001 — Week picker should be a calendar, not a dropdown
 
 - **Severity:** Medium (UX friction, not a correctness bug)
-- **Status:** Confirmed, deferred — user wants it eventually, not
-  urgent, but the dropdown won't survive multi-year use
+- **Status:** Confirmed, deferred
 - **Location:** `schedule/views.py::_week_picker_options`;
-  `schedule/templates/schedule/pattern_form.html` (week picker)
-- **Current:** `<select>` populated by `_week_picker_options`, scoped to
-  `max(employee.start_date, today-180d)` through
+  `schedule/templates/schedule/pattern_form.html`
+- **Current:** `<select>` populated by `_week_picker_options`, scoped
+  to `max(employee.start_date, today-180d)` through
   `max(employee.last_day or today+365d, today+90d)`.
 - **Problems:**
   - Dropdown scales badly past ~20 weeks (excessive scrolling).
   - The 180-day floor / 365-day ceiling are workarounds for that
-    scaling — they exist because a dropdown can't hold unlimited
-    options, not because the domain requires limits.
+    scaling, not domain-required limits.
   - The floor silently excludes old patterns (see BUG-006).
-  - Managers plan change visually ("three weeks from now, the week
-    starting ___") — a calendar matches that mental model; a scrolling
-    `<select>` does not.
+  - Managers plan change visually — a calendar matches that mental
+    model; a `<select>` does not.
 - **Desired:** Inline calendar (or calendar modal) with days grouped
   into Mon–Sat visual bands, each band a clickable "week" cell. No
-  artificial floor except `CYCLE_EPOCH` (earliest valid
-  `effective_from`). No artificial ceiling — unlimited forward
-  planning. Still Monday-aligned. Retroactive warnings continue to
-  fire based on `effective_from < this_week_start`.
-- **Notes:**
-  - Any picker change should be uniform across change / add / edit
-    pages.
-  - Subsumes BUG-006.
-  - Prefilled value on edit page must remain the pattern's own
-    `effective_from` even after the picker rewrite.
+  artificial floor except `CYCLE_EPOCH`. No artificial ceiling.
+  Monday-aligned. Retroactive warnings fire based on
+  `effective_from < this_week_start`.
+- **Notes:** Uniform across change / add / edit pages. Subsumes
+  BUG-006. Prefilled edit-page value = the pattern's own
+  `effective_from`.
 - **Target:** Session 6.5.
 
 ### UX-002 — General styling pass
 
-- **Severity:** Low (cosmetic; no correctness impact)
-- **Status:** Confirmed, deferred. First instance landed Session 6
-  (Cancel-button focus rings on the retroactive and delete modals).
-  Session 7 extended the pattern to `_deactivate.html` and
-  `_confirm_discard.html`.
-- **Scope:** App-wide. Known starting points:
-  - Focus rings on dialog buttons — Safari's default blue ring is
-    off-brand. Brand them with
-    `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`.
-  - Native form controls (any surviving `<select>` / `<input>` that
-    hasn't been styled by `_INPUT_CLASS` or an equivalent).
-  - Focus states across all interactive elements — links, buttons,
-    table rows.
-  - Modal `.is-closing` animations — verify against Safari specifically
-    (Safari's `<dialog>` positioning has quirks; `margin: auto` in
-    `dialog.modal-animate` is the known mitigation if centering breaks).
+- **Severity:** Low (cosmetic)
+- **Status:** Confirmed, deferred. Instances landed in Sessions 6, 7,
+  and 7.5 (focus rings on retroactive / delete / deactivate / discard /
+  cancel-deactivation / save-details modals).
+- **Scope:** App-wide.
+  - Focus rings on dialog buttons — branded coral, not Safari's default
+    blue.
+  - Native form controls not yet touched by `_INPUT_CLASS` or
+    equivalent.
+  - Focus states across all interactive elements.
+  - Modal `.is-closing` animations — verify against Safari (`margin:
+    auto` in `dialog.modal-animate` is the known mitigation if
+    centering breaks).
   - Print view — verify color / B&W rendering on actual paper.
-- **Target:** Session 9 (QA + ship) at the latest. Pull forward sooner
-  if the friction becomes visible to end users.
+- **Target:** Session 9 (QA + ship) at the latest.
 
-### UX-003 — Session 7.5: employee-UX polish (planned)
+### UX-003 — Employee-UX polish
 
-- **Severity:** Medium (UX; current flows work but feel awkward)
-- **Status:** Confirmed, planned for Session 7.5 before 6.5 / 6.6
-- **Items:**
-  1. **Prominent Edit CTA on reading page.** Current `Edit →` link in
-     the Employee card header is too subtle. Move to a filled coral
-     button below the two-column grid (above the pattern history
-     disclosure). Whole-row/whole-card visibility.
-  2. **Cancel deactivation from `/details/`.** If `last_day` is set,
-     the details page currently shows "Set Last Day" as if the
-     employee weren't already scheduled for deactivation. Needs:
-     - Show the current scheduled last day
-     - "Change last day" button (opens modal, prefilled)
-     - "Cancel deactivation" button (POSTs a cancel endpoint, lands
-       back on reading page)
-  3. **Move employee interactions out of settings.** Settings is
-     currently a mixed bag: employee table + former employees +
-     titles + roles. Reserve it for tenant-level config (titles,
-     roles, future tenant actions). Employees move to a dedicated
-     location — dedicated listing page or spread across reading
-     pages.
-- **Follow-ups deferred from Session 7 (add to backlog):**
-  - Add Employee modal Cancel still dismisses without confirmation —
-    modal-in-modal UX is awkward; leave for now.
-  - `_reactivate.html` still uses the pre-`.modal-animate` inline
-    style from settings.html. Extract and standardize when the
-    employee-move-out work happens.
-- **Target:** Session 7.5.
+- **Status:** Delivered Session 7.5.
+- **Shipped:**
+  - Edit CTA moved into Employee card on reading page (small filled
+    coral button, right-aligned, card footer).
+  - Scheduled-deactivation banner on `/details/` with current last-day
+    visible.
+  - Cancel deactivation button + confirmation modal on `/details/`
+    when `last_day` is set.
+  - Save details confirmation modal (always shown).
+- **Follow-ups deferred from Session 7.5:**
+  - Add Employee modal Cancel still dismisses without discard
+    confirmation. Modal-in-modal UX is awkward; leave for now.
+  - `_reactivate.html` still uses pre-`.modal-animate` inline style
+    from settings.html. Extract and standardize when UX-004 lands.
+  - Dirty-state guard: if the identity form has unsaved edits when the
+    user triggers Set Last Day / Cancel deactivation, those independent
+    POSTs navigate away and lose the edits. Revisit if end users
+    complain; the modal's Cancel path stays on the page so the hazard
+    is smaller than it first looks.
+  - "Change last day" flow was scoped out — the details page shows
+    "Cancel deactivation" only. To change a scheduled date, cancel
+    first, then set the new one. Revisit if that two-step flow
+    becomes awkward.
+  - Settings page's "Cancel deactivation" button does not pass
+    `next`, so it still lands on settings_home. Fine for now; will be
+    revisited when UX-004 lands.
+
+### UX-004 — Move employee interactions out of settings (philosophy)
+
+- **Status:** Philosophy only, not scheduled.
+- **Principle:** Settings should be reserved for tenant-level config
+  (titles, roles, and future tenant-level actions). Employee
+  interactions should live near the employee context — not mixed in
+  with tenant config in one long page.
+- **Current state:** Settings currently holds Active employees table,
+  Former employees table, Titles, Roles. The first two are the
+  targets for relocation.
+- **Possible shapes (undecided):**
+  - Dedicated `/employees/` page linked from nav.
+  - Former employees at `/employees/former/`, linked from settings.
+  - "Show former employees" toggle on the home schedule.
+- **Not tackled now.** Recorded so future sessions don't re-litigate
+  the philosophy.
 
 ---
 
@@ -233,22 +250,19 @@ Recorded so implementation and future reviews stay consistent.
 - Reordering patterns
 - Import / export of patterns
 - Session 8's signal removal (`ensure_employee_has_pattern`)
-- Reactivate-modal extraction (natural session: Session 7.5, see
-  UX-003)
+- UX-004 (move employee interactions out of settings)
 
 ### BUG-006 — `_week_picker_options` may exclude the pattern's own `effective_from`
 
 - **Severity:** Low (edge case; partially mitigated)
 - **Status:** Verified not currently triggered (2026-10-23) — no pattern
   in prod has an `effective_from` older than `today - 180d`. The edit
-  page is now safe regardless: `_pattern_form_context` injects the
+  page is safe regardless: `_pattern_form_context` injects the
   pattern's own `effective_from` into `week_options` if it isn't in the
-  base range. Change/add pages still rely on the 180-day floor and will
-  silently omit very old weeks if a `?week=` link points there.
+  base range. Change/add pages still rely on the 180-day floor and
+  will silently omit very old weeks if a `?week=` link points there.
 - **Location:** `schedule/views.py`, `_week_picker_options`
-- **Fix direction:** Superseded by UX-001 (calendar picker with
-  `CYCLE_EPOCH` floor). Don't fix in isolation; fix as part of the
-  week-picker rewrite.
+- **Fix direction:** Superseded by UX-001.
 - **Target:** Session 6.5 (see UX-001).
 
 ---
@@ -257,11 +271,10 @@ Recorded so implementation and future reviews stay consistent.
 
 ### FIXED-001 — Edit link restored on pattern history list
 
-- **Fixed:** Session 6. `_saved_patterns.html` "Edit" link is now a
-  real `<a>` to `pattern_edit`.
+- **Fixed:** Session 6.
 - **Follow-up:** delete URL was left at `/patterns/<uuid>/delete/`
-  rather than the redesign doc's `/employees/<uuid>/patterns/<uuid>/delete/`.
-  Cosmetic mismatch; can be aligned later.
+  rather than `/employees/<uuid>/patterns/<uuid>/delete/`. Cosmetic;
+  can be aligned later.
 
 ### FIXED-002 — Retroactive and delete confirmation modals wired
 
@@ -289,72 +302,69 @@ Recorded so implementation and future reviews stay consistent.
 ### FIXED-003 — Calendar alignment between prefill, save, and notification baseline
 
 - **Fixed:** Session 5.5. Resolved BUG-001 and BUG-002.
-- **Root cause:** Panel index in the form was treated as the target
-  pattern's cycle offset, but cycle offset 0 is not calendar week
-  `effective_from` when `effective_from` isn't congruent with
-  `CYCLE_EPOCH`. Prefill showed the wrong calendar week; the save
-  loop wrote edits to the wrong offset; the split branch's
-  notification baseline was `{}`.
-- **Fix:**
-  - New `_cycle_offset(week_start, cycle_weeks)` — factored out of
-    `_week_offset_for` so it can be called without a pattern instance.
-  - New `_calendar_aligned_shifts(employee, effective_from, cycle_weeks)` —
-    builds a baseline keyed by target offset from the actual calendar
-    weeks the panels represent.
-  - `_grid_weeks_for_form` now indexes panels by calendar week
-    (`effective_from + 7*i`), pre-filling from whichever pattern
-    covers that week.
-  - Save loops in `_handle_pattern_form_post` and
-    `_handle_pattern_edit_post` translate `(cal_offset, day)` →
-    `(target_offset, day)` where
-    `target_offset = (base_target_offset + cal_offset) % cycle_weeks`.
-  - Split branch uses `_calendar_aligned_shifts` for `old_shifts`
-    before mutating `covering.effective_to`.
-  - When `cycle_weeks` shrinks, shifts at `week_offset >= new cycle`
-    are deleted (they're unreachable under the new cycle).
-- **Tests:** `schedule/tests/test_pattern_alignment.py` — prefill
-  alignment, edit-in-place save, split-branch notification baseline.
-- **Known limitation (not fixed):** changing `cycle_weeks` on an
-  existing pattern reinterprets stored offsets — data at old offsets
-  represents different calendar weeks under the new cycle. The
-  prefill/save alignment is correct under the new semantics; existing
-  data may be overwritten (grow) or deleted (shrink). Not currently
-  surfaced in the UI. Follow-up if it bites.
+- **Fix:** New `_cycle_offset(week_start, cycle_weeks)`; new
+  `_calendar_aligned_shifts(employee, effective_from, cycle_weeks)`;
+  `_grid_weeks_for_form` indexes panels by calendar week
+  (`effective_from + 7*i`) not target offset; save loops translate
+  `(cal_offset, day)` → `(target_offset, day)` via
+  `(base_target_offset + cal_offset) % cycle_weeks`; split-branch
+  `old_shifts` uses calendar alignment; cycle-shrink deletes orphan
+  shifts.
+- **Tests:** `schedule/tests/test_pattern_alignment.py`.
+- **Known limitation:** changing `cycle_weeks` on an existing pattern
+  reinterprets stored offsets. Prefill/save are correct under the new
+  semantics; existing data may be overwritten (grow) or deleted
+  (shrink). Not surfaced in the UI. Follow-up if it bites.
 
 ### FIXED-004 — Details page, deactivate modal standardization, discard confirmation
 
 - **Fixed:** Session 7.
-- **New `/details/` page.** Employee identity editing and deactivation
-  now live at `employees/<uuid>/details/`, gated on
-  `@management_required`. Reading page is read-only; an "Edit →" link
-  in the identity card header opens the details page.
-- **`employee_defaults` POST dispatch removed.** The `form=identity`
-  branch is gone — `/details/` is the only identity-edit entry point.
-  Existing tests moved from
-  `test_employee.py::EmployeeIdentityFormTests` to
-  `test_details.py::EmployeeDetailsPostTests`.
-- **`_deactivate.html` extracted from settings.html.** Now
-  self-contained with `.modal-animate` transitions, exposes
-  `window.openDeactivateModal(button)`, honours `data-next` for the
-  post-deactivation redirect. Included from both `settings.html` and
-  `employee_details.html`. Settings.html's inline duplicate modal +
-  `openDeactivateModal` JS removed.
-- **`_confirm_discard.html`** new reusable modal. Any Cancel button
-  that would navigate away from unsaved form state can call
-  `openConfirmDiscardModal(href)`. Wired on `_identity_form.html`
-  (details page) and `_pattern_form_body.html` (change/add/edit
-  pattern pages).
-- **`settings_deactivate_employee`** now reads a `next` POST field:
-  `employee_defaults` → the employee's reading page; anything else
-  (default) → `settings_home`. Details-page deactivation lands on the
-  reading page; settings-page deactivation stays on settings.
+- **New `/details/` page** at `employees/<uuid>/details/`, gated on
+  `@management_required`. Reading page read-only; identity edits and
+  deactivation live here.
+- **`employee_defaults` POST dispatch removed.**
+- **`_deactivate.html` extracted from settings.html.** Self-contained,
+  `.modal-animate`, `window.openDeactivateModal(button)`, honours
+  `data-next`. Settings.html's inline duplicate removed.
+- **`_confirm_discard.html`** new reusable modal. Wired on
+  `_identity_form.html` and `_pattern_form_body.html`.
+- **`settings_deactivate_employee`** reads `next` field:
+  `employee_defaults` → reading page; anything else → `settings_home`.
 - **`make_manager_user` factory** extended with `change_employee` and
-  `delete_employee` permissions to match its docstring ("every schedule
-  permission").
+  `delete_employee`.
+- **Tests:** `schedule/tests/test_details.py`.
 
 ### FIXED-005 — BUG-004 (`_identity_form.html` referenced missing `openDeactivate()`)
 
-- **Fixed:** Session 7. `_identity_form.html` now uses
-  `onclick="openDeactivateModal(this)"` (from the extracted
-  `_deactivate.html`), not `@click="openDeactivate()"`. No Alpine
-  component dependency.
+- **Fixed:** Session 7. `_identity_form.html` uses
+  `onclick="openDeactivateModal(this)"` from the extracted
+  `_deactivate.html`. No Alpine component dependency.
+
+### FIXED-006 — Session 7.5: employee-UX polish
+
+- **Fixed:** Session 7.5.
+- **Edit CTA on reading page** moved from the identity card header
+  (subtle text link) to a small filled coral button inside the card
+  footer. Right-aligned, scoped label ("Edit employee"). Gated on
+  `is_management`.
+- **Scheduled-deactivation banner** on `/details/`: when `last_day`
+  is set, a coral-toned banner above the form fields names the date
+  and explains "Off from the following day." The footer swaps
+  [Set Last Day] → [Cancel deactivation]. Both buttons gated on
+  `perms.schedule.delete_employee`, consistent with the existing
+  deactivate gate.
+- **Cancel deactivation modal** — new
+  `_cancel_deactivation_confirm.html`. Native-button pattern, no
+  Alpine. Confirm submits the hidden `#cancel-deactivation-form`
+  (sibling of the identity form; HTML forms cannot nest) which POSTs
+  to `settings_cancel_deactivation` with `next=employee_details`.
+- **Save details confirmation modal** — new
+  `_confirm_save_details.html`. Always shown (user preference for
+  explicit action on every save; revisit if noisy). Submit
+  interceptor on `#identity-form`, native button confirm, flag-based
+  re-submit.
+- **`settings_cancel_deactivation`** now honours `next` POST field
+  (whitelisted): `employee_details` → details page,
+  `employee_defaults` → reading page, anything else → settings_home.
+- **Tests:** `DetailsScheduledDeactivationTests`,
+  `CancelDeactivationNextTests` in `schedule/tests/test_details.py`.
