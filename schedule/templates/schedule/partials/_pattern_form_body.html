@@ -6,19 +6,22 @@ week or cycle length.
 
 The id must match the hx-target in pattern_form.html.
 
-The `patternFormBody` component owns the retroactive modal flow:
-- Save button is type="button" and calls handleSave().
-- If is_retroactive and not yet confirmed, handleSave opens the modal.
-- Modal confirm sets hidden `retroactive_confirmed=1` and submits.
-- If the server rejects a confirmed retroactive save (validation
-  error), `retroactive_confirmed` is threaded back into context so the
-  next Save skips the modal (no double-confirmation).
+Week pagination: when cycle_weeks > 1, tabs at the top let the manager
+switch between weeks without vertical scrolling. Tabs stretch to fill
+the container width and divide equally (2 weeks = 1/2 each, 3 = 1/3
+each, 4 = 1/4 each). Only the active week's panel is visible; others
+are hidden with display: none. Hidden inputs still submit —
+display: none does not affect form submission. Tab state is managed
+by a plain document-level click listener rather than Alpine, to
+sidestep the Alpine scope issues that affected the Save button
+earlier. Styling uses Tailwind's data-[active]: arbitrary variants —
+no custom CSS, no base.html changes.
 
-The script uses `alpine:init` (fires before Alpine's deferred script
-runs), so registration is safe on initial page load. On HTMX swap of
-this partial, the script does not re-run (HTMX doesn't execute swapped
-scripts), and Alpine's `htmx:afterSwap` listener in base.html re-inits
-the swapped tree with the already-registered component.
+Retroactive: same story — no Alpine. A document-level submit
+interceptor opens _retroactive_confirm.html when the target week is in
+the past and the user hasn't yet confirmed. Confirm/Cancel are inline
+onclick handlers on the modal buttons, backed by window-scoped
+helpers.
 {% endcomment %}
 <div
     id="pattern-form-body"
@@ -47,17 +50,27 @@ the swapped tree with the already-registered component.
 
     {% if effective_from_iso %}
     <div class="space-y-4">
+        {% if weeks|length > 1 %}
+        <div class="flex gap-1">
+            {% for week in weeks %}
+            <button
+                type="button"
+                data-week-tab="{{ week.offset }}"
+                {% if forloop.first %}data-active{% endif %}
+                class="flex-1 text-center px-3 py-1 rounded-lg border text-sm font-medium transition-colors border-gray-300 text-gray-700 hover:text-brand-coral data-[active]:border-brand-coral data-[active]:text-brand-coral data-[active]:bg-brand-coral/5"
+            >
+                Week {{ week.label }}
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% for week in weeks %}
         <div
+            data-week-panel="{{ week.offset }}"
             class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+            {% if not forloop.first %}style="display: none;"{% endif %}
         >
-            {% if weeks|length > 1 %}
-            <div class="p-3 border-b border-gray-200 bg-brand-offwhite/40">
-                <h3 class="font-display text-sm font-medium text-brand-indigo">
-                    Week {{ week.label }}
-                </h3>
-            </div>
-            {% endif %}
             <div class="overflow-x-auto">
                 <table class="min-w-full border-collapse text-sm">
                     <thead>
@@ -153,7 +166,32 @@ the swapped tree with the already-registered component.
         if (window.__patternFormBodySubmitHandler) return;
         window.__patternFormBodySubmitHandler = true;
 
-        // ---- Dialog helpers (exposed on window for inline onclick) ----
+        // ---- Week pagination ------------------------------------
+        // Document-level click delegation survives HTMX swaps of
+        // #pattern-form-body when cycle length changes. Toggles
+        // data-active on tabs and display on panels. Hidden inputs
+        // still submit — display: none does not affect submission.
+        document.addEventListener("click", (e) => {
+            const tab = e.target.closest("[data-week-tab]");
+            if (!tab) return;
+            const body = tab.closest("#pattern-form-body");
+            if (!body) return;
+            const target = tab.dataset.weekTab;
+
+            body.querySelectorAll("[data-week-tab]").forEach((t) => {
+                if (t.dataset.weekTab === target) {
+                    t.setAttribute("data-active", "");
+                } else {
+                    t.removeAttribute("data-active");
+                }
+            });
+            body.querySelectorAll("[data-week-panel]").forEach((p) => {
+                p.style.display =
+                    p.dataset.weekPanel === target ? "" : "none";
+            });
+        });
+
+        // ---- Retroactive dialog helpers -------------------------
 
         const dismissModal = () => {
             const dialog = document.getElementById(
@@ -190,10 +228,8 @@ the swapped tree with the already-registered component.
         window.__dismissRetroactiveModal = dismissModal;
         window.__confirmRetroactiveModal = confirmModal;
 
-        // ---- ESC / cancel-event handling on the dialog ----------------
-        // The <dialog> element fires `cancel` when ESC is pressed. We
-        // intercept it so ESC goes through the animation instead of
-        // closing instantly.
+        // ---- ESC handler ----------------------------------------
+
         document.addEventListener(
             "keydown",
             (e) => {
@@ -209,7 +245,7 @@ the swapped tree with the already-registered component.
             true
         );
 
-        // ---- Submit interceptor (opens the modal) ---------------------
+        // ---- Submit interceptor ---------------------------------
 
         document.addEventListener("submit", (e) => {
             const form = e.target;

@@ -7,6 +7,10 @@ suspected), severity, location, fix direction, target session.
 Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
+**Current snapshot:** Session 6 (pattern edit page) complete, pending
+commit. Sessions 5.5, 6.5, 6.6, 7, 8, 9 pending. See "Target" on each
+entry.
+
 ---
 
 ## Confirmed live bugs
@@ -68,9 +72,10 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - **Symptom:** Manager types a full week of hours, hits Save, gets one
   bad-cell error ("end time must be after start time"). Form snaps
   back to the covering pattern's values. All typed edits are gone.
-  Affects change, add, and the (planned) edit page alike.
+  Affects change and add. The edit page is now protected (see partial
+  fix below).
 - **Root cause:** `_pattern_form_context` supports `submitted_shifts`,
-  but no caller passes it. Dead code.
+  but `_handle_pattern_form_post` never passes it on error paths.
 - **Fix direction:** Before the grid-validation loop, collect every
   successfully-parsed `(week_offset, day) → (start, end)` pair into a
   dict of Shift-like objects (need `.start_time` / `.end_time`
@@ -79,13 +84,13 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   start/end set) can't cleanly become Shift-like without either
   preserving raw text or breaking the `|time` filter — drop them; the
   error banner names which cell is bad.
-- **Target:** housekeeping / when edit-page UX pressure makes it
+- **Target:** housekeeping / when change/add UX pressure makes it
   necessary
-- **Partial fix:** the pattern edit page (`pattern_edit`,
-  `_handle_pattern_edit_post`) passes `submitted_shifts` on error
+- **Partial fix:** the pattern edit page
+  (`_handle_pattern_edit_post`) passes `submitted_shifts` on error
   returns, so editors do not lose typed values there. Only fully-parsed
   cells are preserved; the cell whose validation failed falls back to
-  blank. Change/add still inherit the full bug.
+  blank.
 
 ### BUG-004 — `_identity_form.html` references missing `openDeactivate()`
 
@@ -113,22 +118,6 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   the terminal, wait for both processes, check `producer.returncode`
   before `psql.returncode`, exit with the relevant command + status.
 - **Target:** whenever the script graduates to prod
-
-### BUG-006 — `_week_picker_options` may exclude the pattern's own `effective_from`
-
-- **Severity:** Low (edge case; relevant to Session 6's edit page)
-- **Status:** Suspected — verify at Session 6 start
-- **Location:** `schedule/views.py`, `_week_picker_options`
-- **Symptom:** The floor is `today - 180 days`. Any pattern whose
-  `effective_from` predates that won't be in the `<option>` list. On
-  the edit page (where the week picker is disabled and pre-set to the
-  pattern's date), a `disabled` select with no matching option renders
-  as the first option — displaying the wrong week as "the pattern's
-  start."
-- **Check at Session 6 start:** confirm no active pattern predates
-  `today - 180d`; if any does, either widen `_week_picker_options` or
-  inject the pattern's own date into the option list on the edit page.
-- **Target:** Session 6
 
 ---
 
@@ -216,13 +205,12 @@ Recorded so implementation and future reviews stay consistent.
 ### UX-002 — General styling pass
 
 - **Severity:** Low (cosmetic; no correctness impact)
-- **Status:** Confirmed, deferred
+- **Status:** Confirmed, deferred. First instance landed Session 6
+  (Cancel-button focus rings on the retroactive and delete modals).
 - **Scope:** App-wide. Known starting points:
   - Focus rings on dialog buttons — Safari's default blue ring is
     off-brand. Brand them with
     `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`.
-    Applied to delete / retroactive Cancel buttons as a first instance;
-    sweep the rest.
   - Native form controls (any surviving `<select>` / `<input>` that
     hasn't been styled by `_INPUT_CLASS` or an equivalent).
   - Focus states across all interactive elements — links, buttons,
@@ -250,16 +238,14 @@ Recorded so implementation and future reviews stay consistent.
 
 ### BUG-006 — `_week_picker_options` may exclude the pattern's own `effective_from`
 
-- **Severity:** Low (edge case; relevant to Session 6's edit page)
+- **Severity:** Low (edge case; partially mitigated)
 - **Status:** Verified not currently triggered (2026-10-23) — no pattern
-  in prod has an `effective_from` older than `today - 180d`. Will
-  re-surface when the first pattern ages past 180 days.
+  in prod has an `effective_from` older than `today - 180d`. The edit
+  page is now safe regardless: `_pattern_form_context` injects the
+  pattern's own `effective_from` into `week_options` if it isn't in the
+  base range. Change/add pages still rely on the 180-day floor and will
+  silently omit very old weeks if a `?week=` link points there.
 - **Location:** `schedule/views.py`, `_week_picker_options`
-- **Symptom:** The floor is `today - 180 days`. Any pattern whose
-  `effective_from` predates that won't be in the `<option>` list. On
-  the edit page (where the week picker is pre-set to the pattern's
-  date), a select with no matching option renders as the first option
-  — displaying the wrong week as "the pattern's start."
 - **Fix direction:** Superseded by UX-001 (calendar picker with
   `CYCLE_EPOCH` floor). Don't fix in isolation; fix as part of the
   week-picker rewrite.
@@ -276,3 +262,26 @@ Recorded so implementation and future reviews stay consistent.
 - **Follow-up:** delete URL was left at `/patterns/<uuid>/delete/`
   rather than the redesign doc's `/employees/<uuid>/patterns/<uuid>/delete/`.
   Cosmetic mismatch; can be aligned later.
+
+### FIXED-002 — Retroactive and delete confirmation modals wired
+
+- **Fixed:** Session 6.
+- **Retroactive modal:** Alpine `@click` on the Save button was not
+  reliably invoking `handleSave` — physical clicks didn't fire the
+  handler, though programmatic calls did. Replaced with a native
+  `submit` interceptor on `document` plus inline `onclick` handlers
+  on the modal's Cancel/Confirm buttons. No Alpine scope dependency
+  remains; opening the modal, confirming, and dismissing are all plain
+  DOM functions.
+- **Delete modal:** `_saved_patterns.html` used browser `confirm()`;
+  `pattern_form.html`'s edit page had no confirmation at all. Both now
+  share `_delete_pattern_confirm.html` via the `deletePatternModal`
+  Alpine component (registered once, guarded by
+  `window.__deletePatternModalRegistered`).
+- **Focus rings:** Cancel buttons on both modals have
+  `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`
+  instead of Safari's default blue ring (first instance of UX-002).
+- **Test fixes:** Assertions on `retroactive-confirm-modal` and
+  `delete-pattern-modal` were matching JS string literals in the
+  inline script, causing false positives / negatives. Narrowed to
+  `id="retroactive-confirm-modal"` and `id="delete-pattern-modal"`.

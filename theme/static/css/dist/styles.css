@@ -1213,6 +1213,24 @@
       opacity: 30%;
     }
   }
+  .data-\[active\]\:border-brand-coral {
+    &[data-active] {
+      border-color: var(--color-brand-coral);
+    }
+  }
+  .data-\[active\]\:bg-brand-coral\/5 {
+    &[data-active] {
+      background-color: color-mix(in srgb, #ff5a5f 5%, transparent);
+      @supports (color: color-mix(in lab, red, red)) {
+        background-color: color-mix(in oklab, var(--color-brand-coral) 5%, transparent);
+      }
+    }
+  }
+  .data-\[active\]\:text-brand-coral {
+    &[data-active] {
+      color: var(--color-brand-coral);
+    }
+  }
   .sm\:order-1 {
     @media (width >= 40rem) {
       order: 1;

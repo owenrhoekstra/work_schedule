@@ -968,82 +968,110 @@ def _week_picker_options(employee):
 
 
 def _compute_pattern_banner(employee, effective_from):
-    """Describe what will happen if the user saves at effective_from."""
-    covering = _pattern_for_week(employee, effective_from) if effective_from else None
+    """Describe what will happen if the user saves at effective_from.
+
+    Copy is written for managers, not developers. It states the
+    outcome of saving, names the exact weeks affected, and reassures
+    about what is NOT changing. "Splitting" / "truncated" / "covering"
+    jargon is avoided — the split case instead describes the old
+    pattern's new end date in plain English.
+
+    Tone: "warn" for the split case (an existing pattern's boundary
+    is changing), "info" otherwise.
+    """
+    if effective_from is None:
+        return {
+            "tone": "info",
+            "title": "Pick a week to begin",
+            "body": "Choose the week when these hours should start.",
+        }
+
+    covering = _pattern_for_week(employee, effective_from)
     next_pattern = (
         employee.patterns.filter(effective_from__gt=effective_from)
         .order_by("effective_from")
         .first()
-        if effective_from
-        else None
     )
 
-    if effective_from is None:
-        return {
-            "tone": "info",
-            "title": "Pick a week to add a pattern",
-            "body": "The week picker determines where the new pattern begins.",
-        }
+    target_label = f"Week of {effective_from:%b} {effective_from.day}"
 
+    # Case A: no covering pattern — this is a brand-new pattern.
     if covering is None:
         if next_pattern:
+            next_label = (
+                f"Week of {next_pattern.effective_from:%b} "
+                f"{next_pattern.effective_from.day}"
+            )
+            end_week = next_pattern.effective_from - timedelta(days=7)
+            end_label = f"Week of {end_week:%b} {end_week.day}"
             return {
                 "tone": "info",
-                "title": f"Adding a pattern from Week of {effective_from:%b} {effective_from.day}",
+                "title": f"Saving will add a new pattern starting {target_label}",
                 "body": (
-                    f"This new pattern will apply from Week of "
-                    f"{effective_from:%b} {effective_from.day} until "
-                    f"Week of {next_pattern.effective_from:%b} "
-                    f"{next_pattern.effective_from.day}, when the existing "
-                    f"pattern takes over."
+                    f"{target_label} through {end_label} will use the new "
+                    f"hours. {next_label} onward continues with the "
+                    f"existing pattern. Earlier weeks are not affected."
                 ),
             }
         return {
             "tone": "info",
-            "title": f"Adding a pattern from Week of {effective_from:%b} {effective_from.day}",
+            "title": f"Saving will add a new pattern starting {target_label}",
             "body": (
-                f"This new pattern will apply from Week of "
-                f"{effective_from:%b} {effective_from.day} forward."
+                f"{target_label} onward will use the new hours. No later "
+                f"patterns exist, so this continues indefinitely."
             ),
         }
 
+    # Case B: edit-in-place — the covering pattern starts exactly here.
     if covering.effective_from == effective_from:
         last_week = _last_week_of(covering)
-        end_phrase = (
-            f" until Week of {last_week:%b} {last_week.day}"
-            if last_week
-            else " forward"
-        )
+        if last_week:
+            last_label = f"Week of {last_week:%b} {last_week.day}"
+            return {
+                "tone": "info",
+                "title": f"Saving will update the pattern starting {target_label}",
+                "body": (
+                    f"{target_label} through {last_label} will use the "
+                    f"new hours. No other patterns are affected."
+                ),
+            }
         return {
             "tone": "info",
-            "title": (
-                f"Editing the pattern effective Week of "
-                f"{covering.effective_from:%b} {covering.effective_from.day}"
-            ),
+            "title": f"Saving will update the pattern starting {target_label}",
             "body": (
-                f"Changes apply from Week of "
-                f"{effective_from:%b} {effective_from.day}{end_phrase}. "
-                f"No new pattern will be created."
+                f"{target_label} onward will use the new hours. No other "
+                f"patterns are affected."
             ),
         }
 
-    prev_week = effective_from - timedelta(days=7)
-    last_week = _last_week_of(covering)
-    end_phrase = (
-        f" until Week of {last_week:%b} {last_week.day}" if last_week else " forward"
+    # Case C: split — the covering pattern started earlier, so it
+    # will now end one week before the new pattern begins.
+    old_start_label = (
+        f"Week of {covering.effective_from:%b} {covering.effective_from.day}"
     )
+    new_old_end = effective_from - timedelta(days=7)
+    old_end_label = f"Week of {new_old_end:%b} {new_old_end.day}"
+
+    last_week = _last_week_of(covering)
+    if last_week:
+        last_label = f"Week of {last_week:%b} {last_week.day}"
+        body = (
+            f"{target_label} through {last_label} will use the new "
+            f"hours. The pattern currently in place (started "
+            f"{old_start_label}) will now end on {old_end_label}. "
+            f"Earlier weeks are not affected."
+        )
+    else:
+        body = (
+            f"{target_label} onward will use the new hours. The pattern "
+            f"currently in place (started {old_start_label}) will now "
+            f"end on {old_end_label}. Earlier weeks are not affected."
+        )
+
     return {
         "tone": "warn",
-        "title": (
-            f"Splitting the pattern effective Week of "
-            f"{covering.effective_from:%b} {covering.effective_from.day}"
-        ),
-        "body": (
-            f"The current pattern (through Week of "
-            f"{prev_week:%b} {prev_week.day}) will be truncated. A new "
-            f"pattern applies from Week of "
-            f"{effective_from:%b} {effective_from.day}{end_phrase}."
-        ),
+        "title": f"Saving will change the schedule starting {target_label}",
+        "body": body,
     }
 
 
