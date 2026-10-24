@@ -146,6 +146,11 @@ Recorded so implementation and future reviews stay consistent.
      pattern's `effective_to` (or `None`). Already implemented in
      `delete_pattern`.
    - Otherwise: `None` = open-ended.
+   - **Why `effective_to` exists at all:** it's a pre-migration scaffold
+     for the (much later) bulk-overrides feature, which will use a
+     similar edit-or-split pattern. Until then, no UI sets it directly;
+     the schedule resolver uses it to determine which pattern covers a
+     given week. Don't add direct-edit UI for it.
 
 3. **Delete confirmation.** Every destructive action requires a
    secondary confirmation. Prefer the modal pattern
@@ -167,6 +172,44 @@ Recorded so implementation and future reviews stay consistent.
 
 ---
 
+## UX / feature requests
+
+### UX-001 — Week picker should be a calendar, not a dropdown
+
+- **Severity:** Medium (UX friction, not a correctness bug)
+- **Status:** Confirmed, deferred — user wants it eventually, not
+  urgent, but the dropdown won't survive multi-year use
+- **Location:** `schedule/views.py::_week_picker_options`;
+  `schedule/templates/schedule/pattern_form.html` (week picker)
+- **Current:** `<select>` populated by `_week_picker_options`, scoped to
+  `max(employee.start_date, today-180d)` through
+  `max(employee.last_day or today+365d, today+90d)`.
+- **Problems:**
+  - Dropdown scales badly past ~20 weeks (excessive scrolling).
+  - The 180-day floor / 365-day ceiling are workarounds for that
+    scaling — they exist because a dropdown can't hold unlimited
+    options, not because the domain requires limits.
+  - The floor silently excludes old patterns (see BUG-006).
+  - Managers plan change visually ("three weeks from now, the week
+    starting ___") — a calendar matches that mental model; a scrolling
+    `<select>` does not.
+- **Desired:** Inline calendar (or calendar modal) with days grouped
+  into Mon–Sat visual bands, each band a clickable "week" cell. No
+  artificial floor except `CYCLE_EPOCH` (earliest valid
+  `effective_from`). No artificial ceiling — unlimited forward
+  planning. Still Monday-aligned. Retroactive warnings continue to
+  fire based on `effective_from < this_week_start`.
+- **Notes:**
+  - Any picker change should be uniform across change / add / edit
+    pages.
+  - Subsumes BUG-006.
+  - Prefilled value on edit page must remain the pattern's own
+    `effective_from` even after the picker rewrite.
+- **Target:** own session after Session 6 ("week picker calendar").
+  Call it Session 6.5 or Session 6-adjacent — TBD.
+
+---
+
 ## Deferred / out of scope
 
 - Full prefill modal (week-by-week copy from a different pattern) —
@@ -178,6 +221,23 @@ Recorded so implementation and future reviews stay consistent.
 - Reordering patterns
 - Import / export of patterns
 - Session 8's signal removal (`ensure_employee_has_pattern`)
+
+### BUG-006 — `_week_picker_options` may exclude the pattern's own `effective_from`
+
+- **Severity:** Low (edge case; relevant to Session 6's edit page)
+- **Status:** Verified not currently triggered (2026-10-23) — no pattern
+  in prod has an `effective_from` older than `today - 180d`. Will
+  re-surface when the first pattern ages past 180 days.
+- **Location:** `schedule/views.py`, `_week_picker_options`
+- **Symptom:** The floor is `today - 180 days`. Any pattern whose
+  `effective_from` predates that won't be in the `<option>` list. On
+  the edit page (where the week picker is pre-set to the pattern's
+  date), a select with no matching option renders as the first option
+  — displaying the wrong week as "the pattern's start."
+- **Fix direction:** Superseded by UX-001 (calendar picker with
+  `CYCLE_EPOCH` floor). Don't fix in isolation; fix as part of the
+  week-picker rewrite.
+- **Target:** the week-picker session (see UX-001)
 
 ---
 
