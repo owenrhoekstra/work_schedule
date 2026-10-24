@@ -23,6 +23,7 @@ Sections 9–13 are the actual views.
 import io
 from datetime import date, datetime, timedelta
 from functools import wraps
+from types import SimpleNamespace
 
 import qrcode
 import qrcode.image.svg
@@ -214,19 +215,29 @@ def _home_url_for(date_):
 # ---------------------------------------------------------------------------
 
 
-def _latest_pattern(employee):
-    """The most recently defined pattern for this employee."""
-    return employee.patterns.order_by("-effective_from").first()
-
-
 def _pattern_for_week(employee, week_start):
     """The ShiftPattern active for the week starting week_start.
+
+    Returns the pattern whose [effective_from, effective_to) range
+    contains week_start. effective_to is exclusive and None means
+    open-ended.
+
+    If multiple patterns match — possible during the transition to
+    explicit end dates, when the old form can still create overlapping
+    patterns — the one with the greatest effective_from wins. This
+    preserves the previous "latest pattern" behavior for that legacy
+    state so nothing regresses before the form is rewritten.
 
     Iterates over the (prefetched) patterns relation in Python so the
     schedule render doesn't fire one query per employee. Returns None
     if no pattern covers the week.
     """
-    candidates = [p for p in employee.patterns.all() if p.effective_from <= week_start]
+    candidates = [
+        p
+        for p in employee.patterns.all()
+        if p.effective_from <= week_start
+        and (p.effective_to is None or week_start < p.effective_to)
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.effective_from)
@@ -238,6 +249,18 @@ def _week_offset_for(week_start, pattern):
         return 0
     weeks_since_epoch = (week_start - settings.CYCLE_EPOCH).days // 7
     return weeks_since_epoch % pattern.cycle_weeks
+
+
+def _last_week_of(pattern):
+    """The Monday of the last week this pattern covers, or None if open-ended.
+
+    `effective_to` is exclusive — the first week *not* covered — so the
+    last covered week starts seven days earlier. Used for display copy
+    only; resolution logic uses `effective_to` directly.
+    """
+    if pattern is None or pattern.effective_to is None:
+        return None
+    return pattern.effective_to - timedelta(days=7)
 
 
 # ---------------------------------------------------------------------------
@@ -750,58 +773,15 @@ def _build_default_weeks(pattern):
     return weeks
 
 
-def _employee_page_context(
-    request, employee, identity_form=None, can_change=True, edit_pattern=None
-):
-    """Build the shared context for the employee page.
+def _employee_page_context(request, employee, identity_form=None, can_change=True):
+    """Build the shared context for the employee reading page.
 
-    Used by both `_render_employee_page` (full page) and the HTMX
-    fragment response in `delete_pattern`. Keeping them in one place
-    means the two views can't drift out of sync.
-
-    Three modes drive this page:
-
-    - **edit** (`?pattern=X`): editing a specific saved pattern. Form
-      anchors to that pattern's effective_from and the strip
-      highlights it.
-    - **first_setup** (no patterns yet have shifts): defining the
-      employee's first schedule. Form anchors to the initial pattern's
-      effective_from; strip highlights it since it's the only pattern.
-    - **forward** (default): the user is making a forward change from
-      the current week. Form anchors to this week's Monday, shift grid
-      shows the currently-effective pattern's shifts, and no chip is
-      highlighted. Saving creates a new pattern from that week or
-      edits the one already there — existing future patterns are not
-      touched.
+    Renders the two-column layout: employee identity on the left,
+    currently-scheduled pattern on the right, full pattern history
+    below in a disclosure.
     """
-    latest = _latest_pattern(employee)
     this_week_start = _week_start(timezone.localdate())
-    currently_effective = _pattern_for_week(employee, this_week_start)
-
-    first_time_setup = edit_pattern is None and (
-        latest is None or not latest.shifts.exists()
-    )
-
-    if edit_pattern is not None:
-        form_source = edit_pattern
-        default_effective_from = edit_pattern.effective_from
-        form_mode = "edit"
-        highlighted_pk = edit_pattern.pk
-    elif first_time_setup and latest is not None:
-        form_source = latest
-        default_effective_from = latest.effective_from
-        form_mode = "first_setup"
-        highlighted_pk = latest.pk
-    else:
-        # Forward mode. Show the pattern that's actually running
-        # this week, not whichever pattern happens to have the
-        # largest effective_from (which could be a future one).
-        form_source = currently_effective or latest
-        # Don't anchor before the employee's start week.
-        start_date_floor = _week_start(employee.start_date)
-        default_effective_from = max(this_week_start, start_date_floor)
-        form_mode = "forward"
-        highlighted_pk = None
+    current = _pattern_for_week(employee, this_week_start)
 
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
@@ -813,54 +793,48 @@ def _employee_page_context(
             "pattern": p,
             "weeks": _pattern_summary(p),
             "is_earliest": p.pk == earliest_pk,
+            "last_week": _last_week_of(p),
         }
         for p in all_patterns
     ]
 
-    patterns_recent = [
-        {
-            "pattern": p,
-            "is_current": highlighted_pk is not None and p.pk == highlighted_pk,
-        }
-        for p in reversed(all_patterns)
-    ]
+    current_weeks = _pattern_summary(current) if current else []
+    current_cycle_label = None
+    if current is not None and current.cycle_weeks > 1:
+        offset = _week_offset_for(this_week_start, current)
+        current_cycle_label = WEEK_LABELS[offset]
 
-    pattern_is_earliest = form_source is not None and form_source.pk == earliest_pk
+    current_last_week = _last_week_of(current)
 
     return {
         "employee": employee,
-        "identity_form": identity_form or EmployeeForm(instance=employee),
-        "pattern": form_source,
+        "identity_form": (
+            identity_form
+            if identity_form is not None
+            else EmployeeForm(instance=employee)
+        ),
+        "current_pattern": current,
+        "current_weeks": current_weeks,
+        "current_last_week": current_last_week,
+        "current_cycle_label": current_cycle_label,
         "patterns": patterns,
-        "patterns_recent": patterns_recent,
-        "weeks": _build_default_weeks(form_source) if form_source else [],
         "can_change": can_change,
         "can_delete": request.user.has_perm("schedule.delete_shift"),
         "last_day": employee.last_day,
-        "default_effective_from": default_effective_from,
-        "first_time_setup": first_time_setup,
-        "form_mode": form_mode,
-        "target_pattern_pk": edit_pattern.pk if edit_pattern else "",
-        "editing_pattern": edit_pattern,
-        "pattern_is_earliest": pattern_is_earliest,
-        "this_week_start_iso": this_week_start.isoformat(),
-        "today_iso": timezone.localdate().isoformat(),
     }
 
 
-def _render_employee_page(
-    request, employee, identity_form=None, can_change=True, edit_pattern=None
-):
-    """Render the full employee page. Used by the GET path and by both
-    POST handlers on validation errors."""
+def _render_employee_page(request, employee, identity_form=None, can_change=True):
+    """Render the employee reading page. Used by the GET path and by
+    `_handle_identity_post` on validation errors."""
     context = _employee_page_context(
         request,
         employee,
         identity_form=identity_form,
         can_change=can_change,
-        edit_pattern=edit_pattern,
     )
     return render(request, "schedule/employee_defaults.html", context)
+
 
 def _handle_identity_post(request, employee):
     """Save the identity form. Sync the earliest EmploymentPeriod when
@@ -930,284 +904,389 @@ def _handle_identity_post(request, employee):
     return redirect("employee_defaults", pk=employee.pk)
 
 
-def _handle_defaults_post(request, employee):
-    """Save default hour shifts as a shift pattern.
+def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
+    """Build the grid structure for the writing form.
 
-    Two entry paths:
-
-    **Directed edit.** The form carries a `target_pattern` hidden field
-    (set when the manager clicked Edit on a specific saved pattern).
-    That pattern is edited in place — date, cycle length, and shifts.
-    No new pattern is created. The submitted date may move the pattern,
-    but only within the range allowed by the employee's start week, the
-    target's neighbors, and the earliest-pattern anchoring rule.
-
-    **Default forward mode.** No `target_pattern`. The submitted date
-    is compared against the patterns table:
-
-    - If a pattern already exists at that effective_from → edit it in
-      place.
-    - Otherwise → create a new pattern at that date, cloning the
-      currently-effective pattern's shifts as a starting point.
-
-    Note the difference from earlier behaviour: default mode no longer
-    "moves the latest pattern" when the submitted date is earlier than
-    the latest. That interaction produced surprising results when the
-    latest pattern was in the future — saving from a today-anchored
-    form would silently relocate the future pattern. Default mode
-    now only touches the pattern at the exact submitted week (if one
-    exists); existing future patterns stay intact.
-
-    Retroactive changes — anything effective before this week's Monday
-    — require explicit confirmation via the `retroactive_confirmed`
-    POST field, unless the employee is being set up for the first time
-    (latest pattern has no shifts yet). The template intercepts
-    submission and shows a dialog; this guard catches the case where
-    JavaScript is disabled or bypassed.
-
-    All validation runs before any database writes. The writes are
-    wrapped in a transaction so a failure leaves no partial state.
+    Returns a list of dicts, one per cycle week, each with day cells
+    pre-populated from the pattern currently covering the chosen week
+    (or empty if no pattern covers it). The user edits from what's
+    currently scheduled.
     """
-    latest = _latest_pattern(employee)
-    if latest is None:
-        messages.error(request, "No pattern exists for this employee.")
-        return redirect("employee_defaults", pk=employee.pk)
-
-    # ----- Identify the target pattern, if directed edit ---------------
-
-    target_pk = request.POST.get("target_pattern", "").strip()
-    directed_target = None
-    if target_pk:
-        directed_target = employee.patterns.filter(pk=target_pk).first()
-        if directed_target is None:
-            messages.error(
-                request,
-                "The pattern you were editing no longer exists.",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-    # ----- Parse and validate inputs (no writes yet) ------------------
-
-    raw_effective = request.POST.get("effective_from", "").strip()
-    try:
-        effective_from = date.fromisoformat(raw_effective)
-    except (ValueError, TypeError):
-        messages.error(request, "Please pick a valid effective date.")
-        return redirect("employee_defaults", pk=employee.pk)
-    effective_from = _week_start(effective_from)
-
-    # The pattern can't start before the employee was hired. Patterns
-    # are Monday-aligned, so the floor is the Monday of the week
-    # containing the employee's start date.
-    start_date_floor = _week_start(employee.start_date)
-    if effective_from < start_date_floor:
-        messages.error(
-            request,
-            f"Effective date can't be before the employee's start "
-            f"week ({start_date_floor}).",
+    source = _pattern_for_week(employee, effective_from) if effective_from else None
+    shifts_by_key = (
+        {(s.week_offset, s.day): s for s in source.shifts.all()} if source else {}
+    )
+    weeks = []
+    for offset in range(cycle_weeks):
+        rows = [
+            {
+                "day": day,
+                "label": DAY_LABELS_FULL[day],
+                "shift": shifts_by_key.get((offset, day)),
+            }
+            for day in DAYS
+        ]
+        weeks.append(
+            {
+                "offset": offset,
+                "label": WEEK_LABELS[offset],
+                "rows": rows,
+            }
         )
-        return redirect("employee_defaults", pk=employee.pk)
+    return weeks
+
+
+def _week_picker_options(employee):
+    """Return a list of (iso_date, label) pairs for the week picker.
+
+    Range: 6 months back from today (or employee.start_date, whichever
+    is later) through 1 year forward (or employee.last_day, whichever
+    is earlier). Always includes at least 90 days forward so managers
+    can plan changes past a near-term last_day.
+    """
+    today = timezone.localdate()
+    start_floor = _week_start(employee.start_date)
+    start_past = _week_start(today - timedelta(days=180))
+    start = max(start_floor, start_past)
+
+    if employee.last_day:
+        end_week = _week_start(employee.last_day)
+    else:
+        end_week = _week_start(today + timedelta(days=365))
+    end = max(end_week, _week_start(today + timedelta(days=90)))
+
+    options = []
+    cur = start
+    while cur <= end:
+        sat = cur + timedelta(days=5)
+        label = (
+            f"Week of {cur.strftime('%b')} {cur.day} – {sat.strftime('%b')} {sat.day}"
+        )
+        options.append((cur.isoformat(), label))
+        cur += timedelta(days=7)
+    return options
+
+
+def _compute_pattern_banner(employee, effective_from):
+    """Describe what will happen if the user saves at effective_from.
+
+    Copy is written for managers, not developers. It states the
+    outcome of saving, names the exact weeks affected, and reassures
+    about what is NOT changing. "Splitting" / "truncated" / "covering"
+    jargon is avoided — the split case instead describes the old
+    pattern's new end date in plain English.
+
+    Tone: "warn" for the split case (an existing pattern's boundary
+    is changing), "info" otherwise.
+    """
+    if effective_from is None:
+        return {
+            "tone": "info",
+            "title": "Pick a week to begin",
+            "body": "Choose the week when these hours should start.",
+        }
+
+    covering = _pattern_for_week(employee, effective_from)
+    next_pattern = (
+        employee.patterns.filter(effective_from__gt=effective_from)
+        .order_by("effective_from")
+        .first()
+    )
+
+    target_label = f"Week of {effective_from:%b} {effective_from.day}"
+
+    # Case A: no covering pattern — this is a brand-new pattern.
+    if covering is None:
+        if next_pattern:
+            next_label = (
+                f"Week of {next_pattern.effective_from:%b} "
+                f"{next_pattern.effective_from.day}"
+            )
+            end_week = next_pattern.effective_from - timedelta(days=7)
+            end_label = f"Week of {end_week:%b} {end_week.day}"
+            return {
+                "tone": "info",
+                "title": f"Saving will add a new pattern starting {target_label}",
+                "body": (
+                    f"{target_label} through {end_label} will use the new "
+                    f"hours. {next_label} onward continues with the "
+                    f"existing pattern. Earlier weeks are not affected."
+                ),
+            }
+        return {
+            "tone": "info",
+            "title": f"Saving will add a new pattern starting {target_label}",
+            "body": (
+                f"{target_label} onward will use the new hours. No later "
+                f"patterns exist, so this continues indefinitely."
+            ),
+        }
+
+    # Case B: edit-in-place — the covering pattern starts exactly here.
+    if covering.effective_from == effective_from:
+        last_week = _last_week_of(covering)
+        if last_week:
+            last_label = f"Week of {last_week:%b} {last_week.day}"
+            return {
+                "tone": "info",
+                "title": f"Saving will update the pattern starting {target_label}",
+                "body": (
+                    f"{target_label} through {last_label} will use the "
+                    f"new hours. No other patterns are affected."
+                ),
+            }
+        return {
+            "tone": "info",
+            "title": f"Saving will update the pattern starting {target_label}",
+            "body": (
+                f"{target_label} onward will use the new hours. No other "
+                f"patterns are affected."
+            ),
+        }
+
+    # Case C: split — the covering pattern started earlier, so it
+    # will now end one week before the new pattern begins.
+    old_start_label = (
+        f"Week of {covering.effective_from:%b} {covering.effective_from.day}"
+    )
+    new_old_end = effective_from - timedelta(days=7)
+    old_end_label = f"Week of {new_old_end:%b} {new_old_end.day}"
+
+    last_week = _last_week_of(covering)
+    if last_week:
+        last_label = f"Week of {last_week:%b} {last_week.day}"
+        body = (
+            f"{target_label} through {last_label} will use the new "
+            f"hours. The pattern currently in place (started "
+            f"{old_start_label}) will now end on {old_end_label}. "
+            f"Earlier weeks are not affected."
+        )
+    else:
+        body = (
+            f"{target_label} onward will use the new hours. The pattern "
+            f"currently in place (started {old_start_label}) will now "
+            f"end on {old_end_label}. Earlier weeks are not affected."
+        )
+
+    return {
+        "tone": "warn",
+        "title": f"Saving will change the schedule starting {target_label}",
+        "body": body,
+    }
+
+
+def _pattern_form_context(
+    request,
+    employee,
+    mode,
+    effective_from=None,
+    cycle_weeks=1,
+    errors=None,
+    submitted_shifts=None,
+    retroactive_confirmed=False,
+):
+    """Shared context for the writing form GET + preview endpoints."""
+    week_options = _week_picker_options(employee)
+
+    if effective_from is not None:
+        sat = effective_from + timedelta(days=5)
+        effective_from_label = (
+            f"Week of {effective_from:%b} {effective_from.day} – {sat:%b} {sat.day}"
+        )
+        existing_isos = {iso for iso, _ in week_options}
+        if effective_from.isoformat() not in existing_isos:
+            week_options = [
+                (effective_from.isoformat(), effective_from_label)
+            ] + week_options
+    else:
+        effective_from_label = ""
 
     this_week_start = _week_start(timezone.localdate())
+    is_retroactive = effective_from is not None and effective_from < this_week_start
 
-    # First-time setup: the latest pattern has no shifts yet, so saving
-    # is defining the schedule, not rewriting it. The retroactive
-    # warning would be misleading — there's no history to change.
-    is_first_time = not latest.shifts.exists()
+    if submitted_shifts is not None:
+        weeks = []
+        for offset in range(cycle_weeks):
+            rows = [
+                {
+                    "day": day,
+                    "label": DAY_LABELS_FULL[day],
+                    "shift": submitted_shifts.get((offset, day)),
+                }
+                for day in DAYS
+            ]
+            weeks.append({"offset": offset, "label": WEEK_LABELS[offset], "rows": rows})
+    else:
+        weeks = _grid_weeks_for_form(employee, effective_from, cycle_weeks)
 
-    # Retroactive guard.
+    return {
+        "employee": employee,
+        "mode": mode,
+        "effective_from_iso": (effective_from.isoformat() if effective_from else ""),
+        "effective_from_label": effective_from_label,
+        "cycle_weeks": cycle_weeks,
+        "week_options": week_options,
+        "weeks": weeks,
+        "banner": _compute_pattern_banner(employee, effective_from),
+        "errors": errors or [],
+        "back_url": reverse("employee_defaults", args=[employee.pk]),
+        "is_retroactive": is_retroactive,
+        "retroactive_confirmed": retroactive_confirmed,
+    }
+
+
+def _handle_pattern_form_post(request, employee, mode):
+    """Shared POST handler for /schedule/change/ and /schedule/add/."""
+    raw_effective = request.POST.get("effective_from", "").strip()
+    try:
+        effective_from = _week_start(date.fromisoformat(raw_effective))
+    except (ValueError, TypeError):
+        return _render_pattern_form(
+            request,
+            employee,
+            mode,
+            errors=["Please pick a week."],
+        )
+
+    start_date_floor = _week_start(employee.start_date)
+    if effective_from < start_date_floor:
+        return _render_pattern_form(
+            request,
+            employee,
+            mode,
+            effective_from=effective_from,
+            errors=[
+                f"Effective date can't be before the employee's start "
+                f"week ({start_date_floor})."
+            ],
+        )
+
+    try:
+        cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
+    except (TypeError, ValueError):
+        cycle_weeks = 1
+    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
+
+    this_week_start = _week_start(timezone.localdate())
+    is_first_time = not Shift.objects.filter(pattern__employee=employee).exists()
+    retroactive_confirmed = request.POST.get("retroactive_confirmed") == "1"
+
     if (
         effective_from < this_week_start
         and not is_first_time
-        and request.POST.get("retroactive_confirmed") != "1"
+        and not retroactive_confirmed
     ):
-        messages.error(
-            request,
-            "Effective date is in the past. Confirm the retroactive change to proceed.",
-        )
-        return _render_employee_page(
+        return _render_pattern_form(
             request,
             employee,
-            can_change=True,
-            edit_pattern=directed_target,
+            mode,
+            effective_from=effective_from,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            errors=[
+                "This date is in the past. Confirm the retroactive change to proceed."
+            ],
         )
 
-    # ----- Select the target and mode ----------------------------------
-
-    if directed_target is not None:
-        target = directed_target
-
-        # 1. No other pattern may already own the submitted date.
-        if (
-            employee.patterns.filter(effective_from=effective_from)
-            .exclude(pk=target.pk)
-            .exists()
-        ):
-            messages.error(
-                request,
-                f"Another pattern is already effective from {effective_from}.",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-        # 2. The pattern's date must stay strictly inside the gap between
-        #    its neighbors.
-        prev_pattern = (
-            employee.patterns.filter(effective_from__lt=target.effective_from)
-            .exclude(pk=target.pk)
-            .order_by("-effective_from")
-            .first()
-        )
-        next_pattern = (
-            employee.patterns.filter(effective_from__gt=target.effective_from)
-            .exclude(pk=target.pk)
-            .order_by("effective_from")
-            .first()
-        )
-        if prev_pattern and effective_from <= prev_pattern.effective_from:
-            messages.error(
-                request,
-                f"Effective date must be after the previous pattern's "
-                f"start ({prev_pattern.effective_from}).",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-        if next_pattern and effective_from >= next_pattern.effective_from:
-            messages.error(
-                request,
-                f"Effective date must be before the next pattern's "
-                f"start ({next_pattern.effective_from}).",
-            )
-            return redirect("employee_defaults", pk=employee.pk)
-
-        # 3. The earliest pattern anchors the schedule from the
-        #    employee's start date. It may move earlier (extending the
-        #    anchor) but never forward — that would leave weeks before
-        #    it with no pattern.
-        earliest = employee.patterns.order_by("effective_from").first()
-        if earliest and earliest.pk == target.pk:
-            if effective_from > _week_start(earliest.effective_from):
-                messages.error(
-                    request,
-                    "The earliest pattern can only move earlier, not later.",
-                )
-                return redirect("employee_defaults", pk=employee.pk)
-
-        mode = "edit"
-    else:
-        # Default forward mode: touch only the pattern at
-        # effective_from, if one exists. Otherwise create a new one
-        # cloned from the currently-effective pattern's shifts. Never
-        # "move" the latest pattern — that behavior was only correct
-        # when the latest pattern was the one being edited, which is
-        # no longer the case in default mode.
-        existing = employee.patterns.filter(
-            effective_from=effective_from
-        ).first()
-        if existing:
-            target = existing
-            mode = "edit"
-        else:
-            source = _pattern_for_week(employee, effective_from) or latest
-            target = source
-            mode = "create"
-
-    try:
-        cycle_weeks = int(request.POST.get("cycle_weeks", target.cycle_weeks))
-    except (TypeError, ValueError):
-        cycle_weeks = target.cycle_weeks
-    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
-
-    # Validate every submitted cell up front.
+    # Validate the grid.
     validated_edits = {}
+    submitted_shifts = {}
     for week_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
-
             if start_key not in request.POST or end_key not in request.POST:
                 continue
-
-            raw_start = request.POST[start_key]
-            raw_end = request.POST[end_key]
-
             try:
-                start = _parse_time(raw_start)
-                end = _parse_time(raw_end)
+                start = _parse_time(request.POST[start_key])
+                end = _parse_time(request.POST[end_key])
             except ValueError as exc:
-                messages.error(
+                return _render_pattern_form(
                     request,
-                    f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}",
+                    employee,
+                    mode,
+                    effective_from=effective_from,
+                    cycle_weeks=cycle_weeks,
+                    retroactive_confirmed=retroactive_confirmed,
+                    errors=[
+                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}"
+                    ],
                 )
-                return redirect("employee_defaults", pk=employee.pk)
-
             if (start is None) != (end is None):
-                messages.error(
+                return _render_pattern_form(
                     request,
-                    f"Week {WEEK_LABELS[week_offset]} "
-                    f"{DAY_LABELS_FULL[day]}: set both start and end, "
-                    f"or leave both empty.",
+                    employee,
+                    mode,
+                    effective_from=effective_from,
+                    cycle_weeks=cycle_weeks,
+                    retroactive_confirmed=retroactive_confirmed,
+                    errors=[
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                        f"or leave both empty."
+                    ],
                 )
-                return redirect("employee_defaults", pk=employee.pk)
-
             if start and end:
                 if end <= start:
-                    messages.error(
+                    return _render_pattern_form(
                         request,
-                        f"Week {WEEK_LABELS[week_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: end time must be after "
-                        f"start time.",
+                        employee,
+                        mode,
+                        effective_from=effective_from,
+                        cycle_weeks=cycle_weeks,
+                        retroactive_confirmed=retroactive_confirmed,
+                        errors=[
+                            f"Week {WEEK_LABELS[week_offset]} "
+                            f"{DAY_LABELS_FULL[day]}: end time must be "
+                            f"after start time."
+                        ],
                     )
-                    return redirect("employee_defaults", pk=employee.pk)
                 validated_edits[(week_offset, day)] = (start, end)
             else:
                 validated_edits[(week_offset, day)] = None
 
-    # ----- Snapshot for the diff --------------------------------------
-
-    old_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
-    old_cycle = target.cycle_weeks
-
-    # ----- Apply everything in a transaction --------------------------
-
+    # Apply edit-or-split in a transaction.
     try:
         with transaction.atomic():
-            if mode == "edit":
+            covering = _pattern_for_week(employee, effective_from)
+            if covering is None:
+                next_pattern = (
+                    employee.patterns.filter(effective_from__gt=effective_from)
+                    .order_by("effective_from")
+                    .first()
+                )
+                target = ShiftPattern.objects.create(
+                    employee=employee,
+                    effective_from=effective_from,
+                    effective_to=(
+                        next_pattern.effective_from if next_pattern else None
+                    ),
+                    cycle_weeks=cycle_weeks,
+                )
+                old_shifts = {}
+                old_cycle = cycle_weeks
+            elif covering.effective_from == effective_from:
+                target = covering
+                old_cycle = target.cycle_weeks
                 updates = []
                 if target.cycle_weeks != cycle_weeks:
                     target.cycle_weeks = cycle_weeks
                     updates.append("cycle_weeks")
-                if target.effective_from != effective_from:
-                    target.effective_from = effective_from
-                    updates.append("effective_from")
                 if updates:
                     target.save(update_fields=updates)
-            else:  # create
-                if employee.patterns.filter(effective_from=effective_from).exists():
-                    messages.error(
-                        request,
-                        f"A pattern already exists effective from "
-                        f"{effective_from}. Pick a different date.",
-                    )
-                    return redirect("employee_defaults", pk=employee.pk)
-
-                new_pattern = ShiftPattern.objects.create(
+                old_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
+            else:
+                old_end = covering.effective_to
+                old_cycle = covering.cycle_weeks
+                covering.effective_to = effective_from
+                covering.save(update_fields=["effective_to"])
+                target = ShiftPattern.objects.create(
                     employee=employee,
                     effective_from=effective_from,
+                    effective_to=old_end,
                     cycle_weeks=cycle_weeks,
                 )
-
-                Shift.objects.bulk_create(
-                    [
-                        Shift(
-                            pattern=new_pattern,
-                            week_offset=s.week_offset,
-                            day=s.day,
-                            start_time=s.start_time,
-                            end_time=s.end_time,
-                        )
-                        for s in target.shifts.all()
-                    ]
-                )
-                target = new_pattern
+                old_shifts = {}
 
             for (week_offset, day), value in validated_edits.items():
                 if value is None:
@@ -1223,18 +1302,19 @@ def _handle_defaults_post(request, employee):
                         defaults={"start_time": start, "end_time": end},
                     )
     except IntegrityError:
-        messages.error(
+        return _render_pattern_form(
             request,
-            "Someone else just saved a pattern for that date. Try again.",
+            employee,
+            mode,
+            effective_from=effective_from,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            errors=["Someone else just saved a pattern for that date. Try again."],
         )
-        return redirect("employee_defaults", pk=employee.pk)
-
-    # ----- Notify ------------------------------------------------------
 
     if request.POST.get("notify"):
         new_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
         changes = _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks)
-
         cycle_change = None
         if cycle_weeks != old_cycle:
             cycle_change = {
@@ -1242,36 +1322,369 @@ def _handle_defaults_post(request, employee):
                 "new_cycle": cycle_weeks,
                 "new_weeks": _new_week_details(target, old_cycle, cycle_weeks),
             }
-
         if changes or cycle_change:
             ok, error = notifications.send_shift_changes_email(
                 employee, changes, kind="default", cycle_change=cycle_change
             )
-            if ok:
-                messages.success(request, f"Notification sent to {employee.email}.")
-            else:
+            if not ok:
                 messages.warning(request, error or "Notification not sent.")
-        else:
-            messages.info(request, "No changes to notify.")
 
     messages.success(
         request,
-        f"Default hours saved, effective from {target.effective_from}.",
+        f"Schedule saved, effective from {target.effective_from}.",
+    )
+    return redirect("employee_defaults", pk=employee.pk)
+
+
+def _render_pattern_form(
+    request,
+    employee,
+    mode,
+    effective_from=None,
+    cycle_weeks=1,
+    errors=None,
+    submitted_shifts=None,
+    retroactive_confirmed=False,
+):
+    context = _pattern_form_context(
+        request,
+        employee,
+        mode,
+        effective_from=effective_from,
+        cycle_weeks=cycle_weeks,
+        errors=errors,
+        submitted_shifts=submitted_shifts,
+        retroactive_confirmed=retroactive_confirmed,
+    )
+    return render(request, "schedule/pattern_form.html", context)
+
+
+@login_required
+@permission_required("schedule.change_shift", raise_exception=True)
+def schedule_change(request, pk):
+    """Change schedule from a week forward."""
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=pk,
+    )
+    if request.method == "POST":
+        return _handle_pattern_form_post(request, employee, mode="change")
+
+    default_week = max(_week_start(today), _week_start(employee.start_date))
+    current = _pattern_for_week(employee, default_week)
+    cycle_weeks = current.cycle_weeks if current else 1
+    return _render_pattern_form(
+        request,
+        employee,
+        mode="change",
+        effective_from=default_week,
+        cycle_weeks=cycle_weeks,
+    )
+
+
+@login_required
+@permission_required("schedule.change_shift", raise_exception=True)
+def schedule_add(request, pk):
+    """Add a new pattern at a chosen week."""
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=pk,
+    )
+    if request.method == "POST":
+        return _handle_pattern_form_post(request, employee, mode="add")
+
+    raw = request.GET.get("week", "").strip()
+    effective_from = None
+    if raw:
+        try:
+            effective_from = _week_start(date.fromisoformat(raw))
+        except ValueError:
+            pass
+
+    cycle_weeks = 1
+    if effective_from:
+        current = _pattern_for_week(employee, effective_from)
+        if current:
+            cycle_weeks = current.cycle_weeks
+
+    return _render_pattern_form(
+        request,
+        employee,
+        mode="add",
+        effective_from=effective_from,
+        cycle_weeks=cycle_weeks,
+    )
+
+
+@login_required
+@permission_required("schedule.change_shift", raise_exception=True)
+def pattern_form_preview(request, pk):
+    """Return just the banner + grid body for HTMX live updates."""
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=pk,
+    )
+    mode = request.GET.get("mode", "change")
+    raw_effective = request.GET.get("effective_from", "").strip()
+    effective_from = None
+    if raw_effective:
+        try:
+            effective_from = _week_start(date.fromisoformat(raw_effective))
+        except ValueError:
+            effective_from = None
+
+    try:
+        cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
+    except (TypeError, ValueError):
+        cycle_weeks = 1
+    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
+
+    context = _pattern_form_context(
+        request,
+        employee,
+        mode,
+        effective_from=effective_from,
+        cycle_weeks=cycle_weeks,
+    )
+    return render(request, "schedule/partials/_pattern_form_body.html", context)
+
+
+def _render_pattern_edit_form(
+    request,
+    employee,
+    pattern,
+    is_earliest,
+    cycle_weeks=None,
+    errors=None,
+    submitted_shifts=None,
+    retroactive_confirmed=False,
+):
+    """Render the edit form for a single existing pattern."""
+    if cycle_weeks is None:
+        cycle_weeks = pattern.cycle_weeks
+
+    context = _pattern_form_context(
+        request,
+        employee,
+        mode="edit",
+        effective_from=pattern.effective_from,
+        cycle_weeks=cycle_weeks,
+        errors=errors,
+        submitted_shifts=submitted_shifts,
+        retroactive_confirmed=retroactive_confirmed,
+    )
+    context["is_earliest_pattern"] = is_earliest
+    context["pattern"] = pattern
+    return render(request, "schedule/pattern_form.html", context)
+
+
+def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
+    """Save an edited pattern in place.
+
+    effective_from is locked (the picker is disabled; the hidden input
+    is ignored — we read pattern.effective_from directly). No split
+    branch: the pattern always exists at its own effective_from, so the
+    edit-in-place case is the only case.
+
+    Neighbor-safety: cycle_weeks can grow only within the pattern's
+    existing span. If effective_to is set and the new cycle is longer
+    than the span, reject. Growing past effective_to would otherwise
+    silently overwrite the next pattern's territory.
+    """
+    try:
+        cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
+    except (TypeError, ValueError):
+        cycle_weeks = pattern.cycle_weeks
+    cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
+
+    retroactive_confirmed = request.POST.get("retroactive_confirmed") == "1"
+
+    if pattern.effective_to is not None:
+        span_weeks = (pattern.effective_to - pattern.effective_from).days // 7
+        if cycle_weeks > span_weeks:
+            return _render_pattern_edit_form(
+                request,
+                employee,
+                pattern,
+                is_earliest,
+                cycle_weeks=cycle_weeks,
+                retroactive_confirmed=retroactive_confirmed,
+                errors=[
+                    f"This pattern only has {span_weeks} week(s) until "
+                    f"the next pattern starts. A {cycle_weeks}-week "
+                    f"cycle doesn't fit."
+                ],
+            )
+
+    this_week_start = _week_start(timezone.localdate())
+    is_retroactive = pattern.effective_from < this_week_start
+    if is_retroactive and not retroactive_confirmed:
+        return _render_pattern_edit_form(
+            request,
+            employee,
+            pattern,
+            is_earliest,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            errors=[
+                "This pattern is in the past. Confirm the retroactive "
+                "edit to proceed."
+            ],
+        )
+
+    # Parse the grid. Values that parse cleanly are stashed so an error
+    # re-render doesn't lose them.
+    validated_edits = {}
+    submitted_shifts = {}
+    for week_offset in range(MAX_CYCLE_WEEKS):
+        for day in DAYS:
+            start_key = f"week_{week_offset}_day_{day}_start"
+            end_key = f"week_{week_offset}_day_{day}_end"
+            if start_key not in request.POST or end_key not in request.POST:
+                continue
+            try:
+                start = _parse_time(request.POST[start_key])
+                end = _parse_time(request.POST[end_key])
+            except ValueError as exc:
+                return _render_pattern_edit_form(
+                    request,
+                    employee,
+                    pattern,
+                    is_earliest,
+                    cycle_weeks=cycle_weeks,
+                    retroactive_confirmed=retroactive_confirmed,
+                    errors=[
+                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}"
+                    ],
+                    submitted_shifts=submitted_shifts,
+                )
+            if (start is None) != (end is None):
+                return _render_pattern_edit_form(
+                    request,
+                    employee,
+                    pattern,
+                    is_earliest,
+                    cycle_weeks=cycle_weeks,
+                    retroactive_confirmed=retroactive_confirmed,
+                    errors=[
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                        f"or leave both empty."
+                    ],
+                    submitted_shifts=submitted_shifts,
+                )
+            if start and end:
+                if end <= start:
+                    return _render_pattern_edit_form(
+                        request,
+                        employee,
+                        pattern,
+                        is_earliest,
+                        cycle_weeks=cycle_weeks,
+                        retroactive_confirmed=retroactive_confirmed,
+                        errors=[
+                            f"Week {WEEK_LABELS[week_offset]} "
+                            f"{DAY_LABELS_FULL[day]}: end time must be "
+                            f"after start time."
+                        ],
+                        submitted_shifts=submitted_shifts,
+                    )
+                validated_edits[(week_offset, day)] = (start, end)
+                submitted_shifts[(week_offset, day)] = SimpleNamespace(
+                    start_time=start, end_time=end
+                )
+            else:
+                validated_edits[(week_offset, day)] = None
+
+    # Capture the notification baseline before mutating.
+    old_cycle = pattern.cycle_weeks
+    old_shifts = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
+
+    with transaction.atomic():
+        if pattern.cycle_weeks != cycle_weeks:
+            pattern.cycle_weeks = cycle_weeks
+            pattern.save(update_fields=["cycle_weeks"])
+
+        for (week_offset, day), value in validated_edits.items():
+            if value is None:
+                Shift.objects.filter(
+                    pattern=pattern, week_offset=week_offset, day=day
+                ).delete()
+            else:
+                start, end = value
+                Shift.objects.update_or_create(
+                    pattern=pattern,
+                    week_offset=week_offset,
+                    day=day,
+                    defaults={"start_time": start, "end_time": end},
+                )
+
+    if request.POST.get("notify"):
+        new_shifts = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
+        changes = _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks)
+        cycle_change = None
+        if cycle_weeks != old_cycle:
+            cycle_change = {
+                "old_cycle": old_cycle,
+                "new_cycle": cycle_weeks,
+                "new_weeks": _new_week_details(pattern, old_cycle, cycle_weeks),
+            }
+        if changes or cycle_change:
+            ok, error = notifications.send_shift_changes_email(
+                employee, changes, kind="default", cycle_change=cycle_change
+            )
+            if not ok:
+                messages.warning(request, error or "Notification not sent.")
+
+    messages.success(
+        request,
+        f"Pattern saved, effective from {pattern.effective_from}.",
     )
     return redirect("employee_defaults", pk=employee.pk)
 
 
 @login_required
+@permission_required("schedule.change_shift", raise_exception=True)
+def pattern_edit(request, employee_pk, pk):
+    """Edit one existing pattern in place.
+
+    GET: render the form with shifts + cycle_weeks editable.
+    POST: save in place. No split. No effective_from change.
+
+    effective_from is locked to the pattern's existing start. The week
+    picker is disabled and any POST value for it is ignored.
+
+    Retroactive confirmation fires when the pattern's effective_from
+    is in the past — editing a past pattern is destructive of written
+    history.
+    """
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=employee_pk,
+    )
+    pattern = get_object_or_404(ShiftPattern, pk=pk, employee=employee)
+
+    earliest = employee.patterns.order_by("effective_from").first()
+    is_earliest = earliest is not None and earliest.pk == pattern.pk
+
+    if request.method == "POST":
+        return _handle_pattern_edit_post(request, employee, pattern, is_earliest)
+
+    return _render_pattern_edit_form(request, employee, pattern, is_earliest)
+
+
+@login_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_defaults(request, pk):
-    """Render or handle the merged identity + defaults page.
+    """Render or handle the employee reading page.
 
-    POST bodies carry a `form` field that routes to the identity or
-    defaults handler.
-
-    The optional `?pattern=<uuid>` query parameter loads a specific
-    saved pattern into the defaults form for editing. Without it, the
-    form is populated from the latest pattern.
+    POST bodies carry a `form` field that routes to the identity
+    handler. The schedule-editing flow lives on /schedule/change/ and
+    /schedule/add/ — not on this page.
     """
     today = timezone.localdate()
     employee = get_object_or_404(
@@ -1287,23 +1700,14 @@ def employee_defaults(request, pk):
         form_type = request.POST.get("form")
         if form_type == "identity":
             return _handle_identity_post(request, employee)
-        if form_type == "defaults":
-            return _handle_defaults_post(request, employee)
 
         messages.error(request, "Unknown form submission.")
         return redirect("employee_defaults", pk=pk)
-
-    # GET — optional ?pattern=<uuid> to pre-load a specific pattern
-    edit_pattern = None
-    pattern_param = request.GET.get("pattern", "").strip()
-    if pattern_param:
-        edit_pattern = employee.patterns.filter(pk=pattern_param).first()
 
     return _render_employee_page(
         request,
         employee,
         can_change=can_change,
-        edit_pattern=edit_pattern,
     )
 
 
@@ -1313,24 +1717,12 @@ def employee_defaults(request, pk):
 def delete_pattern(request, pk):
     """Delete a ShiftPattern and every shift inside it.
 
-    The pattern must belong to an employee who's still on the roster —
-    same active-employee filter used by the defaults page. The earliest
-    pattern for that employee is protected; edit it via the defaults
-    form instead.
+    The pattern must belong to an employee who's still on the roster.
+    The earliest pattern for that employee is protected; edit it via
+    the schedule-change page instead.
 
-    Responds two ways:
-
-    - Plain POST → redirect to the employee page (full page reload).
-    - HTMX POST → return the employee-content fragment so the page's
-      strip, form, and saved list swap in place. Any messages
-      (success or the earliest-guard rejection) ride back as an
-      out-of-band swap of the messages container.
-
-    After deleting the pattern that was loaded in the form, the
-    fragment renders with the new latest pattern loaded. If the user
-    was viewing a different pattern (via `?pattern=` or the hidden
-    `current_pattern` field), that pattern stays loaded as long as it
-    still exists.
+    Shift overrides within the deleted pattern's window are left in
+    place. They'll be evaluated against the newly-effective pattern.
     """
     today = timezone.localdate()
     pattern = get_object_or_404(
@@ -1339,30 +1731,6 @@ def delete_pattern(request, pk):
         pk=pk,
     )
     employee = pattern.employee
-    is_htmx = request.headers.get("HX-Request") == "true"
-    can_change = request.user.has_perm("schedule.change_shift")
-
-    def _render_content(edit_pattern=None):
-        """Render the content fragment + oob messages for an HTMX
-        response. `edit_pattern` is the pattern to load in the form
-        after the operation — None falls back to the latest."""
-        context = _employee_page_context(
-            request,
-            employee,
-            can_change=can_change,
-            edit_pattern=edit_pattern,
-        )
-        content_html = render_to_string(
-            "schedule/partials/_employee_content.html",
-            context,
-            request=request,
-        )
-        messages_html = render_to_string(
-            "partials/_messages.html",
-            {"hx_oob": True},
-            request=request,
-        )
-        return HttpResponse(content_html + messages_html)
 
     earliest = employee.patterns.order_by("effective_from").first()
     if earliest and earliest.pk == pattern.pk:
@@ -1370,26 +1738,21 @@ def delete_pattern(request, pk):
             request,
             "Can't delete the earliest pattern. Edit it instead.",
         )
-        if is_htmx:
-            return _render_content(edit_pattern=earliest)
         return redirect("employee_defaults", pk=employee.pk)
 
-    # What pattern was the user viewing before the delete? Sent as a
-    # hidden field from both delete forms. If it still exists after
-    # the delete, keep it loaded; otherwise fall back to the new
-    # latest.
-    current_pk = request.POST.get("current_pattern", "").strip()
-
     effective = pattern.effective_from
-    pattern.delete()
+    with transaction.atomic():
+        predecessor = (
+            employee.patterns.filter(effective_to=pattern.effective_from)
+            .exclude(pk=pattern.pk)
+            .order_by("-effective_from")
+            .first()
+        )
+        if predecessor is not None:
+            predecessor.effective_to = pattern.effective_to
+            predecessor.save(update_fields=["effective_to"])
+        pattern.delete()
     messages.success(request, f"Deleted pattern effective from {effective}.")
-
-    if is_htmx:
-        edit_pattern = None
-        if current_pk and current_pk != str(pk):
-            edit_pattern = employee.patterns.filter(pk=current_pk).first()
-        return _render_content(edit_pattern=edit_pattern)
-
     return redirect("employee_defaults", pk=employee.pk)
 
 
@@ -1871,7 +2234,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 

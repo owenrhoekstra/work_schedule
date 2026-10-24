@@ -163,6 +163,14 @@ class ShiftPattern(models.Model):
         Employee, on_delete=models.CASCADE, related_name="patterns"
     )
     effective_from = models.DateField()
+    effective_to = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Exclusive: first day this pattern no longer applies. "
+            "Null while it runs indefinitely."
+        ),
+    )
     cycle_weeks = models.PositiveSmallIntegerField(
         default=1,
         validators=[MinValueValidator(1), MaxValueValidator(4)],

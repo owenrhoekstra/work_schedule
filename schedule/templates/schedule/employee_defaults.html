@@ -1,197 +1,184 @@
 {% extends "base.html" %} {% block title %}{{ employee }} — Employee{% endblock %}
 {% block content %}
-<div
-    x-data="employeeDefaults({
-        firstTimeSetup: {{ first_time_setup|yesno:'true,false' }},
-        thisWeekStart: '{{ this_week_start_iso }}',
-        todayIso: '{{ today_iso }}',
-        initialCycleWeeks: {{ pattern.cycle_weeks|default:1 }},
-    })"
->
-    <div class="max-w-3xl mx-auto px-6 py-10">
-        {% include "schedule/partials/_employee_header.html" %}
-        {% include "schedule/partials/_identity_form.html" %}
-
-        {% include "schedule/partials/_employee_content.html" %}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <div class="flex items-start justify-between mb-6 gap-3 flex-wrap">
+        <div>
+            <h1 class="font-display text-xl sm:text-2xl font-bold text-brand-indigo">
+                {{ employee }}
+            </h1>
+            <p class="text-sm text-gray-500">
+                {{ employee.role }} · Started {{ employee.start_date|date:"F j, Y" }}
+                {% if is_management and last_day %}
+                ·
+                <span class="text-brand-coral font-medium"
+                    >Last day {{ last_day|date:"F j, Y" }}</span
+                >
+                {% endif %}
+            </p>
+        </div>
+        <div class="flex items-center gap-3 text-sm">
+            <a
+                href="{% url 'settings_home' %}"
+                class="font-medium text-brand-coral hover:underline"
+                >← Settings</a
+            >
+            <a
+                href="{% url 'home' %}"
+                class="font-medium text-brand-coral hover:underline"
+                >← Schedule</a
+            >
+        </div>
     </div>
 
-    {% if can_change %}
-        {% if is_management %}
-            {% include "schedule/modals/_deactivate.html" %}
-        {% endif %}
-        {% include "schedule/modals/_retroactive_confirm.html" %}
-        {% include "schedule/modals/_delete_pattern_confirm.html" %}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <section
+            class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-1 flex flex-col"
+        >
+            <h2
+                class="font-display text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3"
+            >
+                Employee
+            </h2>
+            <div class="flex-1 flex flex-col justify-center">
+                <div class="space-y-2 text-sm">
+                    <div>
+                        <span class="font-medium text-brand-indigo">Role</span>
+                        <span class="text-gray-600 ml-2">{{ employee.role }}</span>
+                    </div>
+                    <div>
+                        <span class="font-medium text-brand-indigo">Email</span>
+                        <span class="text-gray-600 ml-2 break-all"
+                            >{{ employee.email }}</span
+                        >
+                    </div>
+                    <div>
+                        <span class="font-medium text-brand-indigo">Started</span>
+                        <span class="text-gray-600 ml-2"
+                            >{{ employee.start_date|date:"F j, Y" }}</span
+                        >
+                    </div>
+                    {% if is_management and last_day %}
+                    <div>
+                        <span class="font-medium text-brand-indigo">Last day</span>
+                        <span class="text-brand-coral ml-2"
+                            >{{ last_day|date:"F j, Y" }}</span
+                        >
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <section
+            class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2"
+        >
+            <h2
+                class="font-display text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3"
+            >
+                Currently scheduled
+            </h2>
+
+            {% if current_pattern %}
+            <div
+                x-data="{ active: '{% if current_cycle_label %}{{ current_cycle_label }}{% else %}{{ current_weeks.0.label|default:'A' }}{% endif %}' }"
+            >
+                {% if current_pattern.cycle_weeks > 1 %}
+                <div class="flex flex-wrap gap-1 mb-3">
+                    {% for week in current_weeks %}
+                    <button
+                        type="button"
+                        @click="active = '{{ week.label }}'"
+                        :class="active === '{{ week.label }}'
+                            ? 'border-brand-coral text-brand-coral bg-brand-coral/5'
+                            : 'border-gray-300 text-gray-700 hover:border-brand-coral/60 hover:text-brand-coral'"
+                        class="px-3 py-1 rounded-lg border text-sm font-medium transition-colors"
+                    >
+                        Week {{ week.label }}
+                    </button>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% for week in current_weeks %}
+                <div
+                    x-show="active === '{{ week.label }}'"
+                    {% if current_pattern.cycle_weeks > 1 and week.label != current_cycle_label %}style="display: none;"{% endif %}
+                >
+                    <table class="min-w-full border-collapse text-sm">
+                        <tbody>
+                            {% for row in week.rows %}
+                            <tr class="border-t border-gray-200 first:border-t-0">
+                                <td
+                                    class="py-1.5 pr-4 text-gray-700 w-28 sm:w-32 whitespace-nowrap"
+                                >
+                                    {{ row.label }}
+                                </td>
+                                <td class="py-1.5">
+                                    {% if row.shift %}
+                                    <span class="text-brand-indigo"
+                                        >{{ row.shift.start_time|time:'g:i A' }} –
+                                        {{ row.shift.end_time|time:'g:i A' }}</span
+                                    >
+                                    {% else %}
+                                    <span class="text-gray-400">OFF</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endfor %}
+            </div>
+
+            <p class="text-xs text-gray-500 mt-3">
+                Effective Week of {{ current_pattern.effective_from|date:"F j, Y" }}
+                {% if current_last_week %}
+                · through Week of {{ current_last_week|date:"F j, Y" }}
+                {% else %}
+                · ongoing
+                {% endif %}
+            </p>
+            {% else %}
+            <p class="text-sm text-gray-500 py-4">
+                Not scheduled this week.
+            </p>
+            {% endif %}
+
+            {% if can_change %}
+            <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
+                <a
+                    href="{% url 'schedule_change' employee.pk %}"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                    >Change from this week</a
+                >
+                <a
+                    href="{% url 'schedule_add' employee.pk %}"
+                    class="font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-4 py-2 transition-colors"
+                    >Add future pattern</a
+                >
+            </div>
+            {% endif %}
+        </section>
+    </div>
+
+    {% if patterns %}
+    <details
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+    >
+        <summary
+            class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
+        >
+            <h2 class="font-display text-lg font-bold text-brand-indigo">
+                Full pattern history
+                <span class="text-sm font-normal text-gray-500 ml-2"
+                    >({{ patterns|length }})</span
+                >
+            </h2>
+            <span class="text-gray-400 text-sm">▾</span>
+        </summary>
+        {% include "schedule/partials/_saved_patterns.html" %}
+    </details>
     {% endif %}
 </div>
-
-<script>
-    document.addEventListener("alpine:init", () => {
-        Alpine.data("employeeDefaults", (opts) => ({
-            // ---- Modal visibility -----------------------------------
-            deactivateOpen: false,
-            retroactiveOpen: false,
-            deletePatternOpen: false,
-
-            // ---- Deactivate modal -----------------------------------
-            deactivateDate: "",
-            todayIso: opts.todayIso,
-
-            // ---- Retroactive confirm --------------------------------
-            retroactiveDate: "",
-            retroactiveConfirmed: false,
-            firstTimeSetup: opts.firstTimeSetup,
-            thisWeekStart: opts.thisWeekStart,
-
-            // ---- Delete pattern confirm -----------------------------
-            pendingDeleteForm: null,
-            pendingDeleteDate: "",
-
-            // ---- Week tabs / cycle weeks ----------------------------
-            cycleWeeks: opts.initialCycleWeeks,
-            activeOffset: 0,
-
-            init() {
-                // Seed cycleWeeks from the server-rendered select so
-                // the component matches the loaded pattern on boot.
-                // Mirrored from the DOM on every HTMX swap as well —
-                // see the afterSwap listener below.
-                const select = document.getElementById("cycle-weeks-select");
-                if (select) {
-                    this.cycleWeeks =
-                        parseInt(select.value, 10) || opts.initialCycleWeeks;
-                }
-
-                // If cycle length shrinks below the active tab, fall
-                // back to the first tab so the user isn't looking at
-                // a panel that's no longer in the pattern.
-                this.$watch("cycleWeeks", (value) => {
-                    if (this.activeOffset >= value) this.activeOffset = 0;
-                });
-
-                // After delete_pattern swaps the content fragment in,
-                // the DOM contains a fresh form and strip. Re-sync
-                // state from the newly-rendered DOM so tab visibility
-                // and the retroactive-confirm suppression reflect the
-                // pattern that's actually loaded now.
-                this.$el.addEventListener("htmx:afterSwap", (e) => {
-                    if (e.detail.target?.id !== "employee-content") return;
-
-                    this.$nextTick(() => {
-                        const newSelect = document.getElementById(
-                            "cycle-weeks-select"
-                        );
-                        if (newSelect) {
-                            this.cycleWeeks =
-                                parseInt(newSelect.value, 10) || 1;
-                        } else {
-                            this.cycleWeeks = 1;
-                        }
-                        this.activeOffset = 0;
-                        this.retroactiveConfirmed = false;
-                    });
-                });
-            },
-
-            // ---- Deactivate -----------------------------------------
-
-            openDeactivate() {
-                this.deactivateDate = this.todayIso;
-                this.deactivateOpen = true;
-            },
-
-            // ---- Retroactive confirm --------------------------------
-
-            handleDefaultsSubmit(e) {
-                if (this.retroactiveConfirmed) return;
-                if (this.firstTimeSetup) return;
-                const dateInput = document.getElementById("effective-from");
-                if (!dateInput || !dateInput.value) return;
-                if (dateInput.value >= this.thisWeekStart) return;
-
-                e.preventDefault();
-                this.retroactiveDate = dateInput.value;
-                this.retroactiveOpen = true;
-            },
-
-            confirmRetroactive() {
-                this.retroactiveConfirmed = true;
-                const hidden = document.getElementById("retroactive-confirmed");
-                if (hidden) hidden.value = "1";
-                this.retroactiveOpen = false;
-                const form = document.getElementById("defaults-form");
-                if (form) form.requestSubmit();
-            },
-
-            // ---- Delete pattern -------------------------------------
-
-            requestDelete(form, dateText) {
-                this.pendingDeleteForm = form;
-                this.pendingDeleteDate = dateText || "";
-                this.deletePatternOpen = true;
-            },
-
-            confirmDelete() {
-                // requestSubmit() fires the submit event so HTMX sees
-                // it. form.submit() bypasses the event entirely, which
-                // would bypass HTMX and navigate normally.
-                if (this.pendingDeleteForm) {
-                    this.pendingDeleteForm.requestSubmit();
-                }
-                this.deletePatternOpen = false;
-                this.pendingDeleteForm = null;
-            },
-
-            // ---- Week tabs ------------------------------------------
-
-            setActiveTab(offset) {
-                if (offset >= this.cycleWeeks) return;
-                this.activeOffset = offset;
-            },
-
-            isTabVisible(offset) {
-                return offset < this.cycleWeeks;
-            },
-
-            isTabActive(offset) {
-                return offset === this.activeOffset && offset < this.cycleWeeks;
-            },
-
-            isPanelVisible(offset) {
-                return this.activeOffset === offset && offset < this.cycleWeeks;
-            },
-        }));
-
-        Alpine.data("patternStrip", () => ({
-            page: 0,
-            perPage: 3,
-            totalChips: 0,
-
-            get totalPages() {
-                return Math.max(1, Math.ceil(this.totalChips / this.perPage));
-            },
-            get canGoNewer() { return this.page > 0; },
-            get canGoOlder() { return this.page < this.totalPages - 1; },
-
-            isVisible(index) {
-                return Math.floor(index / this.perPage) === this.page;
-            },
-
-            init() {
-                const current = this.$el.querySelector('[data-current="1"]');
-                if (current) {
-                    const idx = parseInt(current.dataset.index, 10) || 0;
-                    this.page = Math.floor(idx / this.perPage);
-                }
-                this.totalChips = this.$el.querySelectorAll(".pattern-chip").length;
-            },
-
-            goNewer() {
-                if (this.canGoNewer) this.page -= 1;
-            },
-            goOlder() {
-                if (this.canGoOlder) this.page += 1;
-            },
-        }));
-    });
-</script>
 {% endblock %}

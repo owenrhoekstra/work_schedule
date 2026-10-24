@@ -1,0 +1,278 @@
+{% comment %}
+Banner, grid, and footer for the pattern writing form. Rendered as
+part of the full page on GET, and re-rendered standalone by
+pattern_form_preview for live HTMX updates as the user changes the
+week or cycle length.
+
+The id must match the hx-target in pattern_form.html.
+
+Week pagination: when cycle_weeks > 1, tabs at the top let the manager
+switch between weeks without vertical scrolling. Tabs stretch to fill
+the container width and divide equally (2 weeks = 1/2 each, 3 = 1/3
+each, 4 = 1/4 each). Only the active week's panel is visible; others
+are hidden with display: none. Hidden inputs still submit —
+display: none does not affect form submission. Tab state is managed
+by a plain document-level click listener rather than Alpine, to
+sidestep the Alpine scope issues that affected the Save button
+earlier. Styling uses Tailwind's data-[active]: arbitrary variants —
+no custom CSS, no base.html changes.
+
+Retroactive: same story — no Alpine. A document-level submit
+interceptor opens _retroactive_confirm.html when the target week is in
+the past and the user hasn't yet confirmed. Confirm/Cancel are inline
+onclick handlers on the modal buttons, backed by window-scoped
+helpers.
+{% endcomment %}
+<div
+    id="pattern-form-body"
+    class="space-y-4"
+    data-is-retroactive="{{ is_retroactive|yesno:'true,false' }}"
+    data-retroactive-date="{{ effective_from_label }}"
+>
+    {% if errors %}
+    <div
+        class="rounded-lg px-4 py-3 bg-brand-coral/10 border border-brand-coral/30 text-sm text-brand-coral"
+    >
+        {% for error in errors %}
+        <p{% if not forloop.last %} class="mb-1"{% endif %}>{{ error }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if banner %}
+    <div
+        class="rounded-lg px-4 py-3 border text-sm {% if banner.tone == 'warn' %}bg-brand-yellow/15 border-brand-yellow/30 text-brand-indigo{% else %}bg-brand-indigo/5 border-brand-indigo/20 text-brand-indigo{% endif %}"
+    >
+        <p class="font-medium">{{ banner.title }}</p>
+        <p class="mt-1">{{ banner.body }}</p>
+    </div>
+    {% endif %}
+
+    {% if effective_from_iso %}
+    <div class="space-y-4">
+        {% if weeks|length > 1 %}
+        <div class="flex gap-1">
+            {% for week in weeks %}
+            <button
+                type="button"
+                data-week-tab="{{ week.offset }}"
+                {% if forloop.first %}data-active{% endif %}
+                class="flex-1 text-center px-3 py-1 rounded-lg border text-sm font-medium transition-colors border-gray-300 text-gray-700 hover:text-brand-coral data-[active]:border-brand-coral data-[active]:text-brand-coral data-[active]:bg-brand-coral/5"
+            >
+                Week {{ week.label }}
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% for week in weeks %}
+        <div
+            data-week-panel="{{ week.offset }}"
+            class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+            {% if not forloop.first %}style="display: none;"{% endif %}
+        >
+            <div class="overflow-x-auto">
+                <table class="min-w-full border-collapse text-sm">
+                    <thead>
+                        <tr class="bg-brand-offwhite">
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">Day</th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">Start</th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">End</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in week.rows %}
+                        <tr class="border-t border-gray-200">
+                            <td class="p-3 font-medium text-brand-indigo whitespace-nowrap">
+                                {{ row.label }}
+                            </td>
+                            <td class="p-3">
+                                <input
+                                    type="text"
+                                    name="week_{{ week.offset }}_day_{{ row.day }}_start"
+                                    value="{{ row.shift.start_time|time:'g:i A' }}"
+                                    placeholder="HH:MM"
+                                    class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                                />
+                            </td>
+                            <td class="p-3">
+                                <input
+                                    type="text"
+                                    name="week_{{ week.offset }}_day_{{ row.day }}_end"
+                                    value="{{ row.shift.end_time|time:'g:i A' }}"
+                                    placeholder="HH:MM"
+                                    class="w-28 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+                                />
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3"
+    >
+        <label class="flex items-center gap-2 text-sm text-brand-indigo">
+            <input
+                type="checkbox"
+                name="notify"
+                value="1"
+                class="accent-brand-coral"
+            />
+            Notify employee of these changes
+        </label>
+        <input
+            type="hidden"
+            name="retroactive_confirmed"
+            value="{{ retroactive_confirmed|yesno:'1,0' }}"
+            x-ref="retroactiveInput"
+        />
+        <p class="text-xs text-gray-500">
+            Use 24-hour time like <code>09:00</code> or 12-hour like
+            <code>9:00 AM</code>. Leave both fields empty for a day off.
+        </p>
+        <div class="flex justify-end gap-2 pt-2">
+            <a
+                href="{{ back_url }}"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                >Cancel</a
+            >
+            <button
+                type="submit"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save
+            </button>
+        </div>
+    </div>
+    {% else %}
+    <div
+        class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-sm text-gray-500"
+    >
+        Pick a week to begin.
+    </div>
+    {% endif %}
+
+    {% if is_retroactive %}
+        {% include "schedule/modals/_retroactive_confirm.html" %}
+    {% endif %}
+</div>
+<script>
+    (() => {
+        if (window.__patternFormBodySubmitHandler) return;
+        window.__patternFormBodySubmitHandler = true;
+
+        // ---- Week pagination ------------------------------------
+        // Document-level click delegation survives HTMX swaps of
+        // #pattern-form-body when cycle length changes. Toggles
+        // data-active on tabs and display on panels. Hidden inputs
+        // still submit — display: none does not affect submission.
+        document.addEventListener("click", (e) => {
+            const tab = e.target.closest("[data-week-tab]");
+            if (!tab) return;
+            const body = tab.closest("#pattern-form-body");
+            if (!body) return;
+            const target = tab.dataset.weekTab;
+
+            body.querySelectorAll("[data-week-tab]").forEach((t) => {
+                if (t.dataset.weekTab === target) {
+                    t.setAttribute("data-active", "");
+                } else {
+                    t.removeAttribute("data-active");
+                }
+            });
+            body.querySelectorAll("[data-week-panel]").forEach((p) => {
+                p.style.display =
+                    p.dataset.weekPanel === target ? "" : "none";
+            });
+        });
+
+        // ---- Retroactive dialog helpers -------------------------
+
+        const dismissModal = () => {
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (
+                !dialog ||
+                !dialog.open ||
+                dialog.classList.contains("is-closing")
+            )
+                return;
+            dialog.classList.add("is-closing");
+            setTimeout(() => {
+                dialog.close();
+                dialog.classList.remove("is-closing");
+            }, 200);
+        };
+
+        const confirmModal = () => {
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (!dialog) return;
+            const form = dialog.closest("form");
+            if (!form) return;
+            const input = form.querySelector(
+                'input[name="retroactive_confirmed"]'
+            );
+            if (input) input.value = "1";
+            dismissModal();
+            form.requestSubmit();
+        };
+
+        window.__dismissRetroactiveModal = dismissModal;
+        window.__confirmRetroactiveModal = confirmModal;
+
+        // ---- ESC handler ----------------------------------------
+
+        document.addEventListener(
+            "keydown",
+            (e) => {
+                if (e.key !== "Escape") return;
+                const dialog = document.getElementById(
+                    "retroactive-confirm-modal"
+                );
+                if (dialog && dialog.open) {
+                    e.preventDefault();
+                    dismissModal();
+                }
+            },
+            true
+        );
+
+        // ---- Submit interceptor ---------------------------------
+
+        document.addEventListener("submit", (e) => {
+            const form = e.target;
+            if (!(form instanceof HTMLFormElement)) return;
+
+            const body = form.querySelector("#pattern-form-body");
+            if (!body) return;
+
+            if (body.dataset.isRetroactive !== "true") return;
+
+            const hidden = form.querySelector(
+                'input[name="retroactive_confirmed"]'
+            );
+            if (hidden && hidden.value === "1") return;
+
+            e.preventDefault();
+
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (!dialog) return;
+
+            const labelEl = dialog.querySelector("[data-retroactive-label]");
+            if (labelEl) {
+                labelEl.textContent = body.dataset.retroactiveDate || "";
+            }
+            if (!dialog.open) dialog.showModal();
+        });
+    })();
+</script>

@@ -1,19 +1,16 @@
-<section
-    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
->
-    <div class="p-4 border-b border-gray-200">
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Saved patterns
-        </h2>
-        <p class="text-xs text-gray-500 mt-1">
-            Oldest first. Click a date to expand its hours. Edit loads
-            a pattern into the form above. Only the earliest pattern
-            can't be deleted — it anchors the schedule from the
-            employee's start date.
-        </p>
-    </div>
+{% comment %}
+Per-employee pattern history. Rendered inside a <details> on the
+employee reading page.
+
+Delete uses the shared _delete_pattern_confirm.html modal. One
+component instance, one modal, one hidden form. Each row's Delete
+button calls requestDelete(url, date), which stashes the pending URL
+and date on the component. Confirm submits the hidden form with the
+stashed action.
+{% endcomment %}
+<section class="border-t border-gray-200" x-data="deletePatternModal">
     {% for entry in patterns %}
-    <div class="border-t border-gray-200" x-data="{ open: false }">
+    <div class="border-t border-gray-200 first:border-t-0" x-data="{ open: false }">
         <div class="flex items-center justify-between p-3 gap-3">
             <button
                 type="button"
@@ -28,42 +25,30 @@
                 <span class="text-brand-indigo">
                     Effective from
                     {{ entry.pattern.effective_from|date:"F j, Y" }}
-                    {% if entry.pattern.cycle_weeks > 1 %}· {{ entry.pattern.cycle_weeks }}w cycle{% endif %}
+                    {% if entry.last_week %}
+                    through {{ entry.last_week|date:"F j, Y" }}
+                    {% else %}
+                    · ongoing
+                    {% endif %}
                 </span>
             </button>
             {% if can_change or can_delete %}
             <div class="flex items-center gap-3 shrink-0">
                 {% if can_change %}
                 <a
-                    href="{% url 'employee_defaults' employee.pk %}?pattern={{ entry.pattern.pk }}"
+                    href="{% url 'pattern_edit' employee.pk entry.pattern.pk %}"
                     class="text-sm font-medium text-brand-coral hover:underline"
                     >Edit</a
                 >
                 {% endif %}
                 {% if can_delete and not entry.is_earliest %}
-                <form
-                    method="post"
-                    action="{% url 'delete_pattern' entry.pattern.pk %}"
-                    hx-post="{% url 'delete_pattern' entry.pattern.pk %}"
-                    hx-target="#employee-content"
-                    hx-swap="outerHTML"
-                    data-pattern-date="{{ entry.pattern.effective_from|date:'F j, Y' }}"
-                    class="inline"
+                <button
+                    type="button"
+                    @click="requestDelete('{% url 'delete_pattern' entry.pattern.pk %}', '{{ entry.pattern.effective_from|date:'F j, Y' }}')"
+                    class="text-sm font-medium text-gray-500 hover:text-brand-coral"
                 >
-                    {% csrf_token %}
-                    <input
-                        type="hidden"
-                        name="current_pattern"
-                        value="{{ editing_pattern.pk|default:'' }}"
-                    />
-                    <button
-                        type="button"
-                        @click="requestDelete($el.closest('form'), $el.closest('form').dataset.patternDate)"
-                        class="text-sm font-medium text-gray-500 hover:text-brand-coral"
-                    >
-                        Delete
-                    </button>
-                </form>
+                    Delete
+                </button>
                 {% endif %}
             </div>
             {% endif %}
@@ -106,4 +91,33 @@
         </div>
     </div>
     {% endfor %}
+
+    {% if can_delete %}
+    <form method="post" id="delete-pattern-form" hidden>
+        {% csrf_token %}
+    </form>
+    {% include "schedule/modals/_delete_pattern_confirm.html" %}
+    {% endif %}
 </section>
+<script>
+    if (!window.__deletePatternModalRegistered) {
+        window.__deletePatternModalRegistered = true;
+        document.addEventListener("alpine:init", () => {
+            Alpine.data("deletePatternModal", () => ({
+                deletePatternOpen: false,
+                pendingDeleteDate: "",
+                pendingDeleteUrl: "",
+                requestDelete(url, date) {
+                    this.pendingDeleteUrl = url;
+                    this.pendingDeleteDate = date;
+                    this.deletePatternOpen = true;
+                },
+                confirmDelete() {
+                    const form = document.getElementById("delete-pattern-form");
+                    form.action = this.pendingDeleteUrl;
+                    form.submit();
+                },
+            }));
+        });
+    }
+</script>
