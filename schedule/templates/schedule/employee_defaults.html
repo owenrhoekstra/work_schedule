@@ -34,11 +34,20 @@
         <section
             class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-1 flex flex-col"
         >
-            <h2
-                class="font-display text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3"
-            >
-                Employee
-            </h2>
+            <div class="flex items-center justify-between mb-3">
+                <h2
+                    class="font-display text-xs font-semibold text-gray-500 uppercase tracking-wide"
+                >
+                    Employee
+                </h2>
+                {% if is_management %}
+                <a
+                    href="{% url 'employee_details' employee.pk %}"
+                    class="text-sm font-medium text-brand-coral hover:underline"
+                    >Edit →</a
+                >
+                {% endif %}
+            </div>
             <div class="flex-1 flex flex-col justify-center">
                 <div class="space-y-2 text-sm">
                     <div>

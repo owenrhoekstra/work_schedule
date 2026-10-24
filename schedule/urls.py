@@ -93,4 +93,9 @@ urlpatterns = [
         views.pattern_edit,
         name="pattern_edit",
     ),
+    path(
+        "employees/<uuid:pk>/details/",
+        views.employee_details,
+        name="employee_details",
+    ),
 ]

@@ -809,12 +809,13 @@ def _build_default_weeks(pattern):
     return weeks
 
 
-def _employee_page_context(request, employee, identity_form=None, can_change=True):
+def _employee_page_context(request, employee, can_change=True):
     """Build the shared context for the employee reading page.
 
     Renders the two-column layout: employee identity on the left,
     currently-scheduled pattern on the right, full pattern history
-    below in a disclosure.
+    below in a disclosure. Read-only — identity edits live at
+    /details/.
     """
     this_week_start = _week_start(timezone.localdate())
     current = _pattern_for_week(employee, this_week_start)
@@ -844,11 +845,6 @@ def _employee_page_context(request, employee, identity_form=None, can_change=Tru
 
     return {
         "employee": employee,
-        "identity_form": (
-            identity_form
-            if identity_form is not None
-            else EmployeeForm(instance=employee)
-        ),
         "current_pattern": current,
         "current_weeks": current_weeks,
         "current_last_week": current_last_week,
@@ -860,27 +856,52 @@ def _employee_page_context(request, employee, identity_form=None, can_change=Tru
     }
 
 
-def _render_employee_page(request, employee, identity_form=None, can_change=True):
-    """Render the employee reading page. Used by the GET path and by
-    `_handle_identity_post` on validation errors."""
+def _render_employee_page(request, employee, can_change=True):
+    """Render the employee reading page."""
     context = _employee_page_context(
         request,
         employee,
-        identity_form=identity_form,
         can_change=can_change,
     )
     return render(request, "schedule/employee_defaults.html", context)
 
 
-def _handle_identity_post(request, employee):
-    """Save the identity form. Sync the earliest EmploymentPeriod when
-    start_date changes, and slide the earliest pattern so it stays
-    anchored to the Monday of the new start week.
+def _render_employee_details_page(request, employee, identity_form=None):
+    """Render the employee details page (/details/).
 
-    Moving the start date earlier slides the earliest pattern backward
-    (no collision check — nothing precedes the earliest pattern).
-    Moving it later slides the pattern forward, but only if it doesn't
-    collide with the next pattern.
+    Shown on GET and on POST validation errors. Includes both the
+    deactivate and confirm-discard modals — the view's context provides
+    `today` for the modal's data-today.
+    """
+    today = timezone.localdate()
+    return render(
+        request,
+        "schedule/employee_details.html",
+        {
+            "employee": employee,
+            "identity_form": (
+                identity_form
+                if identity_form is not None
+                else EmployeeForm(instance=employee)
+            ),
+            "last_day": employee.last_day,
+            "today": today,
+        },
+    )
+
+
+def _handle_identity_post(request, employee):
+    """Save the identity form from /details/.
+
+    On success, redirect to the reading page (employee_defaults).
+    On validation error, re-render the details page with the bound
+    form so errors appear inline and submitted values are preserved.
+
+    Syncs the earliest EmploymentPeriod when start_date changes, and
+    slides the earliest pattern so it stays anchored to the Monday of
+    the new start week. Moving the start date earlier slides the
+    earliest pattern backward; moving it later slides forward only
+    when there's no collision with the next pattern.
 
     The write phase runs in a single transaction so the Employee,
     EmploymentPeriod, and ShiftPattern rows can't drift out of sync.
@@ -889,7 +910,7 @@ def _handle_identity_post(request, employee):
     form = EmployeeForm(request.POST, instance=employee)
 
     if not form.is_valid():
-        return _render_employee_page(request, employee, identity_form=form)
+        return _render_employee_details_page(request, employee, identity_form=form)
 
     new_start = form.cleaned_data["start_date"]
 
@@ -901,7 +922,9 @@ def _handle_identity_post(request, employee):
                 f"Start date can't be after this period's end date "
                 f"({earliest.end_date - timedelta(days=1):%Y-%m-%d}).",
             )
-            return _render_employee_page(request, employee, identity_form=form)
+            return _render_employee_details_page(
+                request, employee, identity_form=form
+            )
 
     with transaction.atomic():
         form.save()
@@ -912,19 +935,13 @@ def _handle_identity_post(request, employee):
                 earliest.start_date = new_start
                 earliest.save(update_fields=["start_date"])
 
-            # Keep the earliest pattern anchored to the Monday of the
-            # new start week, in either direction.
             new_floor = _week_start(new_start)
             earliest_pattern = employee.patterns.order_by("effective_from").first()
             if earliest_pattern and earliest_pattern.effective_from != new_floor:
                 if earliest_pattern.effective_from > new_floor:
-                    # Moving earlier — extend the anchor backward. No
-                    # collision possible; nothing precedes the earliest
-                    # pattern.
                     earliest_pattern.effective_from = new_floor
                     earliest_pattern.save(update_fields=["effective_from"])
                 else:
-                    # Moving later — don't collide with the next pattern.
                     next_pattern = (
                         employee.patterns.filter(
                             effective_from__gt=earliest_pattern.effective_from
@@ -1768,13 +1785,12 @@ def pattern_edit(request, employee_pk, pk):
 
 
 @login_required
+@management_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_defaults(request, pk):
-    """Render or handle the employee reading page.
+    """Render the employee reading page.
 
-    POST bodies carry a `form` field that routes to the identity
-    handler. The schedule-editing flow lives on /schedule/change/ and
-    /schedule/add/ — not on this page.
+    Read-only. Identity edits and deactivation live at /details/.
     """
     today = timezone.localdate()
     employee = get_object_or_404(
@@ -1782,23 +1798,46 @@ def employee_defaults(request, pk):
         pk=pk,
     )
     can_change = request.user.has_perm("schedule.change_shift")
-
-    if request.method == "POST":
-        if not can_change:
-            raise PermissionDenied
-
-        form_type = request.POST.get("form")
-        if form_type == "identity":
-            return _handle_identity_post(request, employee)
-
-        messages.error(request, "Unknown form submission.")
-        return redirect("employee_defaults", pk=pk)
-
     return _render_employee_page(
         request,
         employee,
         can_change=can_change,
     )
+
+
+@login_required
+@management_required
+def employee_details(request, pk):
+    """Edit an employee's identity, or trigger deactivation.
+
+    Gated on `is_management` (superuser or Management group). The
+    reading page stays read-only; this is the only entry point for
+    identity edits.
+
+    GET: render the form. POST: dispatch on `form=identity` to
+    _handle_identity_post, which redirects back to the reading page on
+    success or re-renders this page with bound errors.
+
+    Deactivation is triggered by the Set Last Day button in the
+    identity form (only rendered when the user has delete_employee).
+    The modal posts to settings_deactivate_employee with
+    next=employee_defaults, so the manager lands back on the reading
+    page after deactivation.
+    """
+    today = timezone.localdate()
+    employee = get_object_or_404(
+        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        pk=pk,
+    )
+
+    if request.method == "POST":
+        form_type = request.POST.get("form")
+        if form_type == "identity":
+            return _handle_identity_post(request, employee)
+        messages.error(request, "Unknown form submission.")
+        return redirect("employee_details", pk=pk)
+
+    return _render_employee_details_page(request, employee)
 
 
 @login_required
@@ -2095,8 +2134,18 @@ def settings_deactivate_employee(request, pk):
 
     Sends a deactivation email if `notify` is set and the employee is
     still on the schedule.
+
+    Redirect target is controlled by the POST body's `next` field:
+    "employee_defaults" → the employee's reading page;
+    anything else (default) → settings_home.
     """
     employee = get_object_or_404(Employee, pk=pk)
+
+    next_target = request.POST.get("next", "settings_home")
+    if next_target == "employee_defaults":
+        redirect_url = reverse("employee_defaults", args=[employee.pk])
+    else:
+        redirect_url = reverse("settings_home")
 
     raw = request.POST.get("last_day", "").strip()
     if raw:
@@ -2104,7 +2153,7 @@ def settings_deactivate_employee(request, pk):
             last_day = date.fromisoformat(raw)
         except ValueError:
             messages.error(request, "Please pick a valid date.")
-            return redirect("settings_home")
+            return redirect(redirect_url)
     else:
         last_day = date.today()
 
@@ -2133,7 +2182,7 @@ def settings_deactivate_employee(request, pk):
             messages.warning(request, error or "Notification not sent.")
 
     messages.success(request, f"{employee}'s last day will be {last_day}.")
-    return redirect("settings_home")
+    return redirect(redirect_url)
 
 
 @login_required

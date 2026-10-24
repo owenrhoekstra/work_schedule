@@ -87,6 +87,8 @@ def make_manager_user(username="manager"):
         "add_shift",
         "delete_shift",
         "add_employee",
+        "change_employee",
+        "delete_employee",
     ):
         user.user_permissions.add(Permission.objects.get(codename=codename))
     return user

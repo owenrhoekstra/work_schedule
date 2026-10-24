@@ -1,40 +1,53 @@
+{% comment %}
+Set Last Day modal. Self-contained: no Alpine dependency. Extracted
+from settings.html so multiple pages can trigger it without duplicating
+the markup or JS.
+
+Trigger from any page:
+    <button
+        type="button"
+        data-employee-id="{{ employee.pk }}"
+        data-employee-name="{{ employee }}"
+        data-next="employee_defaults"   {# optional; defaults to settings_home #}
+        onclick="openDeactivateModal(this)"
+    >Set Last Day</button>
+
+Then include this file once on the page. data-today is written by the
+view's context (both settings_home and employee_details provide
+`today`). data-url-template uses a placeholder UUID that JS rewrites
+to the actual employee ID at open time.
+
+The hidden `next` input tells settings_deactivate_employee where to
+redirect on success. Default is settings_home; employee_details pages
+pass data-next="employee_defaults" so the manager lands back on the
+reading page after deactivating.
+{% endcomment %}
 <dialog
     id="deactivate-modal"
-    x-data="{ closing: false }"
-    x-effect="
-        if (deactivateOpen && !$el.open) $el.showModal();
-        if (!deactivateOpen && $el.open && !closing) {
-            closing = true;
-            setTimeout(() => { $el.close(); closing = false; }, 200);
-        }
-    "
-    :class="{ 'is-closing': closing }"
-    @cancel.prevent="deactivateOpen = false"
-    @close="deactivateOpen = false"
+    data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
+    data-today="{{ today|date:'Y-m-d' }}"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
-    <form
-        method="post"
-        action="{% url 'settings_deactivate_employee' employee.id %}"
-        class="p-6 space-y-4"
-    >
+    <form method="post" id="deactivate-form" class="p-6 space-y-4">
         {% csrf_token %}
+        <input type="hidden" name="next" id="deactivate-next" value="settings_home" />
         <h2 class="font-display text-lg font-bold text-brand-indigo">
             Set Last Day
         </h2>
-        <p class="text-sm text-gray-500">{{ employee }}</p>
+        <p class="text-sm text-gray-500">
+            <span id="deactivate-name"></span>
+        </p>
         <div>
             <label
-                for="deactivate-last-day"
+                for="deactivate-date"
                 class="block text-sm font-medium text-brand-indigo mb-1"
             >
                 Last day
             </label>
             <input
                 type="date"
-                id="deactivate-last-day"
                 name="last_day"
-                x-model="deactivateDate"
+                id="deactivate-date"
                 required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
             />
@@ -54,8 +67,8 @@
         <div class="flex justify-end gap-2 pt-2">
             <button
                 type="button"
-                @click="deactivateOpen = false"
-                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                data-deactivate-cancel
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1"
             >
                 Cancel
             </button>
@@ -68,3 +81,67 @@
         </div>
     </form>
 </dialog>
+<script>
+    (() => {
+        if (window.__deactivateModalWired) return;
+        window.__deactivateModalWired = true;
+
+        const dialogEl = () => document.getElementById("deactivate-modal");
+
+        const dismiss = () => {
+            const d = dialogEl();
+            if (!d || !d.open || d.classList.contains("is-closing")) return;
+            d.classList.add("is-closing");
+            setTimeout(() => {
+                d.close();
+                d.classList.remove("is-closing");
+            }, 200);
+        };
+
+        window.openDeactivateModal = (button) => {
+            const d = dialogEl();
+            if (!d) return;
+            const form = document.getElementById("deactivate-form");
+            const template = d.dataset.urlTemplate;
+            form.action = template.replace(
+                "00000000-0000-0000-0000-000000000000",
+                button.dataset.employeeId
+            );
+            document.getElementById("deactivate-name").textContent =
+                button.dataset.employeeName || "";
+            document.getElementById("deactivate-date").value =
+                d.dataset.today || "";
+            const nextInput = document.getElementById("deactivate-next");
+            if (nextInput) {
+                nextInput.value = button.dataset.next || "settings_home";
+            }
+            if (!d.open) d.showModal();
+        };
+
+        window.__dismissDeactivateModal = dismiss;
+
+        document.addEventListener(
+            "click",
+            (e) => {
+                if (e.target.matches("[data-deactivate-cancel]")) {
+                    e.preventDefault();
+                    dismiss();
+                }
+            },
+            true
+        );
+
+        document.addEventListener(
+            "keydown",
+            (e) => {
+                if (e.key !== "Escape") return;
+                const d = dialogEl();
+                if (d && d.open) {
+                    e.preventDefault();
+                    dismiss();
+                }
+            },
+            true
+        );
+    })();
+</script>
