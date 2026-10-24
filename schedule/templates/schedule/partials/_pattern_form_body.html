@@ -5,8 +5,27 @@ pattern_form_preview for live HTMX updates as the user changes the
 week or cycle length.
 
 The id must match the hx-target in pattern_form.html.
+
+The `patternFormBody` component owns the retroactive modal flow:
+- Save button is type="button" and calls handleSave().
+- If is_retroactive and not yet confirmed, handleSave opens the modal.
+- Modal confirm sets hidden `retroactive_confirmed=1` and submits.
+- If the server rejects a confirmed retroactive save (validation
+  error), `retroactive_confirmed` is threaded back into context so the
+  next Save skips the modal (no double-confirmation).
+
+The script uses `alpine:init` (fires before Alpine's deferred script
+runs), so registration is safe on initial page load. On HTMX swap of
+this partial, the script does not re-run (HTMX doesn't execute swapped
+scripts), and Alpine's `htmx:afterSwap` listener in base.html re-inits
+the swapped tree with the already-registered component.
 {% endcomment %}
-<div id="pattern-form-body" class="space-y-4">
+<div
+    id="pattern-form-body"
+    class="space-y-4"
+    data-is-retroactive="{{ is_retroactive|yesno:'true,false' }}"
+    data-retroactive-date="{{ effective_from_label }}"
+>
     {% if errors %}
     <div
         class="rounded-lg px-4 py-3 bg-brand-coral/10 border border-brand-coral/30 text-sm text-brand-coral"
@@ -43,15 +62,9 @@ The id must match the hx-target in pattern_form.html.
                 <table class="min-w-full border-collapse text-sm">
                     <thead>
                         <tr class="bg-brand-offwhite">
-                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
-                                Day
-                            </th>
-                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
-                                Start
-                            </th>
-                            <th class="text-left p-3 font-display font-medium text-brand-indigo">
-                                End
-                            </th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">Day</th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">Start</th>
+                            <th class="text-left p-3 font-display font-medium text-brand-indigo">End</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -99,15 +112,12 @@ The id must match the hx-target in pattern_form.html.
             />
             Notify employee of these changes
         </label>
-        <label class="flex items-center gap-2 text-sm text-brand-indigo">
-            <input
-                type="checkbox"
-                name="retroactive_confirmed"
-                value="1"
-                class="accent-brand-coral"
-            />
-            This change is retroactive — confirm
-        </label>
+        <input
+            type="hidden"
+            name="retroactive_confirmed"
+            value="{{ retroactive_confirmed|yesno:'1,0' }}"
+            x-ref="retroactiveInput"
+        />
         <p class="text-xs text-gray-500">
             Use 24-hour time like <code>09:00</code> or 12-hour like
             <code>9:00 AM</code>. Leave both fields empty for a day off.
@@ -133,4 +143,100 @@ The id must match the hx-target in pattern_form.html.
         Pick a week to begin.
     </div>
     {% endif %}
+
+    {% if is_retroactive %}
+        {% include "schedule/modals/_retroactive_confirm.html" %}
+    {% endif %}
 </div>
+<script>
+    (() => {
+        if (window.__patternFormBodySubmitHandler) return;
+        window.__patternFormBodySubmitHandler = true;
+
+        // ---- Dialog helpers (exposed on window for inline onclick) ----
+
+        const dismissModal = () => {
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (
+                !dialog ||
+                !dialog.open ||
+                dialog.classList.contains("is-closing")
+            )
+                return;
+            dialog.classList.add("is-closing");
+            setTimeout(() => {
+                dialog.close();
+                dialog.classList.remove("is-closing");
+            }, 200);
+        };
+
+        const confirmModal = () => {
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (!dialog) return;
+            const form = dialog.closest("form");
+            if (!form) return;
+            const input = form.querySelector(
+                'input[name="retroactive_confirmed"]'
+            );
+            if (input) input.value = "1";
+            dismissModal();
+            form.requestSubmit();
+        };
+
+        window.__dismissRetroactiveModal = dismissModal;
+        window.__confirmRetroactiveModal = confirmModal;
+
+        // ---- ESC / cancel-event handling on the dialog ----------------
+        // The <dialog> element fires `cancel` when ESC is pressed. We
+        // intercept it so ESC goes through the animation instead of
+        // closing instantly.
+        document.addEventListener(
+            "keydown",
+            (e) => {
+                if (e.key !== "Escape") return;
+                const dialog = document.getElementById(
+                    "retroactive-confirm-modal"
+                );
+                if (dialog && dialog.open) {
+                    e.preventDefault();
+                    dismissModal();
+                }
+            },
+            true
+        );
+
+        // ---- Submit interceptor (opens the modal) ---------------------
+
+        document.addEventListener("submit", (e) => {
+            const form = e.target;
+            if (!(form instanceof HTMLFormElement)) return;
+
+            const body = form.querySelector("#pattern-form-body");
+            if (!body) return;
+
+            if (body.dataset.isRetroactive !== "true") return;
+
+            const hidden = form.querySelector(
+                'input[name="retroactive_confirmed"]'
+            );
+            if (hidden && hidden.value === "1") return;
+
+            e.preventDefault();
+
+            const dialog = document.getElementById(
+                "retroactive-confirm-modal"
+            );
+            if (!dialog) return;
+
+            const labelEl = dialog.querySelector("[data-retroactive-label]");
+            if (labelEl) {
+                labelEl.textContent = body.dataset.retroactiveDate || "";
+            }
+            if (!dialog.open) dialog.showModal();
+        });
+    })();
+</script>

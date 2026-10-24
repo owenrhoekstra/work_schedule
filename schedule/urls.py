@@ -88,4 +88,9 @@ urlpatterns = [
         views.pattern_form_preview,
         name="pattern_form_preview",
     ),
+    path(
+        "employees/<uuid:employee_pk>/patterns/<uuid:pk>/",
+        views.pattern_edit,
+        name="pattern_edit",
+    ),
 ]

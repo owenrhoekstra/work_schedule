@@ -22,7 +22,7 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   shifts. Every week in the new pattern reports "OFF → new value,"
   mislabeling the pre-change schedule in the email.
 - **Root cause:** Empty baseline. Note that the "obvious" fix —
-  `old_shifts = covering.shifts` — is *worse*, because in the split
+  `old_shifts = covering.shifts` — is _worse_, because in the split
   case the covering pattern's `week_offset` indices don't align with
   the target's (see BUG-002). A naive index-by-index diff mislabels
   every change.
@@ -44,14 +44,14 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - **Symptom:** For a multi-week pattern P starting on a week where
   `(week_start - CYCLE_EPOCH) % P.cycle_weeks != 0`, "Change from this
   week" prefills the form with P's offset 0 as "Week A", but the
-  target pattern's offset for the current week is *not* 0. When the
+  target pattern's offset for the current week is _not_ 0. When the
   manager edits "Week A," the edit lands on a different calendar week
   than the one they were looking at.
 - **Reproduction:** In dev, create a 2-week pattern starting one week
   off from `CYCLE_EPOCH`'s modulo. Use "Change from this week." Edit
   Week A hours. Check whether the change shows on the current week or
   the following week.
-- **Why it hides:** Only triggers when `cycle_weeks > 1` *and* the
+- **Why it hides:** Only triggers when `cycle_weeks > 1` _and_ the
   current week's cycle offset ≠ 0. Single-week patterns never show it
   (offset always 0).
 - **Fix direction:** Calendar-aware prefill. Map source weeks to
@@ -81,6 +81,11 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   error banner names which cell is bad.
 - **Target:** housekeeping / when edit-page UX pressure makes it
   necessary
+- **Partial fix:** the pattern edit page (`pattern_edit`,
+  `_handle_pattern_edit_post`) passes `submitted_shifts` on error
+  returns, so editors do not lose typed values there. Only fully-parsed
+  cells are preserved; the cell whose validation failed falls back to
+  blank. Change/add still inherit the full bug.
 
 ### BUG-004 — `_identity_form.html` references missing `openDeactivate()`
 
@@ -208,6 +213,27 @@ Recorded so implementation and future reviews stay consistent.
 - **Target:** own session after Session 6 ("week picker calendar").
   Call it Session 6.5 or Session 6-adjacent — TBD.
 
+### UX-002 — General styling pass
+
+- **Severity:** Low (cosmetic; no correctness impact)
+- **Status:** Confirmed, deferred
+- **Scope:** App-wide. Known starting points:
+  - Focus rings on dialog buttons — Safari's default blue ring is
+    off-brand. Brand them with
+    `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`.
+    Applied to delete / retroactive Cancel buttons as a first instance;
+    sweep the rest.
+  - Native form controls (any surviving `<select>` / `<input>` that
+    hasn't been styled by `_INPUT_CLASS` or an equivalent).
+  - Focus states across all interactive elements — links, buttons,
+    table rows.
+  - Modal `.is-closing` animations — verify against Safari specifically
+    (Safari's `<dialog>` positioning has quirks; `margin: auto` in
+    `dialog.modal-animate` is the known mitigation if centering breaks).
+  - Print view — verify color / B&W rendering on actual paper.
+- **Target:** Session 9 (QA + ship) at the latest. Pull forward sooner
+  if the friction becomes visible to end users.
+
 ---
 
 ## Deferred / out of scope
@@ -243,4 +269,10 @@ Recorded so implementation and future reviews stay consistent.
 
 ## Fixed
 
-(None yet — append entries here as bugs are resolved.)
+### FIXED-001 — Edit link restored on pattern history list
+
+- **Fixed:** Session 6. `_saved_patterns.html` "Edit" link is now a
+  real `<a>` to `pattern_edit`.
+- **Follow-up:** delete URL was left at `/patterns/<uuid>/delete/`
+  rather than the redesign doc's `/employees/<uuid>/patterns/<uuid>/delete/`.
+  Cosmetic mismatch; can be aligned later.

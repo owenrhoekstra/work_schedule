@@ -1,16 +1,17 @@
+{% comment %}
+Confirmation modal for retroactive pattern edits.
+
+Zero Alpine dependency. Buttons use inline onclick, calling helper
+functions defined in _pattern_form_body.html. Dialog has no x-data;
+state lives in the DOM (class="is-closing") and is driven by the
+helpers. This sidesteps every Alpine scope issue that has plagued
+this modal.
+
+The data-retroactive-label span is populated by the submit handler
+in _pattern_form_body.html before opening.
+{% endcomment %}
 <dialog
     id="retroactive-confirm-modal"
-    x-data="{ closing: false }"
-    x-effect="
-        if (retroactiveOpen && !$el.open) $el.showModal();
-        if (!retroactiveOpen && $el.open && !closing) {
-            closing = true;
-            setTimeout(() => { $el.close(); closing = false; }, 200);
-        }
-    "
-    :class="{ 'is-closing': closing }"
-    @cancel.prevent="retroactiveOpen = false"
-    @close="retroactiveOpen = false"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <div class="p-6 space-y-4">
@@ -18,24 +19,24 @@
             Confirm retroactive change
         </h2>
         <p class="text-sm text-gray-500">
-            You're saving a pattern with an effective date in the past.
+            You're saving changes to a pattern that started in the past.
             This will change how the schedule appeared for those weeks.
         </p>
         <p class="text-sm text-gray-700">
-            Effective date:
-            <strong class="text-brand-indigo" x-text="retroactiveDate"></strong>
+            Effective week:
+            <strong class="text-brand-indigo" data-retroactive-label></strong>
         </p>
         <div class="flex justify-end gap-2 pt-2">
             <button
                 type="button"
-                @click="retroactiveOpen = false"
-                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+                onclick="window.__dismissRetroactiveModal?.()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1"
             >
                 Cancel
             </button>
             <button
                 type="button"
-                @click="confirmRetroactive()"
+                onclick="window.__confirmRetroactiveModal?.()"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
             >
                 Confirm change
