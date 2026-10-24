@@ -15,54 +15,6 @@ entry.
 
 ## Confirmed live bugs
 
-### BUG-001 — Split-branch `old_shifts = {}` mislabels notification email
-
-- **Severity:** Low (email content only — no data loss, no crash)
-- **Location:** `schedule/views.py`, `_handle_pattern_form_post`, the
-  `else:` branch (split case)
-- **Symptom:** When a manager saves a pattern that splits a covering
-  pattern **and** changes cycle length **and** checks "notify," the
-  diff baseline is `old_shifts = {}` instead of the covering pattern's
-  shifts. Every week in the new pattern reports "OFF → new value,"
-  mislabeling the pre-change schedule in the email.
-- **Root cause:** Empty baseline. Note that the "obvious" fix —
-  `old_shifts = covering.shifts` — is _worse_, because in the split
-  case the covering pattern's `week_offset` indices don't align with
-  the target's (see BUG-002). A naive index-by-index diff mislabels
-  every change.
-- **Fix direction:** Capture a calendar-aligned baseline before the
-  transaction. The natural implementation reuses
-  `_grid_weeks_for_form(employee, effective_from, cycle_weeks)` keyed
-  by calendar week, then translate to `(week_offset, day)` for
-  `_diff_pattern_shifts`. Pairs naturally with BUG-002.
-- **Target:** Session 5.5
-
-### BUG-002 — `_grid_weeks_for_form` cycle misalignment between prefill and edit target
-
-- **Severity:** Medium (user edits land on the wrong week)
-- **Status:** Suspected — needs manual verification in dev before
-  claiming as confirmed
-- **Location:** `schedule/views.py`, `_grid_weeks_for_form`; interacts
-  with `_week_offset_for` and the save loop in
-  `_handle_pattern_form_post`
-- **Symptom:** For a multi-week pattern P starting on a week where
-  `(week_start - CYCLE_EPOCH) % P.cycle_weeks != 0`, "Change from this
-  week" prefills the form with P's offset 0 as "Week A", but the
-  target pattern's offset for the current week is _not_ 0. When the
-  manager edits "Week A," the edit lands on a different calendar week
-  than the one they were looking at.
-- **Reproduction:** In dev, create a 2-week pattern starting one week
-  off from `CYCLE_EPOCH`'s modulo. Use "Change from this week." Edit
-  Week A hours. Check whether the change shows on the current week or
-  the following week.
-- **Why it hides:** Only triggers when `cycle_weeks > 1` _and_ the
-  current week's cycle offset ≠ 0. Single-week patterns never show it
-  (offset always 0).
-- **Fix direction:** Calendar-aware prefill. Map source weeks to
-  calendar weeks (not cycle offsets), and translate back when saving.
-  Same helper as BUG-001.
-- **Target:** Session 5.5
-
 ### BUG-003 — Submitted grid values lost on validation errors
 
 - **Severity:** Medium (user loses all typed edits on one bad cell)
@@ -285,3 +237,38 @@ Recorded so implementation and future reviews stay consistent.
   `delete-pattern-modal` were matching JS string literals in the
   inline script, causing false positives / negatives. Narrowed to
   `id="retroactive-confirm-modal"` and `id="delete-pattern-modal"`.
+
+### FIXED-003 — Calendar alignment between prefill, save, and notification baseline
+
+- **Fixed:** Session 5.5. Resolved BUG-001 and BUG-002.
+- **Root cause:** Panel index in the form was treated as the target
+  pattern's cycle offset, but cycle offset 0 is not calendar week
+  `effective_from` when `effective_from` isn't congruent with
+  `CYCLE_EPOCH`. Prefill showed the wrong calendar week; the save
+  loop wrote edits to the wrong offset; the split branch's
+  notification baseline was `{}`.
+- **Fix:**
+  - New `_cycle_offset(week_start, cycle_weeks)` — factored out of
+    `_week_offset_for` so it can be called without a pattern instance.
+  - New `_calendar_aligned_shifts(employee, effective_from, cycle_weeks)` —
+    builds a baseline keyed by target offset from the actual calendar
+    weeks the panels represent.
+  - `_grid_weeks_for_form` now indexes panels by calendar week
+    (`effective_from + 7*i`), pre-filling from whichever pattern
+    covers that week.
+  - Save loops in `_handle_pattern_form_post` and
+    `_handle_pattern_edit_post` translate `(cal_offset, day)` →
+    `(target_offset, day)` where
+    `target_offset = (base_target_offset + cal_offset) % cycle_weeks`.
+  - Split branch uses `_calendar_aligned_shifts` for `old_shifts`
+    before mutating `covering.effective_to`.
+  - When `cycle_weeks` shrinks, shifts at `week_offset >= new cycle`
+    are deleted (they're unreachable under the new cycle).
+- **Tests:** `schedule/tests/test_pattern_alignment.py` — prefill
+  alignment, edit-in-place save, split-branch notification baseline.
+- **Known limitation (not fixed):** changing `cycle_weeks` on an
+  existing pattern reinterprets stored offsets — data at old offsets
+  represents different calendar weeks under the new cycle. The
+  prefill/save alignment is correct under the new semantics; existing
+  data may be overwritten (grow) or deleted (shrink). Not currently
+  surfaced in the UI. Follow-up if it bites.

@@ -243,12 +243,48 @@ def _pattern_for_week(employee, week_start):
     return max(candidates, key=lambda p: p.effective_from)
 
 
-def _week_offset_for(week_start, pattern):
-    """Which week of this pattern's cycle the given week falls on."""
-    if pattern.cycle_weeks <= 1:
+def _cycle_offset(week_start, cycle_weeks):
+    """Which week of a cycle_weeks-long cycle the given week falls on.
+
+    Anchored at settings.CYCLE_EPOCH. Returns 0 for cycle_weeks <= 1
+    (single-week pattern; no offset within cycle).
+    """
+    if cycle_weeks <= 1:
         return 0
     weeks_since_epoch = (week_start - settings.CYCLE_EPOCH).days // 7
-    return weeks_since_epoch % pattern.cycle_weeks
+    return weeks_since_epoch % cycle_weeks
+
+
+def _week_offset_for(week_start, pattern):
+    """Which week of this pattern's cycle the given week falls on."""
+    return _cycle_offset(week_start, pattern.cycle_weeks)
+
+
+def _calendar_aligned_shifts(employee, effective_from, cycle_weeks):
+    """Baseline shift map for the notification diff, keyed by target offset.
+
+    Returns {(target_offset, day): Shift} capturing what the schedule
+    displayed for calendar weeks effective_from + 7*i (i = 0..cycle_weeks-1)
+    BEFORE a mutation, translated into the target pattern's cycle-offset
+    space.
+
+    Uses calendar-week indexing (not source-pattern offsets) so the diff
+    is meaningful even when a pattern ends mid-form and a later pattern
+    takes over, or when effective_from isn't congruent with CYCLE_EPOCH.
+    """
+    baseline = {}
+    base_target_offset = _cycle_offset(effective_from, cycle_weeks)
+    for cal_offset in range(cycle_weeks):
+        week_start = effective_from + timedelta(weeks=cal_offset)
+        source = _pattern_for_week(employee, week_start)
+        if not source:
+            continue
+        source_offset = _week_offset_for(week_start, source)
+        target_offset = (base_target_offset + cal_offset) % cycle_weeks
+        for s in source.shifts.all():
+            if s.week_offset == source_offset:
+                baseline[(target_offset, s.day)] = s
+    return baseline
 
 
 def _last_week_of(pattern):
@@ -907,29 +943,41 @@ def _handle_identity_post(request, employee):
 def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
     """Build the grid structure for the writing form.
 
-    Returns a list of dicts, one per cycle week, each with day cells
-    pre-populated from the pattern currently covering the chosen week
-    (or empty if no pattern covers it). The user edits from what's
-    currently scheduled.
+    Panel i represents calendar week effective_from + 7*i, NOT the
+    target pattern's cycle offset. Panel A is the week the manager
+    picked; panel B is the following week; etc. Cells prefill from
+    whichever pattern covers that calendar week, so the form shows
+    exactly what the schedule currently displays for those weeks.
+
+    The save path translates panel index -> target cycle offset, keeping
+    the label-to-calendar-week mapping intact even when effective_from
+    isn't congruent with CYCLE_EPOCH for the target's cycle length.
     """
-    source = _pattern_for_week(employee, effective_from) if effective_from else None
-    shifts_by_key = (
-        {(s.week_offset, s.day): s for s in source.shifts.all()} if source else {}
-    )
     weeks = []
-    for offset in range(cycle_weeks):
+    for cal_offset in range(cycle_weeks):
+        shifts_by_key = {}
+        if effective_from is not None:
+            week_start = effective_from + timedelta(weeks=cal_offset)
+            source = _pattern_for_week(employee, week_start)
+            if source:
+                source_offset = _week_offset_for(week_start, source)
+                shifts_by_key = {
+                    s.day: s
+                    for s in source.shifts.all()
+                    if s.week_offset == source_offset
+                }
         rows = [
             {
                 "day": day,
                 "label": DAY_LABELS_FULL[day],
-                "shift": shifts_by_key.get((offset, day)),
+                "shift": shifts_by_key.get(day),
             }
             for day in DAYS
         ]
         weeks.append(
             {
-                "offset": offset,
-                "label": WEEK_LABELS[offset],
+                "offset": cal_offset,
+                "label": WEEK_LABELS[cal_offset],
                 "rows": rows,
             }
         )
@@ -1136,7 +1184,16 @@ def _pattern_form_context(
 
 
 def _handle_pattern_form_post(request, employee, mode):
-    """Shared POST handler for /schedule/change/ and /schedule/add/."""
+    """Shared POST handler for /schedule/change/ and /schedule/add/.
+
+    Panel index in the POST body is a calendar-week index (panel 0 =
+    calendar week effective_from, panel 1 = effective_from + 7d, ...),
+    not the target pattern's cycle offset. The save loop maps each
+    panel to its target offset via
+    (base_target_offset + cal_offset) % cycle_weeks so the label the
+    manager edited corresponds to the calendar week it will actually
+    display on, even when effective_from isn't cycle-congruent.
+    """
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
@@ -1188,13 +1245,14 @@ def _handle_pattern_form_post(request, employee, mode):
             ],
         )
 
-    # Validate the grid.
+    # Validate the grid. Panel index i in `week_{i}_day_{d}` is a
+    # calendar-week index (0 = effective_from, 1 = +7d, ...).
     validated_edits = {}
     submitted_shifts = {}
-    for week_offset in range(MAX_CYCLE_WEEKS):
+    for cal_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
-            start_key = f"week_{week_offset}_day_{day}_start"
-            end_key = f"week_{week_offset}_day_{day}_end"
+            start_key = f"week_{cal_offset}_day_{day}_start"
+            end_key = f"week_{cal_offset}_day_{day}_end"
             if start_key not in request.POST or end_key not in request.POST:
                 continue
             try:
@@ -1209,7 +1267,7 @@ def _handle_pattern_form_post(request, employee, mode):
                     cycle_weeks=cycle_weeks,
                     retroactive_confirmed=retroactive_confirmed,
                     errors=[
-                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}"
+                        f"Week {WEEK_LABELS[cal_offset]} {DAY_LABELS_FULL[day]}: {exc}"
                     ],
                 )
             if (start is None) != (end is None):
@@ -1221,7 +1279,7 @@ def _handle_pattern_form_post(request, employee, mode):
                     cycle_weeks=cycle_weeks,
                     retroactive_confirmed=retroactive_confirmed,
                     errors=[
-                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"Week {WEEK_LABELS[cal_offset]} "
                         f"{DAY_LABELS_FULL[day]}: set both start and end, "
                         f"or leave both empty."
                     ],
@@ -1236,14 +1294,14 @@ def _handle_pattern_form_post(request, employee, mode):
                         cycle_weeks=cycle_weeks,
                         retroactive_confirmed=retroactive_confirmed,
                         errors=[
-                            f"Week {WEEK_LABELS[week_offset]} "
+                            f"Week {WEEK_LABELS[cal_offset]} "
                             f"{DAY_LABELS_FULL[day]}: end time must be "
                             f"after start time."
                         ],
                     )
-                validated_edits[(week_offset, day)] = (start, end)
+                validated_edits[(cal_offset, day)] = (start, end)
             else:
-                validated_edits[(week_offset, day)] = None
+                validated_edits[(cal_offset, day)] = None
 
     # Apply edit-or-split in a transaction.
     try:
@@ -1263,19 +1321,35 @@ def _handle_pattern_form_post(request, employee, mode):
                     ),
                     cycle_weeks=cycle_weeks,
                 )
+                # No prior schedule exists for these calendar weeks —
+                # empty baseline is correct.
                 old_shifts = {}
                 old_cycle = cycle_weeks
             elif covering.effective_from == effective_from:
                 target = covering
                 old_cycle = target.cycle_weeks
-                updates = []
+                # Baseline BEFORE mutation, calendar-aligned to target
+                # offsets, so the notification diff compares the same
+                # calendar weeks the panels showed.
+                old_shifts = _calendar_aligned_shifts(
+                    employee, effective_from, cycle_weeks
+                )
                 if target.cycle_weeks != cycle_weeks:
+                    # Shrinking cycle_weeks: delete shifts at offsets
+                    # that no longer exist. Growing leaves them alone —
+                    # they're still reachable.
+                    Shift.objects.filter(
+                        pattern=target, week_offset__gte=cycle_weeks
+                    ).delete()
                     target.cycle_weeks = cycle_weeks
-                    updates.append("cycle_weeks")
-                if updates:
-                    target.save(update_fields=updates)
-                old_shifts = {(s.week_offset, s.day): s for s in target.shifts.all()}
+                    target.save(update_fields=["cycle_weeks"])
             else:
+                # Split: capture the "before" baseline BEFORE truncating
+                # covering's effective_to, so _pattern_for_week still
+                # returns covering for the weeks being reassigned.
+                old_shifts = _calendar_aligned_shifts(
+                    employee, effective_from, cycle_weeks
+                )
                 old_end = covering.effective_to
                 old_cycle = covering.cycle_weeks
                 covering.effective_to = effective_from
@@ -1286,18 +1360,19 @@ def _handle_pattern_form_post(request, employee, mode):
                     effective_to=old_end,
                     cycle_weeks=cycle_weeks,
                 )
-                old_shifts = {}
 
-            for (week_offset, day), value in validated_edits.items():
+            base_target_offset = _cycle_offset(effective_from, cycle_weeks)
+            for (cal_offset, day), value in validated_edits.items():
+                target_offset = (base_target_offset + cal_offset) % cycle_weeks
                 if value is None:
                     Shift.objects.filter(
-                        pattern=target, week_offset=week_offset, day=day
+                        pattern=target, week_offset=target_offset, day=day
                     ).delete()
                 else:
                     start, end = value
                     Shift.objects.update_or_create(
                         pattern=target,
-                        week_offset=week_offset,
+                        week_offset=target_offset,
                         day=day,
                         defaults={"start_time": start, "end_time": end},
                     )
@@ -1493,6 +1568,12 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     existing span. If effective_to is set and the new cycle is longer
     than the span, reject. Growing past effective_to would otherwise
     silently overwrite the next pattern's territory.
+
+    Panel index in the POST body is a calendar-week index relative to
+    pattern.effective_from (0 = effective_from, 1 = +7d, ...). Save
+    maps each panel to its target offset via
+    (base_target_offset + cal_offset) % cycle_weeks so edits land on
+    the calendar week the manager was looking at.
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
@@ -1536,13 +1617,13 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
         )
 
     # Parse the grid. Values that parse cleanly are stashed so an error
-    # re-render doesn't lose them.
+    # re-render doesn't lose them. Key is (cal_offset, day).
     validated_edits = {}
     submitted_shifts = {}
-    for week_offset in range(MAX_CYCLE_WEEKS):
+    for cal_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
-            start_key = f"week_{week_offset}_day_{day}_start"
-            end_key = f"week_{week_offset}_day_{day}_end"
+            start_key = f"week_{cal_offset}_day_{day}_start"
+            end_key = f"week_{cal_offset}_day_{day}_end"
             if start_key not in request.POST or end_key not in request.POST:
                 continue
             try:
@@ -1557,7 +1638,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
                     cycle_weeks=cycle_weeks,
                     retroactive_confirmed=retroactive_confirmed,
                     errors=[
-                        f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}"
+                        f"Week {WEEK_LABELS[cal_offset]} {DAY_LABELS_FULL[day]}: {exc}"
                     ],
                     submitted_shifts=submitted_shifts,
                 )
@@ -1570,7 +1651,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
                     cycle_weeks=cycle_weeks,
                     retroactive_confirmed=retroactive_confirmed,
                     errors=[
-                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"Week {WEEK_LABELS[cal_offset]} "
                         f"{DAY_LABELS_FULL[day]}: set both start and end, "
                         f"or leave both empty."
                     ],
@@ -1586,38 +1667,47 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
                         cycle_weeks=cycle_weeks,
                         retroactive_confirmed=retroactive_confirmed,
                         errors=[
-                            f"Week {WEEK_LABELS[week_offset]} "
+                            f"Week {WEEK_LABELS[cal_offset]} "
                             f"{DAY_LABELS_FULL[day]}: end time must be "
                             f"after start time."
                         ],
                         submitted_shifts=submitted_shifts,
                     )
-                validated_edits[(week_offset, day)] = (start, end)
-                submitted_shifts[(week_offset, day)] = SimpleNamespace(
+                validated_edits[(cal_offset, day)] = (start, end)
+                submitted_shifts[(cal_offset, day)] = SimpleNamespace(
                     start_time=start, end_time=end
                 )
             else:
-                validated_edits[(week_offset, day)] = None
+                validated_edits[(cal_offset, day)] = None
 
-    # Capture the notification baseline before mutating.
+    # Capture the notification baseline BEFORE mutating.
     old_cycle = pattern.cycle_weeks
-    old_shifts = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
+    old_shifts = _calendar_aligned_shifts(
+        employee, pattern.effective_from, cycle_weeks
+    )
 
     with transaction.atomic():
         if pattern.cycle_weeks != cycle_weeks:
+            # Shrinking: drop shifts at offsets >= new cycle. Growing
+            # leaves them alone — they're still reachable.
+            Shift.objects.filter(
+                pattern=pattern, week_offset__gte=cycle_weeks
+            ).delete()
             pattern.cycle_weeks = cycle_weeks
             pattern.save(update_fields=["cycle_weeks"])
 
-        for (week_offset, day), value in validated_edits.items():
+        base_target_offset = _cycle_offset(pattern.effective_from, cycle_weeks)
+        for (cal_offset, day), value in validated_edits.items():
+            target_offset = (base_target_offset + cal_offset) % cycle_weeks
             if value is None:
                 Shift.objects.filter(
-                    pattern=pattern, week_offset=week_offset, day=day
+                    pattern=pattern, week_offset=target_offset, day=day
                 ).delete()
             else:
                 start, end = value
                 Shift.objects.update_or_create(
                     pattern=pattern,
-                    week_offset=week_offset,
+                    week_offset=target_offset,
                     day=day,
                     defaults={"start_time": start, "end_time": end},
                 )
