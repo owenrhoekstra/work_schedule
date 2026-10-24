@@ -922,9 +922,7 @@ def _handle_identity_post(request, employee):
                 f"Start date can't be after this period's end date "
                 f"({earliest.end_date - timedelta(days=1):%Y-%m-%d}).",
             )
-            return _render_employee_details_page(
-                request, employee, identity_form=form
-            )
+            return _render_employee_details_page(request, employee, identity_form=form)
 
     with transaction.atomic():
         form.save()
@@ -999,37 +997,6 @@ def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
             }
         )
     return weeks
-
-
-def _week_picker_options(employee):
-    """Return a list of (iso_date, label) pairs for the week picker.
-
-    Range: 6 months back from today (or employee.start_date, whichever
-    is later) through 1 year forward (or employee.last_day, whichever
-    is earlier). Always includes at least 90 days forward so managers
-    can plan changes past a near-term last_day.
-    """
-    today = timezone.localdate()
-    start_floor = _week_start(employee.start_date)
-    start_past = _week_start(today - timedelta(days=180))
-    start = max(start_floor, start_past)
-
-    if employee.last_day:
-        end_week = _week_start(employee.last_day)
-    else:
-        end_week = _week_start(today + timedelta(days=365))
-    end = max(end_week, _week_start(today + timedelta(days=90)))
-
-    options = []
-    cur = start
-    while cur <= end:
-        sat = cur + timedelta(days=5)
-        label = (
-            f"Week of {cur.strftime('%b')} {cur.day} – {sat.strftime('%b')} {sat.day}"
-        )
-        options.append((cur.isoformat(), label))
-        cur += timedelta(days=7)
-    return options
 
 
 def _compute_pattern_banner(employee, effective_from):
@@ -1150,19 +1117,20 @@ def _pattern_form_context(
     submitted_shifts=None,
     retroactive_confirmed=False,
 ):
-    """Shared context for the writing form GET + preview endpoints."""
-    week_options = _week_picker_options(employee)
+    """Shared context for the writing form GET + preview endpoints.
 
+    No `week_options` — the week picker is a modal calendar that
+    renders client-side from the dialog component. Context exposes
+    `week_picker_min_iso` (the earliest selectable Monday, from
+    employee.start_date) and `today_iso` for the calendar's
+    today-marker; everything else is derived in JS from the Alpine
+    component.
+    """
     if effective_from is not None:
         sat = effective_from + timedelta(days=5)
         effective_from_label = (
             f"Week of {effective_from:%b} {effective_from.day} – {sat:%b} {sat.day}"
         )
-        existing_isos = {iso for iso, _ in week_options}
-        if effective_from.isoformat() not in existing_isos:
-            week_options = [
-                (effective_from.isoformat(), effective_from_label)
-            ] + week_options
     else:
         effective_from_label = ""
 
@@ -1189,8 +1157,9 @@ def _pattern_form_context(
         "mode": mode,
         "effective_from_iso": (effective_from.isoformat() if effective_from else ""),
         "effective_from_label": effective_from_label,
+        "week_picker_min_iso": _week_start(employee.start_date).isoformat(),
+        "today_iso": timezone.localdate().isoformat(),
         "cycle_weeks": cycle_weeks,
-        "week_options": week_options,
         "weeks": weeks,
         "banner": _compute_pattern_banner(employee, effective_from),
         "errors": errors or [],
@@ -1214,7 +1183,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _render_pattern_form(
             request,
             employee,
@@ -1628,8 +1597,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
             cycle_weeks=cycle_weeks,
             retroactive_confirmed=retroactive_confirmed,
             errors=[
-                "This pattern is in the past. Confirm the retroactive "
-                "edit to proceed."
+                "This pattern is in the past. Confirm the retroactive edit to proceed."
             ],
         )
 
@@ -1699,17 +1667,13 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 
     # Capture the notification baseline BEFORE mutating.
     old_cycle = pattern.cycle_weeks
-    old_shifts = _calendar_aligned_shifts(
-        employee, pattern.effective_from, cycle_weeks
-    )
+    old_shifts = _calendar_aligned_shifts(employee, pattern.effective_from, cycle_weeks)
 
     with transaction.atomic():
         if pattern.cycle_weeks != cycle_weeks:
             # Shrinking: drop shifts at offsets >= new cycle. Growing
             # leaves them alone — they're still reachable.
-            Shift.objects.filter(
-                pattern=pattern, week_offset__gte=cycle_weeks
-            ).delete()
+            Shift.objects.filter(pattern=pattern, week_offset__gte=cycle_weeks).delete()
             pattern.cycle_weeks = cycle_weeks
             pattern.save(update_fields=["cycle_weeks"])
 
@@ -2202,7 +2166,7 @@ def settings_cancel_deactivation(request, pk):
 
     next_target = request.POST.get("next", "settings_home")
     if next_target == "employee_details":
-        redirect_url = reverse("employee_defaults", args=[employee.pk])
+        redirect_url = reverse("employee_details", args=[employee.pk])
     elif next_target == "employee_defaults":
         redirect_url = reverse("employee_defaults", args=[employee.pk])
     else:

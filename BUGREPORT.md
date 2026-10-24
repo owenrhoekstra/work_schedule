@@ -7,8 +7,8 @@ suspected), severity, location, fix direction, target session.
 Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
-**Current snapshot:** Sessions 1–7.5 complete. Sessions 6.5, 6.6, 8,
-9 pending. See "Target" on each entry.
+**Current snapshot:** Sessions 1–7.5 and 6.5 complete. Sessions 6.6,
+8, 9 pending. See "Target" on each entry.
 
 ---
 
@@ -145,40 +145,54 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 
 ---
 
+## Session 6.5 design decisions
+
+1. **Calendar modal, not inline.** Vertical form space is tight
+   (banner + cycle picker + tabs + grid + footer). Modal gives the
+   same calendar affordance without eating form height.
+2. **7-day bands (Mon–Sun).** Current schedule only uses Mon–Sat, but
+   multi-tenancy will let tenants choose their work days. The modal
+   renders 7 days now; a future `data-days` override doesn't require
+   a rewrite.
+3. **Scope is self-contained.** Alpine component scoped to the dialog
+   only. No cross-scope reactivity — same isolation strategy that
+   fixed the retroactive-confirm modal in Session 6.
+4. **BUG-006 mitigated and its cause removed.** The old 180-day floor
+   existed only because the `<select>` couldn't hold unlimited
+   options. The calendar picker has no such limit; `_week_picker_options`
+   and its fallback logic are gone.
+5. **Navigation:** ◀ / ▶ for month step; clicking the month name
+   opens a 12-month grid; clicking the year opens a scrollable year
+   list (min-year = employee start year, max = today + 5).
+6. **Pre-start-date weeks are disabled.** Grays them out; the server
+   would reject them anyway via the existing `effective_from <
+   start_date_floor` guard, but the UI shouldn't invite the error.
+7. **Keyboard:** basic only. Tab between week bands, Enter to select,
+   Escape to close. No arrow-key grid navigation — this is a
+   click-first app.
+
+---
+
 ## UX / feature requests
 
-### UX-001 — Week picker should be a calendar, not a dropdown
+### UX-001 — Week picker calendar
 
-- **Severity:** Medium (UX friction, not a correctness bug)
-- **Status:** Confirmed, deferred
-- **Location:** `schedule/views.py::_week_picker_options`;
-  `schedule/templates/schedule/pattern_form.html`
-- **Current:** `<select>` populated by `_week_picker_options`, scoped
-  to `max(employee.start_date, today-180d)` through
-  `max(employee.last_day or today+365d, today+90d)`.
-- **Problems:**
-  - Dropdown scales badly past ~20 weeks (excessive scrolling).
-  - The 180-day floor / 365-day ceiling are workarounds for that
-    scaling, not domain-required limits.
-  - The floor silently excludes old patterns (see BUG-006).
-  - Managers plan change visually — a calendar matches that mental
-    model; a `<select>` does not.
-- **Desired:** Inline calendar (or calendar modal) with days grouped
-  into Mon–Sat visual bands, each band a clickable "week" cell. No
-  artificial floor except `CYCLE_EPOCH`. No artificial ceiling.
-  Monday-aligned. Retroactive warnings fire based on
-  `effective_from < this_week_start`.
-- **Notes:** Uniform across change / add / edit pages. Subsumes
-  BUG-006. Prefilled edit-page value = the pattern's own
-  `effective_from`.
-- **Target:** Session 6.5.
+- **Status:** Delivered Session 6.5.
+- **Shipped:** Modal calendar with 7-day Mon–Sun bands, current-week
+  ring, today dot, pre-start-date disabled, month/year navigation,
+  12-month grid via month-name click, scrollable year list via
+  year click. Self-contained Alpine component scoped to the dialog.
+  Replaces the `<select>` week picker. `_week_picker_options` removed
+  — resolves BUG-006 as a side effect.
+- **Follow-up:** If the calendar ever feels "blind" (no visual cue of
+  when existing patterns start), overlay subtle bands per pattern
+  range. Skipped as not-yet-warranted complexity.
 
 ### UX-002 — General styling pass
 
 - **Severity:** Low (cosmetic)
 - **Status:** Confirmed, deferred. Instances landed in Sessions 6, 7,
-  and 7.5 (focus rings on retroactive / delete / deactivate / discard /
-  cancel-deactivation / save-details modals).
+  7.5, and 6.5 (focus rings on modals, calendar's Cancel button).
 - **Scope:** App-wide.
   - Focus rings on dialog buttons — branded coral, not Safari's default
     blue.
@@ -210,8 +224,7 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   - Dirty-state guard: if the identity form has unsaved edits when the
     user triggers Set Last Day / Cancel deactivation, those independent
     POSTs navigate away and lose the edits. Revisit if end users
-    complain; the modal's Cancel path stays on the page so the hazard
-    is smaller than it first looks.
+    complain.
   - "Change last day" flow was scoped out — the details page shows
     "Cancel deactivation" only. To change a scheduled date, cancel
     first, then set the new one. Revisit if that two-step flow
@@ -252,19 +265,6 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - Session 8's signal removal (`ensure_employee_has_pattern`)
 - UX-004 (move employee interactions out of settings)
 
-### BUG-006 — `_week_picker_options` may exclude the pattern's own `effective_from`
-
-- **Severity:** Low (edge case; partially mitigated)
-- **Status:** Verified not currently triggered (2026-10-23) — no pattern
-  in prod has an `effective_from` older than `today - 180d`. The edit
-  page is safe regardless: `_pattern_form_context` injects the
-  pattern's own `effective_from` into `week_options` if it isn't in the
-  base range. Change/add pages still rely on the 180-day floor and
-  will silently omit very old weeks if a `?week=` link points there.
-- **Location:** `schedule/views.py`, `_week_picker_options`
-- **Fix direction:** Superseded by UX-001.
-- **Target:** Session 6.5 (see UX-001).
-
 ---
 
 ## Fixed
@@ -284,20 +284,18 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   handler, though programmatic calls did. Replaced with a native
   `submit` interceptor on `document` plus inline `onclick` handlers
   on the modal's Cancel/Confirm buttons. No Alpine scope dependency
-  remains; opening the modal, confirming, and dismissing are all plain
-  DOM functions.
+  remains.
 - **Delete modal:** `_saved_patterns.html` used browser `confirm()`;
   `pattern_form.html`'s edit page had no confirmation at all. Both now
   share `_delete_pattern_confirm.html` via the `deletePatternModal`
   Alpine component (registered once, guarded by
   `window.__deletePatternModalRegistered`).
 - **Focus rings:** Cancel buttons on both modals have
-  `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`
-  instead of Safari's default blue ring (first instance of UX-002).
+  `focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1`.
 - **Test fixes:** Assertions on `retroactive-confirm-modal` and
   `delete-pattern-modal` were matching JS string literals in the
-  inline script, causing false positives / negatives. Narrowed to
-  `id="retroactive-confirm-modal"` and `id="delete-pattern-modal"`.
+  inline script. Narrowed to `id="retroactive-confirm-modal"` and
+  `id="delete-pattern-modal"`.
 
 ### FIXED-003 — Calendar alignment between prefill, save, and notification baseline
 
@@ -368,3 +366,32 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
   `employee_defaults` → reading page, anything else → settings_home.
 - **Tests:** `DetailsScheduledDeactivationTests`,
   `CancelDeactivationNextTests` in `schedule/tests/test_details.py`.
+
+### FIXED-007 — Session 6.5: calendar week picker
+
+- **Fixed:** Session 6.5.
+- **Replaces** the `<select>` week picker (and `_week_picker_options`)
+  with a modal calendar:
+  - 7-day week bands (Mon–Sun) — future-proofs for multi-tenancy,
+    where tenants will choose their own work days.
+  - Current-week highlight (ring), today's cell (dot).
+  - Weeks before `employee.start_date` are disabled.
+  - No ceiling and no 180-day floor — resolves BUG-006 as a side
+    effect.
+  - Month step via ◀ / ▶; month name opens a 12-month selector;
+    year opens a scrollable year list.
+  - Edit mode shows a static week label (no picker button, no modal).
+- **Architecture:** self-contained Alpine component scoped to the
+  dialog only — no cross-scope reactivity, same isolation strategy
+  used to fix the retroactive-confirm modal in Session 6.
+- **Integration:** picking a week writes `#effective-from`'s value,
+  dispatches a native `change` event (HTMX fires the existing
+  preview GET to `pattern_form_preview`), updates the trigger
+  button's label client-side, closes the modal.
+- **Removed:** `_week_picker_options` (dead after this change).
+- **Tests:** `schedule/tests/test_week_picker.py` — modal presence
+  per mode, context values (`week_picker_min_iso`, `today_iso`),
+  `week_options` absence, edit-mode static label.
+- **Follow-up:** if the calendar ever feels "blind" (no visual cue
+  of when existing patterns start), overlay subtle bands per
+  pattern range. Skipped as not-yet-warranted complexity.

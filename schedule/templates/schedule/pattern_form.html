@@ -29,34 +29,39 @@
         >
             <div class="flex-1">
                 <label
-                    for="effective-from"
+                    for="week-picker-trigger"
                     class="block text-sm font-medium text-brand-indigo mb-1"
                     >Week starting</label
                 >
-                <select
+                {% if mode == "edit" %}
+                <div
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-100 text-gray-500"
+                >
+                    {{ effective_from_label }}
+                </div>
+                {% else %}
+                <button
+                    type="button"
+                    id="week-picker-trigger"
+                    onclick="window.__openWeekPickerModal(this)"
+                    data-selected="{{ effective_from_iso }}"
+                    data-min="{{ week_picker_min_iso }}"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-left bg-white hover:border-brand-coral focus:outline-none focus:ring-2 focus:ring-brand-coral transition-colors"
+                >
+                    {% if effective_from_iso %}{{ effective_from_label }}{% else %}Pick a week…{% endif %}
+                </button>
+                <input
+                    type="hidden"
                     name="effective_from"
                     id="effective-from"
-                    {% if mode == "edit" %}disabled{% else %}
+                    value="{{ effective_from_iso }}"
                     hx-get="{% url 'pattern_form_preview' employee.pk %}"
                     hx-target="#pattern-form-body"
                     hx-swap="outerHTML"
                     hx-include="closest form"
                     hx-trigger="change"
-                    {% endif %}
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral {% if mode == 'edit' %}bg-gray-100 text-gray-500 cursor-not-allowed{% endif %}"
-                >
-                    {% if mode == "add" and not effective_from_iso %}
-                    <option value="">Pick a week…</option>
-                    {% endif %}
-                    {% for iso, label in week_options %}
-                    <option
-                        value="{{ iso }}"
-                        {% if iso == effective_from_iso %}selected{% endif %}
-                    >
-                        {{ label }}
-                    </option>
-                    {% endfor %}
-                </select>
+                />
+                {% endif %}
             </div>
             <div class="sm:w-40">
                 <label
@@ -84,6 +89,10 @@
 
         {% include "schedule/partials/_pattern_form_body.html" %}
     </form>
+
+    {% if mode != "edit" %}
+    {% include "schedule/modals/_week_picker.html" %}
+    {% endif %}
 
     {% if mode == "edit" and not is_earliest_pattern and perms.schedule.delete_shift %}
     <div
