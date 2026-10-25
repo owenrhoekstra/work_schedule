@@ -195,3 +195,15 @@ class PatternFormViewTests(TestCase):
             {"mode": "add"},
         )
         self.assertContains(resp, "Pick a week")
+
+    def test_change_includes_save_pattern_modal(self):
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        self.assertContains(resp, 'id="confirm-save-pattern-modal"')
+
+    def test_add_includes_save_pattern_modal(self):
+        resp = self.client.get(reverse("schedule_add", args=[self.emp.pk]))
+        self.assertContains(resp, 'id="confirm-save-pattern-modal"')
+
+    def test_cancel_uses_discard_modal(self):
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        self.assertContains(resp, "openConfirmDiscardModal(")

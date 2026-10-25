@@ -91,6 +91,18 @@ class PatternEditGetTests(TestCase):
         resp = self.client.get(reverse("pattern_edit", args=[self.emp.pk, later.pk]))
         self.assertContains(resp, 'id="delete-pattern-modal"')
 
+    def test_edit_includes_save_pattern_modal(self):
+        resp = self.client.get(
+            reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
+        )
+        self.assertContains(resp, 'id="confirm-save-pattern-modal"')
+
+    def test_edit_cancel_uses_discard_modal(self):
+        resp = self.client.get(
+            reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
+        )
+        self.assertContains(resp, "openConfirmDiscardModal(")
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class PatternEditPostTests(TestCase):

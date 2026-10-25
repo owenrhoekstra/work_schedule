@@ -1,14 +1,18 @@
 {% comment %}
-Confirmation modal for retroactive pattern edits.
+Confirmation modal for retroactive pattern saves. Dual duty: this is
+the save confirmation AND the retroactive warning, combined.
 
-Zero Alpine dependency. Buttons use inline onclick, calling helper
-functions defined in _pattern_form_body.html. Dialog has no x-data;
-state lives in the DOM (class="is-closing") and is driven by the
-helpers. This sidesteps every Alpine scope issue that has plagued
-this modal.
+Shown only when the pattern's effective_from is in the past and the
+user hasn't already confirmed retroactive this session. On confirm:
+- Sets the hidden retroactive_confirmed input to "1"
+- Sets the saveConfirmed flag on #pattern-form-body
+- Submits the form directly (no second modal)
 
-The data-retroactive-label span is populated by the submit handler
-in _pattern_form_body.html before opening.
+Non-retroactive saves use _confirm_save_pattern.html instead. One
+modal per path — no chained modals.
+
+The data-retroactive-label span is populated by the submit interceptor
+in _pattern_form_body.html before the modal opens.
 {% endcomment %}
 <dialog
     id="retroactive-confirm-modal"
@@ -16,7 +20,7 @@ in _pattern_form_body.html before opening.
 >
     <div class="p-6 space-y-4">
         <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Confirm retroactive change
+            Save retroactive changes?
         </h2>
         <p class="text-sm text-gray-500">
             You're saving changes to a pattern that started in the past.
@@ -32,14 +36,14 @@ in _pattern_form_body.html before opening.
                 onclick="window.__dismissRetroactiveModal?.()"
                 class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1"
             >
-                Cancel
+                Keep editing
             </button>
             <button
                 type="button"
                 onclick="window.__confirmRetroactiveModal?.()"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
             >
-                Confirm change
+                Save
             </button>
         </div>
     </div>

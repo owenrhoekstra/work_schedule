@@ -8,38 +8,35 @@ The id must match the hx-target in pattern_form.html.
 
 Week pagination: when cycle_weeks > 1, tabs at the top let the manager
 switch between weeks without vertical scrolling. Tabs stretch to fill
-the container width and divide equally (2 weeks = 1/2 each, 3 = 1/3
-each, 4 = 1/4 each). Only the active week's panel is visible; others
-are hidden with display: none. Hidden inputs still submit —
-display: none does not affect form submission. Tab state is managed
-by a plain document-level click listener rather than Alpine, to
-sidestep the Alpine scope issues that affected the Save button
-earlier. Styling uses Tailwind's data-[active]: arbitrary variants —
-no custom CSS, no base.html changes.
+the container width and divide equally. Only the active week's panel
+is visible; others are hidden with display: none. Hidden inputs still
+submit — display: none does not affect form submission. Tab state is
+managed by a plain document-level click listener rather than Alpine,
+to sidestep the Alpine scope issues that affected the Save button
+earlier.
 
 Form value preservation (BUG-007): cycle-length changes trigger an
-HTMX GET that re-renders this partial from server prefill. That
-server prefill has no knowledge of what the user has typed into the
-grid, so any typed values are lost. A small client-side cache
-snapshots visible time inputs before the cycle-change request fires
-and restores them after the swap. The cache persists across multiple
-cycle changes; a week change clears it (different context); a form
-submit clears it (server response becomes source of truth). Shrinking
-a cycle retains the hidden weeks' values in the cache so extending
-back later restores them — matching user intent ("only delete once
-saved").
+HTMX GET that re-renders this partial from server prefill. A small
+client-side cache snapshots visible time inputs before the cycle-
+change request fires and restores them after the swap.
 
-Retroactive: same story — no Alpine. A document-level submit
-interceptor opens _retroactive_confirm.html when the target week is
-in the past and the user hasn't yet confirmed. Confirm/Cancel are
-inline onclick handlers on the modal buttons, backed by
-window-scoped helpers.
+Confirmation flow (Session 8.5):
+- Cancel button opens _confirm_discard.html (unsaved-changes warning).
+- Save button submits; the submit interceptor picks one modal:
+  * Retroactive and not yet confirmed → _retroactive_confirm.html.
+    Its "Save" button is dual-duty: sets both retroactive_confirmed
+    and saveConfirmed, then submits directly. One modal, one click.
+  * Retroactive already confirmed this session, OR not retroactive →
+    _confirm_save_pattern.html. Its "Save" button sets saveConfirmed
+    and resubmits.
+- "Keep editing" on either modal aborts without submitting.
 {% endcomment %}
 <div
     id="pattern-form-body"
     class="space-y-4"
     data-is-retroactive="{{ is_retroactive|yesno:'true,false' }}"
     data-retroactive-date="{{ effective_from_label }}"
+    data-employee-name="{{ employee }}"
 >
     {% if errors %}
     <div
@@ -141,18 +138,19 @@ window-scoped helpers.
             type="hidden"
             name="retroactive_confirmed"
             value="{{ retroactive_confirmed|yesno:'1,0' }}"
-            x-ref="retroactiveInput"
         />
         <p class="text-xs text-gray-500">
             Use 24-hour time like <code>09:00</code> or 12-hour like
             <code>9:00 AM</code>. Leave both fields empty for a day off.
         </p>
         <div class="flex justify-end gap-2 pt-2">
-            <a
-                href="{{ back_url }}"
+            <button
+                type="button"
+                onclick="openConfirmDiscardModal('{{ back_url }}')"
                 class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
-                >Cancel</a
             >
+                Cancel
+            </button>
             <button
                 type="submit"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
@@ -179,13 +177,6 @@ window-scoped helpers.
         window.__patternFormBodySubmitHandler = true;
 
         // ---- Form value cache across cycle-length changes (BUG-007) ----
-        // Cycle changes trigger an HTMX GET that replaces the grid with
-        // server prefill (which knows nothing about user-typed values).
-        // Snapshot time inputs before the request, restore after the
-        // swap. Cache persists across multiple cycle changes so a
-        // shrink-then-grow sequence retains values for weeks that were
-        // hidden. Cleared on submit (server becomes source of truth)
-        // and on week change (different context).
         const valueCache = {};
 
         const snapshotValues = () => {
@@ -213,7 +204,6 @@ window-scoped helpers.
             if (elt.id === "cycle-weeks") {
                 snapshotValues();
             } else if (elt.id === "effective-from") {
-                // Week change: fresh context, drop stale cache.
                 for (const k of Object.keys(valueCache)) delete valueCache[k];
             }
         });
@@ -224,10 +214,7 @@ window-scoped helpers.
         });
 
         // Clear cache on submit (capture phase so it runs before the
-        // retroactive interceptor's possible preventDefault). On
-        // validation-error re-render, submitted_shifts from the server
-        // becomes the source of truth; a stale cache would override it
-        // with older values.
+        // retroactive interceptor's preventDefault).
         document.addEventListener(
             "submit",
             () => {
@@ -259,7 +246,7 @@ window-scoped helpers.
 
         // ---- Retroactive dialog helpers -------------------------
 
-        const dismissModal = () => {
+        const dismissRetroactive = () => {
             const dialog = document.getElementById(
                 "retroactive-confirm-modal"
             );
@@ -276,23 +263,28 @@ window-scoped helpers.
             }, 200);
         };
 
-        const confirmModal = () => {
+        // Dual-duty confirm: this modal IS the save confirmation for
+        // retroactive patterns. Set both flags and submit directly —
+        // no second modal.
+        const confirmRetroactive = () => {
             const dialog = document.getElementById(
                 "retroactive-confirm-modal"
             );
             if (!dialog) return;
             const form = dialog.closest("form");
             if (!form) return;
-            const input = form.querySelector(
+            const retroInput = form.querySelector(
                 'input[name="retroactive_confirmed"]'
             );
-            if (input) input.value = "1";
-            dismissModal();
-            form.requestSubmit();
+            if (retroInput) retroInput.value = "1";
+            const body = form.querySelector("#pattern-form-body");
+            if (body) body.dataset.saveConfirmed = "1";
+            dismissRetroactive();
+            setTimeout(() => form.requestSubmit(), 60);
         };
 
-        window.__dismissRetroactiveModal = dismissModal;
-        window.__confirmRetroactiveModal = confirmModal;
+        window.__dismissRetroactiveModal = dismissRetroactive;
+        window.__confirmRetroactiveModal = confirmRetroactive;
 
         // ---- ESC handler ----------------------------------------
 
@@ -305,7 +297,7 @@ window-scoped helpers.
                 );
                 if (dialog && dialog.open) {
                     e.preventDefault();
-                    dismissModal();
+                    dismissRetroactive();
                 }
             },
             true
@@ -320,25 +312,42 @@ window-scoped helpers.
             const body = form.querySelector("#pattern-form-body");
             if (!body) return;
 
-            if (body.dataset.isRetroactive !== "true") return;
-
-            const hidden = form.querySelector(
-                'input[name="retroactive_confirmed"]'
-            );
-            if (hidden && hidden.value === "1") return;
-
-            e.preventDefault();
-
-            const dialog = document.getElementById(
-                "retroactive-confirm-modal"
-            );
-            if (!dialog) return;
-
-            const labelEl = dialog.querySelector("[data-retroactive-label]");
-            if (labelEl) {
-                labelEl.textContent = body.dataset.retroactiveDate || "";
+            // Fast path: confirmation already accepted. Consume the
+            // flag and let the submit through.
+            if (body.dataset.saveConfirmed === "1") {
+                delete body.dataset.saveConfirmed;
+                return;
             }
-            if (!dialog.open) dialog.showModal();
+
+            // Retroactive and not yet confirmed → dual-duty modal.
+            if (body.dataset.isRetroactive === "true") {
+                const hidden = form.querySelector(
+                    'input[name="retroactive_confirmed"]'
+                );
+                if (hidden && hidden.value !== "1") {
+                    e.preventDefault();
+                    const dialog = document.getElementById(
+                        "retroactive-confirm-modal"
+                    );
+                    if (dialog) {
+                        const labelEl = dialog.querySelector(
+                            "[data-retroactive-label]"
+                        );
+                        if (labelEl) {
+                            labelEl.textContent =
+                                body.dataset.retroactiveDate || "";
+                        }
+                        if (!dialog.open) dialog.showModal();
+                    }
+                    return;
+                }
+            }
+
+            // Non-retroactive (or already confirmed) → save modal.
+            e.preventDefault();
+            window.__openConfirmSavePattern?.(
+                body.dataset.employeeName || ""
+            );
         });
     })();
 </script>

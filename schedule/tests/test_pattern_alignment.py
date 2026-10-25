@@ -224,3 +224,69 @@ class SplitNotificationBaselineTests(TestCase):
         self.assertEqual(
             by_label["Week B Monday"]["new"], "11:00 AM – 7:00 PM"
         )
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class PrefillDedupeTests(TestCase):
+    """Session 8.5: extending a cycle must not duplicate source weeks.
+
+    Source pattern with cycle_weeks=2, target cycle_weeks=4: the 3rd
+    and 4th calendar weeks wrap back to source offsets 0 and 1. Those
+    duplicate panels should be blank — the manager is extending the
+    cycle, not repeating it.
+    """
+
+    def test_extending_cycle_does_not_duplicate_source_data(self):
+        epoch = settings.CYCLE_EPOCH
+        emp = make_employee(start_date=epoch)
+        emp.patterns.all().delete()
+        p = ShiftPattern.objects.create(
+            employee=emp,
+            effective_from=epoch,
+            cycle_weeks=2,
+            effective_to=None,
+        )
+        Shift.objects.create(
+            pattern=p, week_offset=0, day=0,
+            start_time="09:00", end_time="17:00",
+        )
+        Shift.objects.create(
+            pattern=p, week_offset=1, day=0,
+            start_time="10:00", end_time="18:00",
+        )
+
+        weeks = _grid_weeks_for_form(emp, epoch, 4)
+
+        # Panels 0 and 1 prefilled from the source's two weeks.
+        self.assertEqual(
+            weeks[0]["rows"][0]["shift"].start_time.strftime("%H:%M"), "09:00"
+        )
+        self.assertEqual(
+            weeks[1]["rows"][0]["shift"].start_time.strftime("%H:%M"), "10:00"
+        )
+        # Panels 2 and 3 blank (would have duplicated offsets 0 and 1).
+        self.assertIsNone(weeks[2]["rows"][0]["shift"])
+        self.assertIsNone(weeks[3]["rows"][0]["shift"])
+
+    def test_extending_three_week_source_blanks_fourth(self):
+        epoch = settings.CYCLE_EPOCH
+        emp = make_employee(start_date=epoch)
+        emp.patterns.all().delete()
+        p = ShiftPattern.objects.create(
+            employee=emp,
+            effective_from=epoch,
+            cycle_weeks=3,
+            effective_to=None,
+        )
+        for w in range(3):
+            Shift.objects.create(
+                pattern=p, week_offset=w, day=0,
+                start_time=f"{8 + w:02d}:00",
+                end_time=f"{16 + w:02d}:00",
+            )
+
+        weeks = _grid_weeks_for_form(emp, epoch, 4)
+
+        self.assertIsNotNone(weeks[0]["rows"][0]["shift"])
+        self.assertIsNotNone(weeks[1]["rows"][0]["shift"])
+        self.assertIsNotNone(weeks[2]["rows"][0]["shift"])
+        self.assertIsNone(weeks[3]["rows"][0]["shift"])

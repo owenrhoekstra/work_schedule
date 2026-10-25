@@ -971,11 +971,20 @@ def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
     whichever pattern covers that calendar week, so the form shows
     exactly what the schedule currently displays for those weeks.
 
-    The save path translates panel index -> target cycle offset, keeping
+    Dedupe: when the target cycle is longer than the source pattern's
+    cycle, later calendar weeks wrap around to source offsets already
+    prefilled into earlier panels (e.g. target=4, source=3 → week D
+    maps to source offset 0, same as week A). Those duplicate panels
+    are left blank — the manager is extending the cycle, so the extra
+    weeks are new territory. Sessions 6.6 (prefill modal) will layer
+    optional week-by-week copy on top of this default.
+
+    The save path translates panel index → target cycle offset, keeping
     the label-to-calendar-week mapping intact even when effective_from
     isn't congruent with CYCLE_EPOCH for the target's cycle length.
     """
     weeks = []
+    seen_source_offsets = set()
     for cal_offset in range(cycle_weeks):
         shifts_by_key = {}
         if effective_from is not None:
@@ -983,11 +992,14 @@ def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
             source = _pattern_for_week(employee, week_start)
             if source:
                 source_offset = _week_offset_for(week_start, source)
-                shifts_by_key = {
-                    s.day: s
-                    for s in source.shifts.all()
-                    if s.week_offset == source_offset
-                }
+                key = (source.pk, source_offset)
+                if key not in seen_source_offsets:
+                    seen_source_offsets.add(key)
+                    shifts_by_key = {
+                        s.day: s
+                        for s in source.shifts.all()
+                        if s.week_offset == source_offset
+                    }
         rows = [
             {
                 "day": day,
