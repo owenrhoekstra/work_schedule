@@ -7,40 +7,13 @@ suspected), severity, location, fix direction, target session.
 Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
-**Current snapshot:** Sessions 1–7.5 and 6.5 complete. Sessions 6.6,
-8, 9 pending. See "Target" on each entry.
+**Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete, plus
+BUG-003 and BUG-007 fixed. Session 9 (QA + ship) next. See "Target"
+on each entry.
 
 ---
 
 ## Confirmed live bugs
-
-### BUG-003 — Submitted grid values lost on validation errors
-
-- **Severity:** Medium (user loses all typed edits on one bad cell)
-- **Status:** Confirmed, deferred per user preference
-- **Location:** `schedule/views.py`, every error-path
-  `return _render_pattern_form(...)` in `_handle_pattern_form_post`
-- **Symptom:** Manager types a full week of hours, hits Save, gets one
-  bad-cell error ("end time must be after start time"). Form snaps
-  back to the covering pattern's values. All typed edits are gone.
-  Affects change and add. The edit page is protected (see partial
-  fix below).
-- **Root cause:** `_pattern_form_context` supports `submitted_shifts`,
-  but `_handle_pattern_form_post` never passes it on error paths.
-- **Fix direction:** Before the grid-validation loop, collect every
-  successfully-parsed `(week_offset, day) → (start, end)` pair into a
-  dict of Shift-like objects (need `.start_time` / `.end_time`
-  attributes so the template's `|time` filter works). Pass to every
-  error-path `_render_pattern_form`. Half-broken cells (only one of
-  start/end set) can't cleanly become Shift-like without either
-  preserving raw text or breaking the `|time` filter — drop them; the
-  error banner names which cell is bad.
-- **Target:** housekeeping / when change/add UX pressure makes it
-  necessary
-- **Partial fix:** the pattern edit page
-  (`_handle_pattern_edit_post`) passes `submitted_shifts` on error
-  returns. Only fully-parsed cells are preserved; the cell whose
-  validation failed falls back to blank.
 
 ### BUG-005 — `restore_local_db.py` lacks `--single-transaction` / `ON_ERROR_STOP`
 
@@ -173,6 +146,59 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 
 ---
 
+## Session 8 design decisions
+
+1. **No auto-created pattern.** A new Employee has no schedule until
+   a manager sets one up. Removing the signal matches the redesign
+   principle: reading is summary, writing is deliberate.
+2. **Three reading-page states:**
+   - Current pattern exists → existing display + Change / Add buttons.
+   - No current pattern, past patterns exist → "Not scheduled this
+     week" + Change / Add buttons.
+   - No patterns at all → "Not scheduled at all" + "Set up schedule"
+     CTA (single button, no Change / Add pair).
+   - The distinction is exposed via `has_any_patterns` in
+     `_employee_page_context`.
+3. **Factory defaults to `with_pattern=False`.** Tests opt in
+   explicitly via `with_pattern=True` or by passing `cycle_weeks=N`
+   (passing cycle_weeks at all implies with_pattern=True, including
+   cycle_weeks=1). "Accuracy over minimal churn" — matching the app's
+   actual behavior beats preserving test defaults that no longer
+   reflect reality.
+4. **EmploymentPeriod signal stays.** Only pattern auto-creation
+   removed. An employee's employed window is a real property of the
+   hire event; the pattern is a scheduling decision.
+
+---
+
+## BUG-003 / BUG-007 fix decisions
+
+1. **BUG-003 (server-side):** grid validation collects all errors
+   before re-rendering and stashes every successfully-parsed cell into
+   `submitted_shifts` (a dict of `SimpleNamespace(start_time, end_time)`).
+   The error re-render uses those values instead of the covering
+   pattern's prefill. Parse-failed or half-parsed cells are dropped —
+   no clean way to render them as a Shift-shaped object for the
+   `|time` template filter. Invalid pairs (end <= start) ARE stashed
+   so the user sees both values plus the error message and can just
+   fix the failing side. Behavior is uniform across
+   `_handle_pattern_form_post` (change / add) and
+   `_handle_pattern_edit_post` (edit).
+2. **BUG-007 (client-side):** a `valueCache` object inside the
+   `_pattern_form_body.html` script IIFE snapshots visible time input
+   values on `htmx:beforeRequest` when the cycle picker fires, and
+   restores them from `htmx:afterSwap` into the fresh
+   `#pattern-form-body`. Cache persists across multiple cycle changes
+   so shrink-then-grow retains hidden weeks' values. Cleared on
+   submit (capture-phase listener; server response becomes source of
+   truth) and on week change (different context).
+3. **Scope consciously limited** to time inputs. Notify checkbox and
+   retroactive-confirmed hidden input reset on cycle-change re-render;
+   leaving for a follow-up if the friction surfaces. Both are less
+   severe than losing typed grid values.
+
+---
+
 ## UX / feature requests
 
 ### UX-001 — Week picker calendar
@@ -250,6 +276,37 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - **Not tackled now.** Recorded so future sessions don't re-litigate
   the philosophy.
 
+### UX-005 — Pattern history: horizontal weeks + pagination
+
+- **Severity:** Low-Medium (vertical bloat, worsens with history size
+  and cycle length)
+- **Status:** New, deferred
+- **Location:** `schedule/templates/schedule/partials/_saved_patterns.html`
+  (the "Full pattern history" disclosure on the reading page)
+- **Current:** Each expanded pattern entry stacks week A / B / C / D
+  vertically, 6 rows per week. A 4-week cycle is 24 rows per pattern;
+  a history with 3+ patterns balloons fast. Mobile becomes
+  unscrollable past one expanded entry.
+- **Desired:**
+  - **Multi-week cycles:** display weeks side-by-side (columns per
+    week A | B | C | D) instead of stacked. Columns have the same
+    day rows, so a 4-week cycle reads as a 6-row × 4-column grid
+    instead of a 24-row stack.
+  - **Mobile:** paginate — show one week at a time with tabs,
+    mirroring the "Currently scheduled" card's tab pattern on the
+    reading page.
+  - **Desktop:** horizontal week layout is probably enough; if it
+    still feels cramped with a 4-week cycle, tab pagination is
+    acceptable there too.
+  - **Single-week cycles:** unchanged — one grid, no tabs.
+- **Notes:**
+  - The reading page's "Currently scheduled" card already uses
+    Alpine-driven tab pagination for the current pattern; the same
+    pattern can be reused here.
+  - Header dates (effective_from / last_week) stay on the collapsed
+    row — no change to that part.
+- **Target:** Session 9 (QA + ship) or its own quick-fix session.
+
 ---
 
 ## Deferred / out of scope
@@ -262,7 +319,6 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - Pattern end-date UI
 - Reordering patterns
 - Import / export of patterns
-- Session 8's signal removal (`ensure_employee_has_pattern`)
 - UX-004 (move employee interactions out of settings)
 
 ---
@@ -395,3 +451,71 @@ entry but move it to `## Fixed` at the bottom with the fixing commit.
 - **Follow-up:** if the calendar ever feels "blind" (no visual cue
   of when existing patterns start), overlay subtle bands per
   pattern range. Skipped as not-yet-warranted complexity.
+
+### FIXED-008 — Session 8: signal removal
+
+- **Fixed:** Session 8.
+- **Removed:** `ensure_employee_has_pattern` from `signals.py`.
+  Employee creation no longer auto-creates a ShiftPattern. New hires
+  have no schedule until a manager sets one up via `/schedule/add/`
+  — matching the redesign's "reading is summary, writing is
+  deliberate" principle.
+- **Factory:** `make_employee` defaults to `with_pattern=False`.
+  Tests opt in explicitly via `with_pattern=True` or by passing
+  `cycle_weeks=N` (passing cycle_weeks at all implies
+  with_pattern=True, including cycle_weeks=1).
+- **Reading page:** three distinct states — pattern exists, "Not
+  scheduled this week" (history but no active coverage), "Not
+  scheduled at all" (new hire, `Set up schedule` CTA). The
+  distinction is exposed via `has_any_patterns` in
+  `_employee_page_context`.
+- **EmploymentPeriod signal stays.** Only pattern auto-creation
+  removed — the employed window is a property of the hire event; the
+  pattern is a scheduling decision.
+- **Tests updated:** `test_home.py`, `test_models.py`,
+  `test_pattern_edit.py`, `test_week_picker.py`, `test_overrides.py`,
+  `test_views_edges.py`, `test_details.py` — all opt in where needed.
+  `test_signals.py` unchanged (only tests EmploymentPeriod and
+  User-sync).
+
+### FIXED-009 — BUG-003: submitted grid values preserved on validation errors
+
+- **Fixed:** Session 8.5.
+- **Location:** `schedule/views.py::_handle_pattern_form_post`,
+  `schedule/views.py::_handle_pattern_edit_post`.
+- **Fix:** Grid validation now collects ALL errors before
+  re-rendering, and stashes every successfully-parsed cell in
+  `submitted_shifts` (dict of `SimpleNamespace(start_time, end_time)`)
+  keyed by `(cal_offset, day)`. The error re-render uses those values
+  instead of covering-pattern prefill. Invalid pairs (end <= start)
+  ARE stashed so the user sees both values plus the error message.
+  Parse-failed or half-parsed cells are dropped — no clean way to
+  render them as a Shift-shaped object for the `|time` template
+  filter. Behavior uniform across change, add, and edit handlers.
+- **Tests:** `test_pattern_forms.py::test_change_preserves_valid_cells_on_validation_error`,
+  `test_pattern_forms.py::test_change_preserves_cells_after_first_error`,
+  `test_pattern_edit.py::test_edit_preserves_valid_cells_on_error`.
+
+### FIXED-010 — BUG-007: cycle-length changes preserve typed grid values
+
+- **Fixed:** Session 8.5.
+- **Location:** `schedule/templates/schedule/partials/_pattern_form_body.html`
+  (script).
+- **Fix:** Client-side `valueCache` in the pattern form's script IIFE:
+  - `htmx:beforeRequest` on `#cycle-weeks` → snapshot every visible
+    time input's value keyed by input `name`.
+  - `htmx:afterSwap` on `#pattern-form-body` → restore any input
+    whose name is in the cache.
+  - Cache persists across multiple cycle changes: shrinking hides
+    weeks but their values stay cached; extending back restores them.
+  - Cache cleared on submit (capture phase; server response becomes
+    source of truth, preventing stale cache from overriding
+    `submitted_shifts` on validation-error re-render).
+  - Cache cleared on `#effective-from` change (different week =
+    different context; server prefill should win).
+- **Manual verification only** — pure client-side JS, no Django test
+  coverage possible with the current test stack.
+- **Scope consciously limited** to time inputs. Notify checkbox and
+  retroactive-confirmed hidden input still reset on cycle-change
+  re-render; leaving for a follow-up if friction surfaces. Both are
+  less severe than losing typed grid values.

@@ -123,6 +123,46 @@ class PatternFormViewTests(TestCase):
         )
         self.assertEqual(self.emp.patterns.count(), 2)
 
+    def test_change_preserves_valid_cells_on_validation_error(self):
+        # BUG-003: one bad cell shouldn't wipe the rest of the grid.
+        # is_first_time=True (setUp has no patterns), so the
+        # retroactive guard is bypassed; the grid validation error
+        # fires first.
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 2),
+            shifts={(0, 0): ("09:00", "17:00")},
+            week_0_day_1_start="garbage",
+            week_0_day_1_end="17:00",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Could not understand")
+        html = resp.content.decode()
+        # Valid cell preserved (unique value appears exactly once)
+        self.assertEqual(html.count('value="9:00 AM"'), 1)
+        # The invalid cell's parse-failed start is empty in the re-render.
+        self.assertEqual(html.count('value="garbage"'), 0)
+        # Nothing was saved.
+        self.assertEqual(self.emp.patterns.count(), 0)
+
+    def test_change_preserves_cells_after_first_error(self):
+        # BUG-003: previous code returned on first error, dropping
+        # values for cells after the error.
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 2),
+            shifts={
+                (0, 0): ("09:00", "17:00"),  # valid, before error
+                (0, 2): ("08:00", "16:00"),  # valid, after error
+            },
+            week_0_day_1_start="garbage",  # error between them
+            week_0_day_1_end="17:00",
+        )
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertEqual(html.count('value="9:00 AM"'), 1)
+        self.assertEqual(html.count('value="8:00 AM"'), 1)
+
     # ----- schedule_add -----
 
     def test_add_get_renders_with_no_week(self):

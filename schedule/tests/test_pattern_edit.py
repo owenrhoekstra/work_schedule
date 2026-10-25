@@ -190,3 +190,19 @@ class PatternEditPostTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context["retroactive_confirmed"])
+
+    def test_edit_preserves_valid_cells_on_error(self):
+        # BUG-003: valid cells must survive a single bad cell.
+        # Defaults have week_0_day_0 = 9-5 valid; add a second day
+        # with an unparseable start.
+        resp = self._post(
+            week_0_day_1_start="garbage",
+            week_0_day_1_end="17:00",
+        )
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        # Day 0 preserved (unique values).
+        self.assertEqual(html.count('value="9:00 AM"'), 1)
+        self.assertEqual(html.count('value="5:00 PM"'), 1)
+        # Nothing was saved.
+        self.assertFalse(Shift.objects.filter(pattern=self.pattern).exists())

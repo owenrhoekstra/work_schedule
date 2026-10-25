@@ -1186,11 +1186,16 @@ def _handle_pattern_form_post(request, employee, mode):
     (base_target_offset + cal_offset) % cycle_weeks so the label the
     manager edited corresponds to the calendar week it will actually
     display on, even when effective_from isn't cycle-congruent.
+
+    Grid validation collects ALL errors before re-rendering and
+    preserves every successfully-parsed cell in `submitted_shifts`
+    (BUG-003). Returning on the first error used to drop values for
+    cells after the error and required iterative error-fixing.
     """
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return _render_pattern_form(
             request,
             employee,
@@ -1238,63 +1243,64 @@ def _handle_pattern_form_post(request, employee, mode):
             ],
         )
 
-    # Validate the grid. Panel index i in `week_{i}_day_{d}` is a
-    # calendar-week index (0 = effective_from, 1 = +7d, ...).
+    # Validate the grid. Collect all errors before re-rendering so
+    # every successfully-parsed cell survives — including cells after
+    # the first error (BUG-003).
     validated_edits = {}
     submitted_shifts = {}
-    for cal_offset in range(MAX_CYCLE_WEEKS):
+    errors = []
+    for week_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
-            start_key = f"week_{cal_offset}_day_{day}_start"
-            end_key = f"week_{cal_offset}_day_{day}_end"
+            start_key = f"week_{week_offset}_day_{day}_start"
+            end_key = f"week_{week_offset}_day_{day}_end"
             if start_key not in request.POST or end_key not in request.POST:
                 continue
             try:
                 start = _parse_time(request.POST[start_key])
                 end = _parse_time(request.POST[end_key])
             except ValueError as exc:
-                return _render_pattern_form(
-                    request,
-                    employee,
-                    mode,
-                    effective_from=effective_from,
-                    cycle_weeks=cycle_weeks,
-                    retroactive_confirmed=retroactive_confirmed,
-                    errors=[
-                        f"Week {WEEK_LABELS[cal_offset]} {DAY_LABELS_FULL[day]}: {exc}"
-                    ],
+                errors.append(
+                    f"Week {WEEK_LABELS[week_offset]} {DAY_LABELS_FULL[day]}: {exc}"
                 )
+                continue
             if (start is None) != (end is None):
-                return _render_pattern_form(
-                    request,
-                    employee,
-                    mode,
-                    effective_from=effective_from,
-                    cycle_weeks=cycle_weeks,
-                    retroactive_confirmed=retroactive_confirmed,
-                    errors=[
-                        f"Week {WEEK_LABELS[cal_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
-                        f"or leave both empty."
-                    ],
+                errors.append(
+                    f"Week {WEEK_LABELS[week_offset]} "
+                    f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                    f"or leave both empty."
                 )
+                continue
             if start and end:
+                # Stash even invalid pairs (end <= start) so the user
+                # sees what they typed and can just fix the failing
+                # side. Parse-failed or half-parsed cells are dropped
+                # — no clean way to represent them as a Shift-shaped
+                # object for the |time filter.
+                submitted_shifts[(week_offset, day)] = SimpleNamespace(
+                    start_time=start, end_time=end
+                )
                 if end <= start:
-                    return _render_pattern_form(
-                        request,
-                        employee,
-                        mode,
-                        effective_from=effective_from,
-                        cycle_weeks=cycle_weeks,
-                        retroactive_confirmed=retroactive_confirmed,
-                        errors=[
-                            f"Week {WEEK_LABELS[cal_offset]} "
-                            f"{DAY_LABELS_FULL[day]}: end time must be "
-                            f"after start time."
-                        ],
+                    errors.append(
+                        f"Week {WEEK_LABELS[week_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: end time must be "
+                        f"after start time."
                     )
-                validated_edits[(cal_offset, day)] = (start, end)
+                    continue
+                validated_edits[(week_offset, day)] = (start, end)
             else:
-                validated_edits[(cal_offset, day)] = None
+                validated_edits[(week_offset, day)] = None
+
+    if errors:
+        return _render_pattern_form(
+            request,
+            employee,
+            mode,
+            effective_from=effective_from,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            submitted_shifts=submitted_shifts,
+            errors=errors,
+        )
 
     # Apply edit-or-split in a transaction.
     try:
@@ -1314,32 +1320,21 @@ def _handle_pattern_form_post(request, employee, mode):
                     ),
                     cycle_weeks=cycle_weeks,
                 )
-                # No prior schedule exists for these calendar weeks —
-                # empty baseline is correct.
                 old_shifts = {}
                 old_cycle = cycle_weeks
             elif covering.effective_from == effective_from:
                 target = covering
                 old_cycle = target.cycle_weeks
-                # Baseline BEFORE mutation, calendar-aligned to target
-                # offsets, so the notification diff compares the same
-                # calendar weeks the panels showed.
                 old_shifts = _calendar_aligned_shifts(
                     employee, effective_from, cycle_weeks
                 )
                 if target.cycle_weeks != cycle_weeks:
-                    # Shrinking cycle_weeks: delete shifts at offsets
-                    # that no longer exist. Growing leaves them alone —
-                    # they're still reachable.
                     Shift.objects.filter(
                         pattern=target, week_offset__gte=cycle_weeks
                     ).delete()
                     target.cycle_weeks = cycle_weeks
                     target.save(update_fields=["cycle_weeks"])
             else:
-                # Split: capture the "before" baseline BEFORE truncating
-                # covering's effective_to, so _pattern_for_week still
-                # returns covering for the weeks being reassigned.
                 old_shifts = _calendar_aligned_shifts(
                     employee, effective_from, cycle_weeks
                 )
@@ -1377,6 +1372,7 @@ def _handle_pattern_form_post(request, employee, mode):
             effective_from=effective_from,
             cycle_weeks=cycle_weeks,
             retroactive_confirmed=retroactive_confirmed,
+            submitted_shifts=submitted_shifts,
             errors=["Someone else just saved a pattern for that date. Try again."],
         )
 
@@ -1567,6 +1563,10 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     maps each panel to its target offset via
     (base_target_offset + cal_offset) % cycle_weeks so edits land on
     the calendar week the manager was looking at.
+
+    Grid validation collects ALL errors before re-rendering and
+    preserves every successfully-parsed cell (BUG-003), so a single
+    bad cell doesn't wipe the rest of the form.
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
@@ -1604,14 +1604,16 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
             cycle_weeks=cycle_weeks,
             retroactive_confirmed=retroactive_confirmed,
             errors=[
-                "This pattern is in the past. Confirm the retroactive edit to proceed."
+                "This pattern is in the past. Confirm the retroactive "
+                "edit to proceed."
             ],
         )
 
-    # Parse the grid. Values that parse cleanly are stashed so an error
-    # re-render doesn't lose them. Key is (cal_offset, day).
+    # Validate the grid. Collect all errors so valid cells are
+    # preserved on re-render (BUG-003).
     validated_edits = {}
     submitted_shifts = {}
+    errors = []
     for cal_offset in range(MAX_CYCLE_WEEKS):
         for day in DAYS:
             start_key = f"week_{cal_offset}_day_{day}_start"
@@ -1622,65 +1624,55 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
                 start = _parse_time(request.POST[start_key])
                 end = _parse_time(request.POST[end_key])
             except ValueError as exc:
-                return _render_pattern_edit_form(
-                    request,
-                    employee,
-                    pattern,
-                    is_earliest,
-                    cycle_weeks=cycle_weeks,
-                    retroactive_confirmed=retroactive_confirmed,
-                    errors=[
-                        f"Week {WEEK_LABELS[cal_offset]} {DAY_LABELS_FULL[day]}: {exc}"
-                    ],
-                    submitted_shifts=submitted_shifts,
+                errors.append(
+                    f"Week {WEEK_LABELS[cal_offset]} {DAY_LABELS_FULL[day]}: {exc}"
                 )
+                continue
             if (start is None) != (end is None):
-                return _render_pattern_edit_form(
-                    request,
-                    employee,
-                    pattern,
-                    is_earliest,
-                    cycle_weeks=cycle_weeks,
-                    retroactive_confirmed=retroactive_confirmed,
-                    errors=[
-                        f"Week {WEEK_LABELS[cal_offset]} "
-                        f"{DAY_LABELS_FULL[day]}: set both start and end, "
-                        f"or leave both empty."
-                    ],
-                    submitted_shifts=submitted_shifts,
+                errors.append(
+                    f"Week {WEEK_LABELS[cal_offset]} "
+                    f"{DAY_LABELS_FULL[day]}: set both start and end, "
+                    f"or leave both empty."
                 )
+                continue
             if start and end:
-                if end <= start:
-                    return _render_pattern_edit_form(
-                        request,
-                        employee,
-                        pattern,
-                        is_earliest,
-                        cycle_weeks=cycle_weeks,
-                        retroactive_confirmed=retroactive_confirmed,
-                        errors=[
-                            f"Week {WEEK_LABELS[cal_offset]} "
-                            f"{DAY_LABELS_FULL[day]}: end time must be "
-                            f"after start time."
-                        ],
-                        submitted_shifts=submitted_shifts,
-                    )
-                validated_edits[(cal_offset, day)] = (start, end)
                 submitted_shifts[(cal_offset, day)] = SimpleNamespace(
                     start_time=start, end_time=end
                 )
+                if end <= start:
+                    errors.append(
+                        f"Week {WEEK_LABELS[cal_offset]} "
+                        f"{DAY_LABELS_FULL[day]}: end time must be "
+                        f"after start time."
+                    )
+                    continue
+                validated_edits[(cal_offset, day)] = (start, end)
             else:
                 validated_edits[(cal_offset, day)] = None
 
+    if errors:
+        return _render_pattern_edit_form(
+            request,
+            employee,
+            pattern,
+            is_earliest,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            submitted_shifts=submitted_shifts,
+            errors=errors,
+        )
+
     # Capture the notification baseline BEFORE mutating.
     old_cycle = pattern.cycle_weeks
-    old_shifts = _calendar_aligned_shifts(employee, pattern.effective_from, cycle_weeks)
+    old_shifts = _calendar_aligned_shifts(
+        employee, pattern.effective_from, cycle_weeks
+    )
 
     with transaction.atomic():
         if pattern.cycle_weeks != cycle_weeks:
-            # Shrinking: drop shifts at offsets >= new cycle. Growing
-            # leaves them alone — they're still reachable.
-            Shift.objects.filter(pattern=pattern, week_offset__gte=cycle_weeks).delete()
+            Shift.objects.filter(
+                pattern=pattern, week_offset__gte=cycle_weeks
+            ).delete()
             pattern.cycle_weeks = cycle_weeks
             pattern.save(update_fields=["cycle_weeks"])
 
