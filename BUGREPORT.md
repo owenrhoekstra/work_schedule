@@ -7,28 +7,19 @@ suspected), severity, location, fix direction, target session.
 Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
-**Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete, plus
-BUG-003 and BUG-007 fixed. Session 9 (QA + ship) next. See "Target"
-on each entry.
+**Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete.
+Session 9 (QA + ship) in progress — recent CodeRabbit rounds applied
+and pending commit. See "Target" on each entry. ("Session 8.5"
+terminology used earlier in this document was pre-QA work that
+preceded Session 9; entries below now say "Session 9 (pre-QA)" or
+"Session 9 (CodeRabbit pass)" for clarity.)
 
 ---
 
 ## Confirmed live bugs
 
-### BUG-005 — `restore_local_db.py` lacks `--single-transaction` / `ON_ERROR_STOP`
-
-- **Severity:** Low (dev-only script; would be data-integrity if ever
-  used in prod)
-- **Status:** Confirmed, deferred per user
-- **Location:** `scripts/restore_local_db.py`
-- **Symptom:** If the psql restore fails partway, the DB is left in a
-  partial state. Errors on stderr don't stop the pipeline; producer
-  failures may be masked by the consumer's exit code.
-- **Fix direction:** Pass `-v ON_ERROR_STOP=1` and
-  `--single-transaction` to psql, remove stderr capture so errors reach
-  the terminal, wait for both processes, check `producer.returncode`
-  before `psql.returncode`, exit with the relevant command + status.
-- **Target:** whenever the script graduates to prod
+*(None currently. All tracked bugs are either fixed or moved to
+Deferred / out of scope below.)*
 
 ---
 
@@ -166,8 +157,8 @@ on each entry.
    actual behavior beats preserving test defaults that no longer
    reflect reality.
 4. **EmploymentPeriod signal stays.** Only pattern auto-creation
-   removed. An employee's employed window is a real property of the
-   hire event; the pattern is a scheduling decision.
+   removed. An employed window is a property of the hire event; the
+   pattern is a scheduling decision.
 
 ---
 
@@ -199,6 +190,49 @@ on each entry.
 
 ---
 
+## Session 9 fix decisions
+
+1. **Dual-duty retroactive modal.** Retroactive save shows a single
+   modal ("Save retroactive changes?") that acts as both the warning
+   and the save confirmation. Confirm sets `retroactive_confirmed=1`
+   AND `saveConfirmed` and submits directly — no second modal. Non-
+   retroactive saves show the generic save confirmation modal instead.
+   One modal per save attempt, chosen based on retroactivity.
+2. **Confirmations on the pattern form.** Save always routes through
+   a confirmation modal (`_confirm_save_pattern.html` or the
+   retroactive modal). Cancel routes through `_confirm_discard.html`
+   (previously a plain `<a href>` — no discard warning). Both via the
+   `_pattern_form_body.html` submit interceptor and inline onclick.
+3. **Truncated-pattern edit support.** A split can leave a pattern
+   with `cycle_weeks > span_weeks`. The edit guard now rejects only
+   growing past the span (`cycle_weeks > span_weeks AND cycle_weeks >
+   pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
+   Companion prefill fix: `_grid_weeks_for_form` accepts an optional
+   `pattern` argument; edit mode uses direct-pattern prefill so
+   unchanged saves don't write next-pattern data into hidden offsets.
+4. **Prefill dedupe on cycle extension.** When target cycle is longer
+   than source cycle, later panels would wrap to source offsets
+   already prefilled into earlier panels; those duplicate panels are
+   left blank. The user is extending the cycle — extra weeks are new
+   territory. Skipped in edit mode (which uses direct prefill and
+   can't duplicate).
+5. **Reading-page range display shows Mon–Sun.** Collapsed history
+   rows and the "Currently scheduled" card render
+   `last_week + 6 days` (Sunday) instead of `last_week` (Monday), so a
+   1-week pattern reads "Oct 19 through Oct 25" instead of "Oct 19
+   through Oct 19". Banner copy still uses the Monday for
+   "until Week of X" phrasing, where a week-starting reference is
+   correct.
+6. **Retroactive-guard error re-renders preserve grid values.** Grid
+   parse runs before the retroactive guard in both handlers so the
+   retroactive error re-render can pass `submitted_shifts` and keep
+   the user's typed values. Pre-grid errors (effective_from parse,
+   start_date_floor, span guard) can't preserve — the user is
+   changing weeks/cycles anyway, and the client-side cache is cleared
+   on that change.
+
+---
+
 ## UX / feature requests
 
 ### UX-001 — Week picker calendar
@@ -218,7 +252,7 @@ on each entry.
 
 - **Severity:** Low (cosmetic)
 - **Status:** Confirmed, deferred. Instances landed in Sessions 6, 7,
-  7.5, and 6.5 (focus rings on modals, calendar's Cancel button).
+  7.5, 6.5, and 9 (focus rings on modals, calendar's Cancel button).
 - **Scope:** App-wide.
   - Focus rings on dialog buttons — branded coral, not Safari's default
     blue.
@@ -445,21 +479,14 @@ on each entry.
   preview GET to `pattern_form_preview`), updates the trigger
   button's label client-side, closes the modal.
 - **Removed:** `_week_picker_options` (dead after this change).
-- **Tests:** `schedule/tests/test_week_picker.py` — modal presence
-  per mode, context values (`week_picker_min_iso`, `today_iso`),
-  `week_options` absence, edit-mode static label.
-- **Follow-up:** if the calendar ever feels "blind" (no visual cue
-  of when existing patterns start), overlay subtle bands per
-  pattern range. Skipped as not-yet-warranted complexity.
+- **Tests:** `schedule/tests/test_week_picker.py`.
 
 ### FIXED-008 — Session 8: signal removal
 
 - **Fixed:** Session 8.
 - **Removed:** `ensure_employee_has_pattern` from `signals.py`.
   Employee creation no longer auto-creates a ShiftPattern. New hires
-  have no schedule until a manager sets one up via `/schedule/add/`
-  — matching the redesign's "reading is summary, writing is
-  deliberate" principle.
+  have no schedule until a manager sets one up via `/schedule/add/`.
 - **Factory:** `make_employee` defaults to `with_pattern=False`.
   Tests opt in explicitly via `with_pattern=True` or by passing
   `cycle_weeks=N` (passing cycle_weeks at all implies
@@ -470,8 +497,7 @@ on each entry.
   distinction is exposed via `has_any_patterns` in
   `_employee_page_context`.
 - **EmploymentPeriod signal stays.** Only pattern auto-creation
-  removed — the employed window is a property of the hire event; the
-  pattern is a scheduling decision.
+  removed.
 - **Tests updated:** `test_home.py`, `test_models.py`,
   `test_pattern_edit.py`, `test_week_picker.py`, `test_overrides.py`,
   `test_views_edges.py`, `test_details.py` — all opt in where needed.
@@ -480,7 +506,7 @@ on each entry.
 
 ### FIXED-009 — BUG-003: submitted grid values preserved on validation errors
 
-- **Fixed:** Session 8.5.
+- **Fixed:** Session 9 (pre-QA pass).
 - **Location:** `schedule/views.py::_handle_pattern_form_post`,
   `schedule/views.py::_handle_pattern_edit_post`.
 - **Fix:** Grid validation now collects ALL errors before
@@ -498,7 +524,7 @@ on each entry.
 
 ### FIXED-010 — BUG-007: cycle-length changes preserve typed grid values
 
-- **Fixed:** Session 8.5.
+- **Fixed:** Session 9 (pre-QA pass).
 - **Location:** `schedule/templates/schedule/partials/_pattern_form_body.html`
   (script).
 - **Fix:** Client-side `valueCache` in the pattern form's script IIFE:
@@ -509,13 +535,150 @@ on each entry.
   - Cache persists across multiple cycle changes: shrinking hides
     weeks but their values stay cached; extending back restores them.
   - Cache cleared on submit (capture phase; server response becomes
-    source of truth, preventing stale cache from overriding
-    `submitted_shifts` on validation-error re-render).
+    source of truth).
   - Cache cleared on `#effective-from` change (different week =
-    different context; server prefill should win).
+    different context).
 - **Manual verification only** — pure client-side JS, no Django test
   coverage possible with the current test stack.
 - **Scope consciously limited** to time inputs. Notify checkbox and
-  retroactive-confirmed hidden input still reset on cycle-change
-  re-render; leaving for a follow-up if friction surfaces. Both are
-  less severe than losing typed grid values.
+  retroactive-confirmed hidden input reset on cycle-change re-render.
+
+### FIXED-011 — Pattern form Save and Cancel confirmations
+
+- **Fixed:** Session 9 (pre-QA pass).
+- **New `_confirm_save_pattern.html`.** Every non-retroactive Save on
+  the pattern writing form (change / add / edit) routes through this
+  confirmation modal. Cancel on the modal aborts without submitting.
+- **Retroactive save gets its own dual-duty modal.** `_retroactive_confirm.html`
+  serves as both the retroactive warning AND the save confirmation.
+  Confirm sets both `retroactive_confirmed=1` and `saveConfirmed` and
+  submits directly — one modal, one click. Non-retroactive saves use
+  `_confirm_save_pattern.html` instead. No chained modals.
+- **Cancel on pattern form** routes through `_confirm_discard.html`
+  (previously a plain `<a href>` with no warning).
+- **Wiring:** `_pattern_form_body.html` submit interceptor routes to
+  the correct modal based on `is_retroactive` and the current
+  `retroactive_confirmed` state. `data-save-confirmed` flag on
+  `#pattern-form-body` bypasses the interceptor on the final submit.
+- **Tests:** modal-presence assertions in `test_pattern_forms.py` and
+  `test_pattern_edit.py`.
+
+### FIXED-012 — CodeRabbit pass 1: accessibility + timezone + truncated-pattern guard
+
+- **Fixed:** Session 9 (CodeRabbit pass).
+- **Accessibility:**
+  - `_confirm_save_pattern.html` dialog gets `aria-labelledby` pointing
+    at its `<h2>` (which gains a matching `id`).
+  - `_week_picker.html` dialog gets `aria-label="Choose a week"`.
+    Each week-band button gets `:aria-label="week.label"` —
+    `buildWeek` now produces `"Week of Oct 5 to Oct 11"` labels.
+- **Test stability:** `test_details.py` uses `timezone.localdate()`
+  instead of `date.today()` throughout (per AGENTS.md — prevents
+  midnight flake when server timezone differs from `TIME_ZONE`).
+- **Truncated-pattern edit fix:**
+  - Cycle-length guard in `_handle_pattern_edit_post` now rejects
+    only `cycle_weeks > span_weeks AND cycle_weeks > pattern.cycle_weeks`.
+    Unchanged or reduced cycles on a truncated pattern are allowed —
+    the user should be able to shrink to fit, or save minor edits
+    without being forced to shrink.
+  - Companion prefill fix: `_grid_weeks_for_form` accepts optional
+    `pattern` argument. When set (edit mode) it pulls from the
+    pattern's own cycle offsets instead of calendar-week lookup.
+    `_pattern_form_context` and `_render_pattern_edit_form` thread
+    `pattern` through; `pattern_form_preview` resolves the pattern
+    from `(employee, effective_from)` in edit mode so HTMX cycle
+    changes also use the direct path.
+  - Without the prefill fix, relaxing the guard alone would have
+    written next-pattern data into hidden offsets on unchanged saves.
+- **Prefill dedupe on cycle extension (change/add mode only):**
+  when target cycle exceeds source cycle, later panels that would
+  wrap to already-prefilled source offsets are left blank. The user
+  is extending the cycle; extra weeks are new territory. Not
+  applicable in edit mode (direct prefill can't duplicate).
+- **Tests:** `test_pattern_edit.py::TruncatedPatternEditTests`,
+  `test_pattern_alignment.py::PrefillDedupeTests`.
+
+### FIXED-013 — Pattern history shows Mon-Sun range
+
+- **Fixed:** Session 9 (CodeRabbit pass).
+- **Symptom:** Collapsed rows in "Full pattern history" (and the
+  "Currently scheduled" card's `through` line) rendered Mon-Mon. A
+  1-week pattern read "Effective from October 19, 2026 through
+  October 19, 2026" — identical start and end — because `last_week`
+  is the Monday of the last covered week (derived from the
+  exclusive `effective_to`).
+- **Fix:** `_employee_page_context` now exposes `last_week_end` (per
+  history entry) and `current_last_week_end` (for the current
+  pattern card), both computed as `last_week + 6 days` — the Sunday
+  of the last covered week.
+  - `_saved_patterns.html`: uses `entry.last_week_end`.
+  - `employee_defaults.html`: uses `current_last_week_end`, and the
+    wording changes from "through Week of {{ sunday }}" to
+    "through {{ sunday }}" — a Sunday isn't a week start.
+  - `_last_week_of` unchanged: banner copy still uses the Monday for
+    "until Week of X" phrasing, where a week-starting reference is
+    correct.
+- **Tests:** `test_employee.py::test_pattern_history_displays_mon_sun_range`,
+  `test_employee.py::test_current_pattern_card_displays_sun_end`.
+
+### FIXED-014 — Favicon MIME type
+
+- **Fixed:** Session 9 (CodeRabbit pass).
+- **Symptom:** `<link rel="icon" type="image/x-icon" href="...favicon.svg">`
+  in `base.html` and `print_schedule.html`. Browsers worked anyway
+  because they sniff the actual content, but the declared type was
+  wrong.
+- **Fix:** `image/x-icon` → `image/svg+xml` where the `href` points
+  at `favicon.svg`. Files referencing `favicon.ico` left alone.
+- **Touched:** `templates/base.html`,
+  `schedule/templates/schedule/print_schedule.html`.
+
+### FIXED-015 — BUG-005: restore_local_db.py hardening
+
+- **Fixed:** Session 9 (CodeRabbit pass). Bundled with PGPASSWORD
+  injection (same file, one touch).
+- **PGPASSWORD:** Injected into the psql child environment from
+  `POSTGRES_PASSWORD` so the restore can authenticate non-
+  interactively against a password-protected server. Child env only
+  — `os.environ` not mutated (would leak the credential to every
+  subsequent subprocess). Skipped when `POSTGRES_PASSWORD` is unset
+  or empty so trust/peer auth for local dev is unaffected.
+- **Atomicity:** psql now runs with `-v ON_ERROR_STOP=1` and
+  `--single-transaction`. Any SQL error aborts the restore and rolls
+  back the whole transaction. Partial restores become impossible.
+  Caveat: dumps containing non-transactional statements
+  (`CREATE INDEX CONCURRENTLY`, `ALTER SYSTEM`) will refuse to
+  restore — a legitimate failure to surface, not to paper over.
+- **`.psqlrc` isolation:** `-X` added so a user's `~/.psqlrc` can't
+  silently override `ON_ERROR_STOP`.
+- **Error visibility:** psql's stderr no longer captured — errors
+  stream to the terminal live with psql's full context.
+- **Return-code checking:** both subprocesses waited on and checked.
+  Order is psql-first: under `ON_ERROR_STOP`, psql's failure causes
+  producer's SIGPIPE, so reporting producer first would misattribute
+  the failure. If psql succeeds but producer fails, that's the
+  silent-truncation case and gets its own message.
+- **Follow-up:** `reset_local_db.py` (invoked by this script) may
+  also need PGPASSWORD if it drops/creates via psql over TCP. Not in
+  scope for this fix (finding excluded it explicitly). Address when
+  the file next needs work.
+
+### FIXED-016 — Retroactive-guard error re-render preserves grid values
+
+- **Fixed:** Session 9 (CodeRabbit pass).
+- **Symptom:** With the dual-duty retroactive modal, the server-side
+  retroactive guard rarely fires. When it did (JS bypassed,
+  interceptor failure), the error re-render dropped the user's typed
+  grid values — the same data-loss class as BUG-003, but on a
+  different error path.
+- **Fix:** In both `_handle_pattern_form_post` and
+  `_handle_pattern_edit_post`, grid parsing moved BEFORE the
+  retroactive guard. The retroactive error return now includes
+  `submitted_shifts=submitted_shifts`, preserving the user's typed
+  values on the error re-render.
+- **Not preserved** on: effective_from parse failure, start_date_floor
+  rejection, span guard rejection. Those are pre-grid-context errors
+  — the user is picking a different week or cycle length, and the
+  client-side cache is cleared on that change anyway.
+- **Tests:** `test_pattern_forms.py::test_retroactive_guard_preserves_typed_grid_values`,
+  `test_pattern_edit.py::test_retroactive_guard_preserves_typed_grid_values`.
