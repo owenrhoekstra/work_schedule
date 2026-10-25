@@ -7,7 +7,6 @@ from schedule.models import Shift, ShiftPattern
 
 from .factories import make_employee, make_manager_user, make_role
 
-
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 }
@@ -28,9 +27,7 @@ class PatternFormViewTests(TestCase):
     def setUp(self):
         self.client.force_login(_make_manager())
         self.role = make_role("Receptionist", order=20)
-        self.emp = make_employee(
-            role=self.role, start_date=date(2025, 1, 1)
-        )
+        self.emp = make_employee(role=self.role, start_date=date(2025, 1, 1))
         self.emp.patterns.all().delete()
 
     def _post(self, url_name, effective_from, shifts=None, cycle_weeks=1, **overrides):
@@ -43,9 +40,7 @@ class PatternFormViewTests(TestCase):
                 data[f"week_{week_offset}_day_{day}_start"] = start
                 data[f"week_{week_offset}_day_{day}_end"] = end
         data.update(overrides)
-        return self.client.post(
-            reverse(url_name, args=[self.emp.pk]), data
-        )
+        return self.client.post(reverse(url_name, args=[self.emp.pk]), data)
 
     # ----- schedule_change -----
 
@@ -72,8 +67,11 @@ class PatternFormViewTests(TestCase):
             cycle_weeks=1,
         )
         Shift.objects.create(
-            pattern=p, week_offset=0, day=0,
-            start_time="09:00", end_time="17:00",
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
         )
         self._post(
             "schedule_change",
@@ -93,8 +91,11 @@ class PatternFormViewTests(TestCase):
             cycle_weeks=1,
         )
         Shift.objects.create(
-            pattern=p, week_offset=0, day=0,
-            start_time="09:00", end_time="17:00",
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
         )
         resp = self._post(
             "schedule_change",
@@ -112,8 +113,11 @@ class PatternFormViewTests(TestCase):
             cycle_weeks=1,
         )
         Shift.objects.create(
-            pattern=p, week_offset=0, day=0,
-            start_time="09:00", end_time="17:00",
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
         )
         self._post(
             "schedule_change",
@@ -207,3 +211,38 @@ class PatternFormViewTests(TestCase):
     def test_cancel_uses_discard_modal(self):
         resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
         self.assertContains(resp, "openConfirmDiscardModal(")
+
+    def test_retroactive_guard_preserves_typed_grid_values(self):
+        # Session 9 (CodeRabbit): retroactive error return must preserve
+        # the user's typed grid values so confirming retroactive after
+        # the error doesn't force a retype.
+        # Two patterns needed so is_first_time is False — the guard
+        # skips when it's the employee's first-ever pattern.
+        p = ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2025, 3, 3),
+            cycle_weeks=1,
+        )
+        Shift.objects.create(
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
+        )
+        # Post a valid grid for a *past* week without retroactive_confirmed.
+        resp = self.client.post(
+            reverse("schedule_change", args=[self.emp.pk]),
+            {
+                "effective_from": date(2025, 4, 7).isoformat(),
+                "cycle_weeks": "1",
+                "week_0_day_0_start": "08:00",
+                "week_0_day_0_end": "16:00",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "in the past")
+        html = resp.content.decode()
+        # The typed start/end survived the retroactive guard re-render.
+        self.assertEqual(html.count('value="8:00 AM"'), 1)
+        self.assertEqual(html.count('value="4:00 PM"'), 1)

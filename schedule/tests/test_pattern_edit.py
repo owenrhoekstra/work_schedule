@@ -216,6 +216,21 @@ class PatternEditPostTests(TestCase):
         # Nothing was saved.
         self.assertFalse(Shift.objects.filter(pattern=self.pattern).exists())
 
+    def test_retroactive_guard_preserves_typed_grid_values(self):
+        # Session 9 (CodeRabbit): same preservation on the edit page's
+        # retroactive guard. setUp already pushes effective_from into
+        # the past, so hitting Save without retroactive_confirmed
+        # triggers the guard.
+        resp = self._post(
+            retroactive_confirmed="",
+            week_0_day_0_start="08:00",
+            week_0_day_0_end="16:00",
+        )
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertEqual(html.count('value="8:00 AM"'), 1)
+        self.assertEqual(html.count('value="4:00 PM"'), 1)
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class TruncatedPatternEditTests(TestCase):

@@ -1251,6 +1251,17 @@ def _handle_pattern_form_post(request, employee, mode):
     preserves every successfully-parsed cell in `submitted_shifts`
     (BUG-003). Returning on the first error used to drop values for
     cells after the error and required iterative error-fixing.
+
+    Grid parsing runs BEFORE the retroactive guard so the retroactive
+    error re-render can also preserve the user's typed values —
+    otherwise confirming retroactive (after fixing whatever tripped
+    the guard) would still wipe the grid.
+
+    Error returns that can't preserve grid values (effective_from
+    parse failure, start_date_floor rejection) run before any grid
+    context is established: the user is going to pick a different
+    week, which clears the client-side cache anyway. No data worth
+    preserving.
     """
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
@@ -1282,30 +1293,10 @@ def _handle_pattern_form_post(request, employee, mode):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
-    this_week_start = _week_start(timezone.localdate())
-    is_first_time = not Shift.objects.filter(pattern__employee=employee).exists()
-    retroactive_confirmed = request.POST.get("retroactive_confirmed") == "1"
-
-    if (
-        effective_from < this_week_start
-        and not is_first_time
-        and not retroactive_confirmed
-    ):
-        return _render_pattern_form(
-            request,
-            employee,
-            mode,
-            effective_from=effective_from,
-            cycle_weeks=cycle_weeks,
-            retroactive_confirmed=retroactive_confirmed,
-            errors=[
-                "This date is in the past. Confirm the retroactive change to proceed."
-            ],
-        )
-
-    # Validate the grid. Collect all errors before re-rendering so
-    # every successfully-parsed cell survives — including cells after
-    # the first error (BUG-003).
+    # Parse the grid first. Collect all errors and preserve every
+    # successfully-parsed cell in submitted_shifts so any subsequent
+    # error re-render (grid error OR retroactive guard) keeps the
+    # user's typed values.
     validated_edits = {}
     submitted_shifts = {}
     errors = []
@@ -1331,11 +1322,6 @@ def _handle_pattern_form_post(request, employee, mode):
                 )
                 continue
             if start and end:
-                # Stash even invalid pairs (end <= start) so the user
-                # sees what they typed and can just fix the failing
-                # side. Parse-failed or half-parsed cells are dropped
-                # — no clean way to represent them as a Shift-shaped
-                # object for the |time filter.
                 submitted_shifts[(week_offset, day)] = SimpleNamespace(
                     start_time=start, end_time=end
                 )
@@ -1357,9 +1343,34 @@ def _handle_pattern_form_post(request, employee, mode):
             mode,
             effective_from=effective_from,
             cycle_weeks=cycle_weeks,
-            retroactive_confirmed=retroactive_confirmed,
+            retroactive_confirmed=request.POST.get("retroactive_confirmed")
+            == "1",
             submitted_shifts=submitted_shifts,
             errors=errors,
+        )
+
+    # Retroactive guard runs after grid parse so submitted_shifts is
+    # available to preserve on the error re-render.
+    this_week_start = _week_start(timezone.localdate())
+    is_first_time = not Shift.objects.filter(pattern__employee=employee).exists()
+    retroactive_confirmed = request.POST.get("retroactive_confirmed") == "1"
+
+    if (
+        effective_from < this_week_start
+        and not is_first_time
+        and not retroactive_confirmed
+    ):
+        return _render_pattern_form(
+            request,
+            employee,
+            mode,
+            effective_from=effective_from,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            submitted_shifts=submitted_shifts,
+            errors=[
+                "This date is in the past. Confirm the retroactive change to proceed."
+            ],
         )
 
     # Apply edit-or-split in a transaction.
@@ -1636,7 +1647,14 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     unchanged doesn't write next-pattern data into hidden offsets.
 
     Grid validation collects ALL errors before re-rendering and
-    preserves every successfully-parsed cell (BUG-003).
+    preserves every successfully-parsed cell (BUG-003). Grid parsing
+    runs BEFORE the retroactive guard so the retroactive error
+    re-render can also preserve the user's typed values.
+
+    The span guard runs before the grid parse because growing past
+    the span is rejected at the form level — the user is looking at a
+    form with the wrong cycle length, and preserving grid values
+    parsed at that wrong length would produce a confusing re-render.
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
@@ -1663,24 +1681,10 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
                 ],
             )
 
-    this_week_start = _week_start(timezone.localdate())
-    is_retroactive = pattern.effective_from < this_week_start
-    if is_retroactive and not retroactive_confirmed:
-        return _render_pattern_edit_form(
-            request,
-            employee,
-            pattern,
-            is_earliest,
-            cycle_weeks=cycle_weeks,
-            retroactive_confirmed=retroactive_confirmed,
-            errors=[
-                "This pattern is in the past. Confirm the retroactive "
-                "edit to proceed."
-            ],
-        )
-
-    # Validate the grid. Collect all errors so valid cells are
-    # preserved on re-render (BUG-003).
+    # Parse the grid first. Collect all errors and preserve every
+    # successfully-parsed cell so any subsequent error re-render
+    # (grid error OR retroactive guard) keeps the user's typed
+    # values.
     validated_edits = {}
     submitted_shifts = {}
     errors = []
@@ -1730,6 +1734,25 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
             retroactive_confirmed=retroactive_confirmed,
             submitted_shifts=submitted_shifts,
             errors=errors,
+        )
+
+    # Retroactive guard runs after grid parse so submitted_shifts is
+    # available to preserve on the error re-render.
+    this_week_start = _week_start(timezone.localdate())
+    is_retroactive = pattern.effective_from < this_week_start
+    if is_retroactive and not retroactive_confirmed:
+        return _render_pattern_edit_form(
+            request,
+            employee,
+            pattern,
+            is_earliest,
+            cycle_weeks=cycle_weeks,
+            retroactive_confirmed=retroactive_confirmed,
+            submitted_shifts=submitted_shifts,
+            errors=[
+                "This pattern is in the past. Confirm the retroactive "
+                "edit to proceed."
+            ],
         )
 
     # Capture the notification baseline BEFORE mutating.
