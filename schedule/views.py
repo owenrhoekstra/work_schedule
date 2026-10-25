@@ -2192,16 +2192,15 @@ def settings_deactivate_employee(request, pk):
     still on the schedule.
 
     Redirect target is controlled by the POST body's `next` field:
-    "employee_defaults" → the employee's reading page;
-    anything else (default) → settings_home.
+    "employee_defaults" → the employee's reading page; anything else
+    (default) → settings_home. On immediate deactivation (last_day in
+    the past), the reading page would 404 — its filter excludes
+    employees with last_day < today — so we fall back to settings_home
+    regardless of `next` in that case.
     """
     employee = get_object_or_404(Employee, pk=pk)
 
     next_target = request.POST.get("next", "settings_home")
-    if next_target == "employee_defaults":
-        redirect_url = reverse("employee_defaults", args=[employee.pk])
-    else:
-        redirect_url = reverse("settings_home")
 
     raw = request.POST.get("last_day", "").strip()
     if raw:
@@ -2209,12 +2208,30 @@ def settings_deactivate_employee(request, pk):
             last_day = date.fromisoformat(raw)
         except ValueError:
             messages.error(request, "Please pick a valid date.")
-            return redirect(redirect_url)
+            # Nothing was touched — honour the caller's target so the
+            # user lands back where they came from with the error.
+            fallback = (
+                reverse("employee_defaults", args=[employee.pk])
+                if next_target == "employee_defaults"
+                else reverse("settings_home")
+            )
+            return redirect(fallback)
     else:
         last_day = date.today()
 
     today = timezone.localdate()
     is_immediate = last_day < today
+
+    # Compute the redirect target AFTER we know is_immediate. On
+    # immediate deactivation, employee_defaults would 404 (its
+    # filter excludes employees with last_day < today), so always
+    # land on settings_home in that case.
+    if is_immediate:
+        redirect_url = reverse("settings_home")
+    elif next_target == "employee_defaults":
+        redirect_url = reverse("employee_defaults", args=[employee.pk])
+    else:
+        redirect_url = reverse("settings_home")
 
     with transaction.atomic():
         employee.is_active = False

@@ -205,6 +205,34 @@ class DeactivationRedirectTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("settings_home"))
 
+    def test_immediate_deactivation_overrides_employee_defaults_target(self):
+        # Session 9 (CodeRabbit): an immediate deactivation puts the
+        # employee below today's last_day cutoff, which 404s the
+        # reading page. The redirect must fall back to settings_home
+        # even when next=employee_defaults was requested.
+        resp = self.client.post(
+            reverse("settings_deactivate_employee", args=[self.emp.pk]),
+            {
+                "last_day": (timezone.localdate() - timedelta(days=1)).isoformat(),
+                "next": "employee_defaults",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("settings_home"))
+
+    def test_future_deactivation_honours_employee_defaults_target(self):
+        # Non-immediate deactivation: last_day is in the future, so
+        # the reading page still includes the employee. Honour next.
+        resp = self.client.post(
+            reverse("settings_deactivate_employee", args=[self.emp.pk]),
+            {
+                "last_day": (timezone.localdate() + timedelta(days=30)).isoformat(),
+                "next": "employee_defaults",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("employee_defaults", args=[self.emp.pk]))
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class DetailsScheduledDeactivationTests(TestCase):
@@ -222,9 +250,7 @@ class DetailsScheduledDeactivationTests(TestCase):
     def test_no_last_day_shows_set_last_day_trigger(self):
         resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
         self.assertContains(resp, 'onclick="openDeactivateModal(this)"')
-        self.assertNotContains(
-            resp, 'onclick="openCancelDeactivationModal(this)"'
-        )
+        self.assertNotContains(resp, 'onclick="openCancelDeactivationModal(this)"')
         self.assertNotContains(resp, "Scheduled for deactivation")
 
     def test_last_day_set_shows_banner_and_cancel_trigger(self):
@@ -233,9 +259,7 @@ class DetailsScheduledDeactivationTests(TestCase):
         self.emp.save(update_fields=["last_day", "is_active"])
         resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
         self.assertContains(resp, "Scheduled for deactivation")
-        self.assertContains(
-            resp, 'onclick="openCancelDeactivationModal(this)"'
-        )
+        self.assertContains(resp, 'onclick="openCancelDeactivationModal(this)"')
         self.assertNotContains(resp, 'onclick="openDeactivateModal(this)"')
 
     def test_cancel_deactivation_modal_present(self):

@@ -11,10 +11,14 @@ Native-button pattern; no Alpine.
 {% endcomment %}
 <dialog
     id="confirm-save-details-modal"
+    aria-labelledby="confirm-save-details-title"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <div class="p-6 space-y-4">
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
+        <h2
+            id="confirm-save-details-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+        >
             Save changes?
         </h2>
         <p class="text-sm text-gray-500">

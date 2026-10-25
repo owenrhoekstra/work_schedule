@@ -13,26 +13,28 @@ then pipes the dump into psql.
 Refuses to run when DJANGO_DEBUG is False, matching reset_local_db.py's
 guard.
 
-Robustness (Session 8.5, BUG-005):
-- PGPASSWORD is injected into the psql child environment so the
-  restore can authenticate non-interactively against a password-
-  protected server. Value comes from POSTGRES_PASSWORD in .env.
-- psql runs with -v ON_ERROR_STOP=1 and --single-transaction, so any
-  SQL error aborts and rolls back everything. A partial restore is
-  impossible.
-- -X (--no-psqlrc) prevents a user's ~/.psqlrc from overriding
-  ON_ERROR_STOP (e.g. a stray `\\set ON_ERROR_STOP off` would silently
-  disable fail-fast, defeating --single-transaction's rollback).
-- psql's stderr streams to the terminal live, not captured — errors
-  surface immediately with psql's full context.
-- Both subprocess return codes are checked. psql first: under
-  ON_ERROR_STOP, a psql failure closes the pipe and producer exits
-  with SIGPIPE (-13), so blaming producer first would misreport the
-  cause. If psql succeeded but producer failed, that's the silent-
-  truncation case and gets its own message.
+Robustness (Session 9, BUG-005 + CodeRabbit pass):
+- Pre-flight checks: `psql` (and `gunzip` for .gz) must be on PATH,
+  and .gz files must pass `gzip -t`. All three run BEFORE the
+  destructive reset — if the environment is broken or the backup is
+  corrupt, the current DB is left untouched. `--single-transaction`
+  protects against SQL errors within the stream but NOT against a
+  truncated stream: if gunzip dies mid-decompress, psql sees EOF and
+  commits whatever it received, producing a silently-partial restore.
+  `gzip -t` closes that gap.
+- PGPASSWORD injected into psql's child env from POSTGRES_PASSWORD so
+  non-interactive auth works. Child env only — os.environ untouched.
+- psql runs with -X (ignore ~/.psqlrc), -v ON_ERROR_STOP=1, and
+  --single-transaction. Any SQL error aborts and rolls back.
+- psql stderr streams to the terminal live (not captured).
+- Return codes checked with psql-first ordering (producer's SIGPIPE
+  is a consequence of psql's failure, not the cause). If psql
+  succeeded but producer failed, that's the truncation case and gets
+  its own message.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -81,8 +83,36 @@ password = os.environ.get("POSTGRES_PASSWORD", "")
 
 project_root = Path(__file__).resolve().parent.parent
 
+# ---------------------------------------------------------------------------
+# Pre-flight — everything below this line runs BEFORE the destructive
+# reset. If any check fails, the current DB is left untouched.
+# ---------------------------------------------------------------------------
+
+if not shutil.which("psql"):
+    sys.exit(
+        "psql not found on PATH — install postgresql-client or add it "
+        "to PATH before restoring"
+    )
+
+if dump_path.suffix == ".gz":
+    if not shutil.which("gunzip"):
+        sys.exit("gunzip not found on PATH")
+    print(f"Verifying {dump_path.name}...")
+    check = subprocess.run(
+        ["gunzip", "-t", str(dump_path)],
+        stderr=subprocess.PIPE,
+    )
+    if check.returncode != 0:
+        sys.stderr.write(check.stderr.decode(errors="replace"))
+        sys.exit(
+            f"{dump_path.name} failed integrity check — not resetting DB"
+        )
+
+# ---------------------------------------------------------------------------
 # Step 1 — reset the DB by delegating to reset_local_db.py so the
 # drop-and-recreate logic lives in one place.
+# ---------------------------------------------------------------------------
+
 print(f"\nResetting {db_name}...")
 reset = subprocess.run(
     [sys.executable, "scripts/reset_local_db.py"],
@@ -91,7 +121,10 @@ reset = subprocess.run(
 if reset.returncode != 0:
     sys.exit(f"reset_local_db.py exited with code {reset.returncode}")
 
+# ---------------------------------------------------------------------------
 # Step 2 — pipe the dump into psql. Use gunzip for .gz, cat otherwise.
+# ---------------------------------------------------------------------------
+
 if dump_path.suffix == ".gz":
     dump_cmd = ["gunzip", "-c", str(dump_path)]
 else:
@@ -147,9 +180,9 @@ if psql_rc != 0:
 # psql succeeded but producer failed. Silent-truncation risk: psql
 # may have been fed a partial dump and (perversely) restored
 # successfully if the failure happened after the last complete SQL
-# statement. Under --single-transaction this is unlikely to have
-# committed real damage, but the restore is still unreliable —
-# surface it.
+# statement. The gzip -t pre-flight above catches the common case
+# (corrupt/truncated gzip), but this check remains as a belt-and-
+# braces for any producer failure that slips past.
 if producer_rc != 0:
     sys.exit(
         f"{dump_cmd[0]} exited with code {producer_rc} — restore may be "

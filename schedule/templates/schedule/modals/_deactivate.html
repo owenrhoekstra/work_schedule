@@ -26,12 +26,16 @@ reading page after deactivating.
     id="deactivate-modal"
     data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
     data-today="{{ today|date:'Y-m-d' }}"
+    aria-labelledby="deactivate-title"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <form method="post" id="deactivate-form" class="p-6 space-y-4">
         {% csrf_token %}
         <input type="hidden" name="next" id="deactivate-next" value="settings_home" />
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
+        <h2
+            id="deactivate-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+        >
             Set Last Day
         </h2>
         <p class="text-sm text-gray-500">

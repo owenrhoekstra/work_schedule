@@ -16,10 +16,14 @@ in _pattern_form_body.html before the modal opens.
 {% endcomment %}
 <dialog
     id="retroactive-confirm-modal"
+    aria-labelledby="retroactive-confirm-title"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <div class="p-6 space-y-4">
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
+        <h2
+            id="retroactive-confirm-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+        >
             Save retroactive changes?
         </h2>
         <p class="text-sm text-gray-500">

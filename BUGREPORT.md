@@ -18,8 +18,8 @@ preceded Session 9; entries below now say "Session 9 (pre-QA)" or
 
 ## Confirmed live bugs
 
-*(None currently. All tracked bugs are either fixed or moved to
-Deferred / out of scope below.)*
+_(None currently. All tracked bugs are either fixed or moved to
+Deferred / out of scope below.)_
 
 ---
 
@@ -130,7 +130,7 @@ Deferred / out of scope below.)*
    list (min-year = employee start year, max = today + 5).
 6. **Pre-start-date weeks are disabled.** Grays them out; the server
    would reject them anyway via the existing `effective_from <
-   start_date_floor` guard, but the UI shouldn't invite the error.
+start_date_floor` guard, but the UI shouldn't invite the error.
 7. **Keyboard:** basic only. Tab between week bands, Enter to select,
    Escape to close. No arrow-key grid navigation — this is a
    click-first app.
@@ -206,7 +206,7 @@ Deferred / out of scope below.)*
 3. **Truncated-pattern edit support.** A split can leave a pattern
    with `cycle_weeks > span_weeks`. The edit guard now rejects only
    growing past the span (`cycle_weeks > span_weeks AND cycle_weeks >
-   pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
+pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
    Companion prefill fix: `_grid_weeks_for_form` accepts an optional
    `pattern` argument; edit mode uses direct-pattern prefill so
    unchanged saves don't write next-pattern data into hidden offsets.
@@ -260,7 +260,7 @@ Deferred / out of scope below.)*
     equivalent.
   - Focus states across all interactive elements.
   - Modal `.is-closing` animations — verify against Safari (`margin:
-    auto` in `dialog.modal-animate` is the known mitigation if
+auto` in `dialog.modal-animate` is the known mitigation if
     centering breaks).
   - Print view — verify color / B&W rendering on actual paper.
 - **Target:** Session 9 (QA + ship) at the latest.
@@ -682,3 +682,37 @@ Deferred / out of scope below.)*
   client-side cache is cleared on that change anyway.
 - **Tests:** `test_pattern_forms.py::test_retroactive_guard_preserves_typed_grid_values`,
   `test_pattern_edit.py::test_retroactive_guard_preserves_typed_grid_values`.
+
+### FIXED-017 — CodeRabbit pass 2: aria labels, deactivation redirect, restore pre-flight
+
+- **Fixed:** Session 9 (CodeRabbit pass).
+- **Accessibility (aria-labelledby on five modals):**
+  - `_cancel_deactivation_confirm.html` → `aria-labelledby="cancel-deactivation-confirm-title"`.
+  - `_confirm_discard.html` → `aria-labelledby="confirm-discard-title"`.
+  - `_confirm_save_details.html` → `aria-labelledby="confirm-save-details-title"`.
+  - `_deactivate.html` → `aria-labelledby="deactivate-title"`.
+  - `_retroactive_confirm.html` → `aria-labelledby="retroactive-confirm-title"`.
+  - Each h2 receives the matching `id`. Screen readers announce the
+    title when the dialog opens.
+- **`settings_deactivate_employee` redirect fallback:** When
+  `is_immediate` (last_day in the past), the redirect target is
+  always `settings_home` regardless of the `next` POST field. The
+  reading page's filter excludes `last_day < today`, so honouring
+  `next=employee_defaults` on an immediate deactivation would 404.
+  Non-immediate deactivations still honour `next` — the reading page
+  works for future-dated last days.
+- **`restore_local_db.py` pre-flight checks:** Both run BEFORE the
+  destructive reset, so a broken environment or corrupt backup
+  leaves the current DB untouched.
+  - `shutil.which("psql")` — refuses to reset if psql is missing.
+  - `shutil.which("gunzip")` for .gz files — refuses if gunzip is
+    missing.
+  - `gunzip -t` on .gz files — verifies the entire compressed stream
+    decompresses cleanly before anything is dropped. Catches the
+    silent-truncation case that `--single-transaction` cannot: if
+    gunzip dies mid-stream, psql sees EOF and commits whatever it
+    received. `gzip -t` closes that gap.
+  - Plain `.sql` files can't be pre-validated; the `producer_rc` check
+    at the end remains as a belt-and-braces for those.
+- **Tests:** `test_details.py::DeactivationRedirectTests::test_immediate_deactivation_overrides_employee_defaults_target`,
+  `test_immediate_deactivation...` companion for the future case.
