@@ -2,11 +2,12 @@
 Per-employee pattern history. Rendered inside a <details> on the
 employee reading page.
 
-Delete uses the shared _delete_pattern_confirm.html modal. One
-component instance, one modal, one hidden form. Each row's Delete
-button calls requestDelete(url, date), which stashes the pending URL
-and date on the component. Confirm submits the hidden form with the
-stashed action.
+Collapsed row shows the covered range as "Effective from <Monday>
+through <Sunday>" — Mon-Sun range, derived from effective_to
+(exclusive) via `last_week_end` in _employee_page_context. A 1-week
+pattern reads "Oct 19 through Oct 25", not "Oct 19 through Oct 19".
+
+Delete uses the shared _delete_pattern_confirm.html modal.
 {% endcomment %}
 <section class="border-t border-gray-200" x-data="deletePatternModal">
     {% for entry in patterns %}
@@ -25,8 +26,8 @@ stashed action.
                 <span class="text-brand-indigo">
                     Effective from
                     {{ entry.pattern.effective_from|date:"F j, Y" }}
-                    {% if entry.last_week %}
-                    through {{ entry.last_week|date:"F j, Y" }}
+                    {% if entry.last_week_end %}
+                    through {{ entry.last_week_end|date:"F j, Y" }}
                     {% else %}
                     · ongoing
                     {% endif %}

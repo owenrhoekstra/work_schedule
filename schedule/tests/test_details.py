@@ -10,6 +10,10 @@ Cancel deactivation trigger. Tests for those variants assert on the
 trigger buttons' distinctive `onclick` attributes — the modals
 themselves are always rendered, and their button text overlaps the
 trigger button text, so text-matching produces false positives.
+
+Session 8.5: `date.today()` replaced with `timezone.localdate()`
+throughout to prevent midnight flake (per AGENTS.md — timezone
+differences between server and TIME_ZONE can flip tests at midnight).
 """
 
 from datetime import date, timedelta
@@ -17,6 +21,7 @@ from datetime import date, timedelta
 from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from schedule.models import ShiftPattern
 
@@ -52,7 +57,7 @@ class EmployeeDetailsGetTests(TestCase):
 
     def test_inactive_employee_returns_404(self):
         self.emp.is_active = False
-        self.emp.last_day = date.today() - timedelta(days=1)
+        self.emp.last_day = timezone.localdate() - timedelta(days=1)
         self.emp.save()
         resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
         self.assertEqual(resp.status_code, 404)
@@ -174,7 +179,7 @@ class DeactivationRedirectTests(TestCase):
         resp = self.client.post(
             reverse("settings_deactivate_employee", args=[self.emp.pk]),
             {
-                "last_day": (date.today() + timedelta(days=7)).isoformat(),
+                "last_day": (timezone.localdate() + timedelta(days=7)).isoformat(),
                 "next": "employee_defaults",
             },
         )
@@ -184,7 +189,7 @@ class DeactivationRedirectTests(TestCase):
     def test_missing_next_defaults_to_settings_home(self):
         resp = self.client.post(
             reverse("settings_deactivate_employee", args=[self.emp.pk]),
-            {"last_day": (date.today() + timedelta(days=7)).isoformat()},
+            {"last_day": (timezone.localdate() + timedelta(days=7)).isoformat()},
         )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("settings_home"))
@@ -193,7 +198,7 @@ class DeactivationRedirectTests(TestCase):
         resp = self.client.post(
             reverse("settings_deactivate_employee", args=[self.emp.pk]),
             {
-                "last_day": (date.today() + timedelta(days=7)).isoformat(),
+                "last_day": (timezone.localdate() + timedelta(days=7)).isoformat(),
                 "next": "malicious_target",
             },
         )
@@ -206,12 +211,8 @@ class DetailsScheduledDeactivationTests(TestCase):
     """Session 7.5: scheduled-deactivation UX on /details/.
 
     Asserts on the trigger buttons' distinctive `onclick` attributes
-    rather than the visible button text. Both modals are always
-    rendered, and their button text overlaps the trigger button text
-    ("Set Last Day" appears as the deactivate modal's heading;
-    "Cancel deactivation" appears as the cancel modal's confirm
-    button). Text-matching would produce false positives in both
-    directions — attribute-matching is unambiguous.
+    rather than the visible button text — the modals themselves are
+    always rendered, so text-matching produces false positives.
     """
 
     def setUp(self):
@@ -227,7 +228,7 @@ class DetailsScheduledDeactivationTests(TestCase):
         self.assertNotContains(resp, "Scheduled for deactivation")
 
     def test_last_day_set_shows_banner_and_cancel_trigger(self):
-        self.emp.last_day = date.today() + timedelta(days=14)
+        self.emp.last_day = timezone.localdate() + timedelta(days=14)
         self.emp.is_active = False
         self.emp.save(update_fields=["last_day", "is_active"])
         resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
@@ -253,7 +254,7 @@ class CancelDeactivationNextTests(TestCase):
     def setUp(self):
         _manager(self.client)
         self.emp = make_employee()
-        self.emp.last_day = date.today() + timedelta(days=7)
+        self.emp.last_day = timezone.localdate() + timedelta(days=7)
         self.emp.is_active = False
         self.emp.save(update_fields=["last_day", "is_active"])
         p = self.emp.periods.filter(end_date__isnull=True).first()

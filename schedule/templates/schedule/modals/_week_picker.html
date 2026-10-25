@@ -20,23 +20,21 @@ Behaviour:
   window by 12 years, so employees on multi-decade patterns can
   still be scheduled into the far future.
 
-Dismiss: Cancel button, ESC, or backdrop click. All route through
-window.__closeWeekPickerModal.
+Accessibility: the dialog has aria-label="Choose a week". Each week
+button gets an aria-label like "Week of Oct 5 to Oct 11" — the raw
+day numbers (5 6 7 8 9 10 11) would be meaningless to screen readers.
 
-Close-animation strategy: the `.is-closing` class is added/removed
-directly via classList, not via Alpine's `:class` binding. This
-decouples the close from Alpine's reactive state, which the
-component loses if HTMX reinitializes it mid-dispatch (observed in
-Session 6.5 debugging: `this.$el` was undefined inside close() when
-called from pickWeek's finally after the HTMX swap fired). Querying
-the dialog from document.getElementById and calling .close() on it
-directly is immune to that. The dialog DOM element itself is not
-replaced by the swap, only the Alpine state on it.
+Dismiss: Cancel button, ESC, or backdrop click. All route through
+window.__closeWeekPickerModal. Close-animation uses direct classList
+manipulation rather than Alpine's :class, because HTMX reinit can
+leave the Alpine component's $el reference stale (see Session 6.5
+debug log).
 {% endcomment %}
 <dialog
     id="week-picker-modal"
     x-data="weekPicker"
     data-today-iso="{{ today_iso }}"
+    aria-label="Choose a week"
     @cancel.prevent="window.__closeWeekPickerModal?.()"
     @click.self="window.__closeWeekPickerModal?.()"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-md m-0"
@@ -157,6 +155,7 @@ replaced by the swap, only the Alpine state on it.
                         type="button"
                         @click="pickWeek(week.iso)"
                         :disabled="week.disabled"
+                        :aria-label="week.label"
                         :class="{
                             'border-brand-coral bg-brand-coral/10 text-brand-coral font-medium': week.isSelected,
                             'border-brand-coral/30 bg-brand-coral/[0.03]': week.isCurrentWeek && !week.isSelected && !week.disabled,
@@ -268,9 +267,15 @@ replaced by the swap, only the Alpine state on it.
                         });
                     }
                     const iso = this.dateToISO(monday);
+                    const sunday = new Date(monday);
+                    sunday.setDate(monday.getDate() + 6);
+                    const monShort = this.monthNames[monday.getMonth()].slice(0, 3);
+                    const sunShort = this.monthNames[sunday.getMonth()].slice(0, 3);
+                    const label = `Week of ${monShort} ${monday.getDate()} to ${sunShort} ${sunday.getDate()}`;
                     return {
                         iso,
                         days,
+                        label,
                         disabled: this.minISO ? iso < this.minISO : false,
                         isSelected: iso === this.selectedISO,
                         isCurrentWeek: iso === this.currentWeekISO,
@@ -310,11 +315,6 @@ replaced by the swap, only the Alpine state on it.
                 },
 
                 pickWeek(iso) {
-                    // Update the DOM + fire HTMX first, then close.
-                    // The close is called in finally and uses
-                    // document.getElementById internally, so it's
-                    // immune to whatever happens to `this` during
-                    // the HTMX dispatch.
                     try {
                         this.selectedISO = iso;
                         const hidden = document.getElementById("effective-from");

@@ -1,28 +1,24 @@
 {% comment %}
 Confirmation for Save on the pattern writing form (change / add / edit).
 
-Submit interceptor in _pattern_form_body.html routes every save
-through this modal. If the pattern is retroactive, the existing
-_retroactive_confirm.html shows first, and its Confirm button chains
-to this modal instead of submitting directly.
+Submit interceptor in _pattern_form_body.html routes every non-
+retroactive save through this modal. Retroactive saves use
+_retroactive_confirm.html instead (dual-duty; one modal per path).
 
-Two-stage flow (retroactive case):
-1. Save clicked → retroactive modal shown.
-2. Confirm retroactive → save confirmation modal shown.
-3. Confirm save → form submits with retroactive_confirmed=1.
-
-Single-stage flow (non-retroactive):
-1. Save clicked → save confirmation modal shown.
-2. Confirm → form submits.
-
-Cancel on either modal aborts without submitting.
+Cancel on the modal aborts without submitting. Save sets the
+saveConfirmed flag on #pattern-form-body and resubmits — the submit
+interceptor consumes the flag and lets the request through.
 {% endcomment %}
 <dialog
     id="confirm-save-pattern-modal"
+    aria-labelledby="confirm-save-pattern-title"
     class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
 >
     <div class="p-6 space-y-4">
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
+        <h2
+            id="confirm-save-pattern-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+        >
             Save this schedule?
         </h2>
         <p class="text-sm text-gray-500">
@@ -81,9 +77,6 @@ Cancel on either modal aborts without submitting.
         window.__confirmSavePattern = () => {
             const body = document.getElementById("pattern-form-body");
             if (!body) return;
-            // Flag consumed by the submit interceptor on the next
-            // submit event — lets the resubmit bypass the modal chain
-            // without re-triggering.
             body.dataset.saveConfirmed = "1";
             dismiss();
             setTimeout(() => {

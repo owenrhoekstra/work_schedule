@@ -142,8 +142,8 @@
 
             <p class="text-xs text-gray-500 mt-3">
                 Effective Week of {{ current_pattern.effective_from|date:"F j, Y" }}
-                {% if current_last_week %}
-                · through Week of {{ current_last_week|date:"F j, Y" }}
+                {% if current_last_week_end %}
+                · through {{ current_last_week_end|date:"F j, Y" }}
                 {% else %}
                 · ongoing
                 {% endif %}

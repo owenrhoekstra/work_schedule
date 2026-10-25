@@ -817,11 +817,12 @@ def _employee_page_context(request, employee, can_change=True):
     below in a disclosure. Read-only — identity edits live at
     /details/.
 
-    `has_any_patterns` distinguishes the two empty states:
-    - current_pattern is None, has_any_patterns True  → "Not scheduled
-      this week" (employee has a history but no active coverage)
-    - current_pattern is None, has_any_patterns False → "Not scheduled
-      at all" (new hire; setup CTA shown)
+    `last_week` is the Monday of the last covered week (used for
+    "week starting" display in banner copy); `last_week_end` is the
+    Sunday of that same week (used in history/current-pattern range
+    display so a 1-week pattern reads "Oct 19 through Oct 25", not
+    "Oct 19 through Oct 19"). Both derive from effective_to, which is
+    exclusive.
     """
     this_week_start = _week_start(timezone.localdate())
     current = _pattern_for_week(employee, this_week_start)
@@ -831,15 +832,20 @@ def _employee_page_context(request, employee, can_change=True):
     )
     earliest_pk = all_patterns[0].pk if all_patterns else None
 
-    patterns = [
-        {
-            "pattern": p,
-            "weeks": _pattern_summary(p),
-            "is_earliest": p.pk == earliest_pk,
-            "last_week": _last_week_of(p),
-        }
-        for p in all_patterns
-    ]
+    patterns = []
+    for p in all_patterns:
+        last_week = _last_week_of(p)
+        patterns.append(
+            {
+                "pattern": p,
+                "weeks": _pattern_summary(p),
+                "is_earliest": p.pk == earliest_pk,
+                "last_week": last_week,
+                "last_week_end": (
+                    last_week + timedelta(days=6) if last_week else None
+                ),
+            }
+        )
 
     current_weeks = _pattern_summary(current) if current else []
     current_cycle_label = None
@@ -848,12 +854,16 @@ def _employee_page_context(request, employee, can_change=True):
         current_cycle_label = WEEK_LABELS[offset]
 
     current_last_week = _last_week_of(current)
+    current_last_week_end = (
+        current_last_week + timedelta(days=6) if current_last_week else None
+    )
 
     return {
         "employee": employee,
         "current_pattern": current,
         "current_weeks": current_weeks,
         "current_last_week": current_last_week,
+        "current_last_week_end": current_last_week_end,
         "current_cycle_label": current_cycle_label,
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
@@ -962,27 +972,64 @@ def _handle_identity_post(request, employee):
     return redirect("employee_defaults", pk=employee.pk)
 
 
-def _grid_weeks_for_form(employee, effective_from, cycle_weeks):
+def _grid_weeks_for_form(employee, effective_from, cycle_weeks, pattern=None):
     """Build the grid structure for the writing form.
 
     Panel i represents calendar week effective_from + 7*i, NOT the
     target pattern's cycle offset. Panel A is the week the manager
-    picked; panel B is the following week; etc. Cells prefill from
-    whichever pattern covers that calendar week, so the form shows
-    exactly what the schedule currently displays for those weeks.
+    picked; panel B is the following week; etc.
 
-    Dedupe: when the target cycle is longer than the source pattern's
-    cycle, later calendar weeks wrap around to source offsets already
-    prefilled into earlier panels (e.g. target=4, source=3 → week D
-    maps to source offset 0, same as week A). Those duplicate panels
-    are left blank — the manager is extending the cycle, so the extra
-    weeks are new territory. Sessions 6.6 (prefill modal) will layer
-    optional week-by-week copy on top of this default.
+    Two prefill modes:
 
-    The save path translates panel index → target cycle offset, keeping
-    the label-to-calendar-week mapping intact even when effective_from
-    isn't congruent with CYCLE_EPOCH for the target's cycle length.
+    - Calendar mode (pattern=None; change and add forms): prefill each
+      panel from whichever pattern covers that calendar week. This is
+      what the schedule currently shows for those weeks.
+
+    - Direct mode (pattern given; edit form): prefill each panel from
+      the pattern's own cycle offsets, mapped through
+      (base + cal_offset) % cycle_weeks. Necessary for truncated
+      patterns (cycle_weeks > effective_to - effective_from) where
+      the calendar-week lookup would fall through to the *next*
+      pattern for panels beyond the span. Saving those panels would
+      silently write the next pattern's data into this pattern's
+      hidden cycle offsets.
+
+    Both modes produce identical results for non-truncated patterns,
+    so edit-mode UX is unchanged for the common case.
+
+    Dedupe in calendar mode: when the target cycle is longer than the
+    source pattern's cycle, later panels would wrap around to source
+    offsets already prefilled into earlier panels — those duplicates
+    are left blank. Only relevant in change/add where the target
+    cycle can exceed the source's.
     """
+    if pattern is not None:
+        # Direct mode — pull from the pattern's own cycle offsets.
+        base_offset = _cycle_offset(effective_from, cycle_weeks)
+        shifts_by_key_all = {
+            (s.week_offset, s.day): s for s in pattern.shifts.all()
+        }
+        weeks = []
+        for cal_offset in range(cycle_weeks):
+            target_offset = (base_offset + cal_offset) % cycle_weeks
+            rows = [
+                {
+                    "day": day,
+                    "label": DAY_LABELS_FULL[day],
+                    "shift": shifts_by_key_all.get((target_offset, day)),
+                }
+                for day in DAYS
+            ]
+            weeks.append(
+                {
+                    "offset": cal_offset,
+                    "label": WEEK_LABELS[cal_offset],
+                    "rows": rows,
+                }
+            )
+        return weeks
+
+    # Calendar mode — pull from whichever pattern covers each week.
     weeks = []
     seen_source_offsets = set()
     for cal_offset in range(cycle_weeks):
@@ -1135,15 +1182,14 @@ def _pattern_form_context(
     errors=None,
     submitted_shifts=None,
     retroactive_confirmed=False,
+    pattern=None,
 ):
     """Shared context for the writing form GET + preview endpoints.
 
-    No `week_options` — the week picker is a modal calendar that
-    renders client-side from the dialog component. Context exposes
-    `week_picker_min_iso` (the earliest selectable Monday, from
-    employee.start_date) and `today_iso` for the calendar's
-    today-marker; everything else is derived in JS from the Alpine
-    component.
+    `pattern` is set only in edit mode. It's threaded through to
+    _grid_weeks_for_form so the direct-pattern prefill path is used,
+    which matters for truncated patterns (see that function's
+    docstring).
     """
     if effective_from is not None:
         sat = effective_from + timedelta(days=5)
@@ -1169,7 +1215,9 @@ def _pattern_form_context(
             ]
             weeks.append({"offset": offset, "label": WEEK_LABELS[offset], "rows": rows})
     else:
-        weeks = _grid_weeks_for_form(employee, effective_from, cycle_weeks)
+        weeks = _grid_weeks_for_form(
+            employee, effective_from, cycle_weeks, pattern=pattern
+        )
 
     return {
         "employee": employee,
@@ -1518,12 +1566,23 @@ def pattern_form_preview(request, pk):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
+    # In edit mode, resolve the pattern being edited so the prefill
+    # uses the direct-pattern path — critical for truncated patterns
+    # (see _grid_weeks_for_form docstring). The (employee, effective_from)
+    # pair is unique by the ShiftPattern constraint.
+    pattern = None
+    if mode == "edit" and effective_from is not None:
+        pattern = ShiftPattern.objects.filter(
+            employee=employee, effective_from=effective_from
+        ).first()
+
     context = _pattern_form_context(
         request,
         employee,
         mode,
         effective_from=effective_from,
         cycle_weeks=cycle_weeks,
+        pattern=pattern,
     )
     return render(request, "schedule/partials/_pattern_form_body.html", context)
 
@@ -1551,6 +1610,7 @@ def _render_pattern_edit_form(
         errors=errors,
         submitted_shifts=submitted_shifts,
         retroactive_confirmed=retroactive_confirmed,
+        pattern=pattern,
     )
     context["is_earliest_pattern"] = is_earliest
     context["pattern"] = pattern
@@ -1565,20 +1625,18 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     branch: the pattern always exists at its own effective_from, so the
     edit-in-place case is the only case.
 
-    Neighbor-safety: cycle_weeks can grow only within the pattern's
-    existing span. If effective_to is set and the new cycle is longer
-    than the span, reject. Growing past effective_to would otherwise
-    silently overwrite the next pattern's territory.
-
-    Panel index in the POST body is a calendar-week index relative to
-    pattern.effective_from (0 = effective_from, 1 = +7d, ...). Save
-    maps each panel to its target offset via
-    (base_target_offset + cal_offset) % cycle_weeks so edits land on
-    the calendar week the manager was looking at.
+    Neighbor-safety: cycle_weeks can grow beyond span_weeks only when
+    it's also growing beyond pattern.cycle_weeks. Unchanged or reduced
+    cycle lengths on a truncated pattern (cycle_weeks > span_weeks,
+    which a split can leave behind) are allowed: the user should be
+    able to shrink to fit, or save minor edits without being forced to
+    shrink. Growing past the span is still rejected — that's territory
+    the next pattern owns. Safe because the edit prefill uses the
+    pattern's own cycle offsets (see _grid_weeks_for_form), so saving
+    unchanged doesn't write next-pattern data into hidden offsets.
 
     Grid validation collects ALL errors before re-rendering and
-    preserves every successfully-parsed cell (BUG-003), so a single
-    bad cell doesn't wipe the rest of the form.
+    preserves every successfully-parsed cell (BUG-003).
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
@@ -1590,7 +1648,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 
     if pattern.effective_to is not None:
         span_weeks = (pattern.effective_to - pattern.effective_from).days // 7
-        if cycle_weeks > span_weeks:
+        if cycle_weeks > span_weeks and cycle_weeks > pattern.cycle_weeks:
             return _render_pattern_edit_form(
                 request,
                 employee,

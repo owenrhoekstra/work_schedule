@@ -1,11 +1,10 @@
 from datetime import date, timedelta
-from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Shift, ShiftPattern
+from schedule.models import ShiftPattern
 
 from .factories import make_employee, make_manager_user, make_role, make_staff_user
 
@@ -35,7 +34,7 @@ class EmployeePageGetTests(TestCase):
 
     def test_inactive_employee_returns_404(self):
         self.emp.is_active = False
-        self.emp.last_day = date.today() - timedelta(days=1)
+        self.emp.last_day = timezone.localdate() - timedelta(days=1)
         self.emp.save()
         resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
         self.assertEqual(resp.status_code, 404)
@@ -45,3 +44,44 @@ class EmployeePageGetTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("current_pattern", resp.context)
         self.assertIn("patterns", resp.context)
+
+    def test_pattern_history_displays_mon_sun_range(self):
+        # Session 8.5: collapsed history row shows Mon-Sun, not Mon-Mon.
+        # Use a far-future date so the current-week card doesn't render
+        # the same range (which would double the occurrence count) and
+        # so "this week" (the test's actual now) never collides with
+        # the assertion dates, whatever day the test runs.
+        self.emp.patterns.all().delete()
+        ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2099, 1, 5),
+            effective_to=date(2099, 1, 12),
+            cycle_weeks=1,
+        )
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        html = resp.content.decode()
+        # Monday start appears once (history row only).
+        self.assertEqual(html.count("January 5, 2099"), 1)
+        # Sunday end appears once (history row only).
+        self.assertEqual(html.count("January 11, 2099"), 1)
+        # No "Jan 5 through Jan 5" self-referential range.
+        self.assertNotIn("January 5, 2099 through January 5, 2099", html)
+
+    def test_current_pattern_card_displays_sun_end(self):
+        # Same range semantics for the "Currently scheduled" card.
+        import datetime as _dt
+
+        today = timezone.localdate()
+        this_mon = today - _dt.timedelta(days=today.weekday())
+        self.emp.patterns.all().delete()
+        ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=this_mon,
+            effective_to=this_mon + _dt.timedelta(days=7),
+            cycle_weeks=1,
+        )
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        sunday = this_mon + _dt.timedelta(days=6)
+        self.assertContains(resp, sunday.strftime("%B %-d, %Y"))
+        # No "Week of <Sunday>" phrasing.
+        self.assertNotContains(resp, f"Week of {sunday.strftime('%B %-d, %Y')}")
