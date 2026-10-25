@@ -24,7 +24,7 @@ class WeekPickerModalTests(TestCase):
     def setUp(self):
         self.user = make_manager_user()
         self.client.force_login(self.user)
-        self.emp = make_employee()
+        self.emp = make_employee(with_pattern=True)
 
     def test_change_mode_includes_picker_modal(self):
         resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))

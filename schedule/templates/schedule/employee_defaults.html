@@ -148,14 +148,24 @@
                 · ongoing
                 {% endif %}
             </p>
-            {% else %}
+            {% elif has_any_patterns %}
             <p class="text-sm text-gray-500 py-4">
-                Not scheduled this week.
+                Not scheduled this week
             </p>
+            {% else %}
+            <div class="py-4 space-y-1">
+                <p class="font-display text-sm font-medium text-brand-indigo">
+                    No current schedule
+                </p>
+                <p class="text-xs text-gray-500">
+                    This employee hasn't been added to the schedule yet.
+                </p>
+            </div>
             {% endif %}
 
             {% if can_change %}
             <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
+                {% if has_any_patterns %}
                 <a
                     href="{% url 'schedule_change' employee.pk %}"
                     class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
@@ -166,6 +176,13 @@
                     class="font-display text-sm font-medium text-brand-indigo border border-brand-indigo/30 hover:bg-brand-indigo/5 rounded-lg px-4 py-2 transition-colors"
                     >Add future pattern</a
                 >
+                {% else %}
+                <a
+                    href="{% url 'schedule_add' employee.pk %}"
+                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+                    >Set up schedule</a
+                >
+                {% endif %}
             </div>
             {% endif %}
         </section>

@@ -24,7 +24,7 @@ class PatternEditGetTests(TestCase):
     def setUp(self):
         self.user = make_manager_user()
         self.client.force_login(self.user)
-        self.emp = make_employee()
+        self.emp = make_employee(with_pattern=True)
         self.pattern = self.emp.patterns.order_by("effective_from").first()
 
     def test_renders_edit_form(self):
@@ -57,44 +57,10 @@ class PatternEditGetTests(TestCase):
         resp = self.client.get(reverse("pattern_edit", args=[self.emp.pk, later.pk]))
         self.assertContains(resp, "delete-pattern-form")
 
-        def test_retroactive_modal_rendered_on_past_pattern(self):
-            self.pattern.effective_from = _monday(timezone.localdate()) - timedelta(
-                weeks=4
-            )
-            self.pattern.save(update_fields=["effective_from"])
-            resp = self.client.get(
-                reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
-            )
-            self.assertContains(resp, "retroactive-confirm-modal")
-
-        def test_retroactive_modal_not_rendered_on_future_pattern(self):
-            future = _monday(timezone.localdate()) + timedelta(weeks=4)
-            self.pattern.effective_from = future
-            self.pattern.save(update_fields=["effective_from"])
-            resp = self.client.get(
-                reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
-            )
-            self.assertNotContains(resp, "retroactive-confirm-modal")
-
-        def test_delete_modal_not_rendered_on_earliest(self):
-            resp = self.client.get(
-                reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
-            )
-            self.assertNotContains(resp, "delete-pattern-modal")
-
-        def test_delete_modal_rendered_on_non_earliest(self):
-            later = ShiftPattern.objects.create(
-                employee=self.emp,
-                effective_from=_monday(timezone.localdate()) + timedelta(weeks=2),
-                effective_to=None,
-            )
-            resp = self.client.get(
-                reverse("pattern_edit", args=[self.emp.pk, later.pk])
-            )
-            self.assertContains(resp, "delete-pattern-modal")
-
     def test_retroactive_modal_rendered_on_past_pattern(self):
-        self.pattern.effective_from = _monday(timezone.localdate()) - timedelta(weeks=4)
+        self.pattern.effective_from = _monday(timezone.localdate()) - timedelta(
+            weeks=4
+        )
         self.pattern.save(update_fields=["effective_from"])
         resp = self.client.get(
             reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk])
@@ -131,11 +97,13 @@ class PatternEditPostTests(TestCase):
     def setUp(self):
         self.user = make_manager_user()
         self.client.force_login(self.user)
-        self.emp = make_employee()
+        self.emp = make_employee(with_pattern=True)
         self.pattern = self.emp.patterns.order_by("effective_from").first()
         # Push effective_from 4 weeks into the past so retroactive flows
         # exercise the guard.
-        self.pattern.effective_from = _monday(timezone.localdate()) - timedelta(weeks=4)
+        self.pattern.effective_from = _monday(timezone.localdate()) - timedelta(
+            weeks=4
+        )
         self.pattern.save(update_fields=["effective_from"])
 
     def _form_data(self, **overrides):

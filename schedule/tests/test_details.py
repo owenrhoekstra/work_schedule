@@ -71,7 +71,7 @@ class EmployeeDetailsPostTests(TestCase):
     def setUp(self):
         _manager(self.client)
         self.role = make_role(name="Receptionist", order=20)
-        self.emp = make_employee(role=self.role)
+        self.emp = make_employee(role=self.role, with_pattern=True)
 
     def post_identity(self, **overrides):
         data = {

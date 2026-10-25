@@ -45,7 +45,7 @@ class UniqueConstraintsTests(TestCase):
         make_employee(email="x@example.com")
 
     def test_shift_unique_per_week_offset_and_day(self):
-        emp = make_employee()
+        emp = make_employee(with_pattern=True)
         pattern = emp.patterns.first()
         Shift.objects.create(
             pattern=pattern,

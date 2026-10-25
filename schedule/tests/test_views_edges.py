@@ -28,7 +28,6 @@ class AddEmployeeViewTests(TestCase):
         self.client.force_login(self.admin)
         self.role = make_role()
         self.emp = make_employee(role=self.role)
-        self.pattern = self.emp.patterns.first()
 
     def form_data(self, **overrides):
         data = {

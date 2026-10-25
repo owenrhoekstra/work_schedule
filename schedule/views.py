@@ -816,6 +816,12 @@ def _employee_page_context(request, employee, can_change=True):
     currently-scheduled pattern on the right, full pattern history
     below in a disclosure. Read-only — identity edits live at
     /details/.
+
+    `has_any_patterns` distinguishes the two empty states:
+    - current_pattern is None, has_any_patterns True  → "Not scheduled
+      this week" (employee has a history but no active coverage)
+    - current_pattern is None, has_any_patterns False → "Not scheduled
+      at all" (new hire; setup CTA shown)
     """
     this_week_start = _week_start(timezone.localdate())
     current = _pattern_for_week(employee, this_week_start)
@@ -850,6 +856,7 @@ def _employee_page_context(request, employee, can_change=True):
         "current_last_week": current_last_week,
         "current_cycle_label": current_cycle_label,
         "patterns": patterns,
+        "has_any_patterns": bool(all_patterns),
         "can_change": can_change,
         "can_delete": request.user.has_perm("schedule.delete_shift"),
         "last_day": employee.last_day,
