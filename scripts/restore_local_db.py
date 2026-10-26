@@ -13,24 +13,37 @@ then pipes the dump into psql.
 Refuses to run when DJANGO_DEBUG is False, matching reset_local_db.py's
 guard.
 
-Robustness (Session 9, BUG-005 + CodeRabbit pass):
-- Pre-flight checks: `psql` (and `gunzip` for .gz) must be on PATH,
-  and .gz files must pass `gzip -t`. All three run BEFORE the
-  destructive reset — if the environment is broken or the backup is
-  corrupt, the current DB is left untouched. `--single-transaction`
-  protects against SQL errors within the stream but NOT against a
-  truncated stream: if gunzip dies mid-decompress, psql sees EOF and
-  commits whatever it received, producing a silently-partial restore.
-  `gzip -t` closes that gap.
-- PGPASSWORD injected into psql's child env from POSTGRES_PASSWORD so
-  non-interactive auth works. Child env only — os.environ untouched.
-- psql runs with -X (ignore ~/.psqlrc), -v ON_ERROR_STOP=1, and
-  --single-transaction. Any SQL error aborts and rolls back.
-- psql stderr streams to the terminal live (not captured).
-- Return codes checked with psql-first ordering (producer's SIGPIPE
-  is a consequence of psql's failure, not the cause). If psql
-  succeeded but producer failed, that's the truncation case and gets
-  its own message.
+Safety model (Session 9, BUG-005 + CodeRabbit passes):
+
+- Pre-flight catches FAILURE MODES, not data loss. Before the
+  destructive reset, we verify psql (and gunzip for .gz) are on PATH
+  and that .gz files decompress cleanly. If any check fails, the
+  current DB is left untouched. `gzip -t` specifically guards against
+  truncated backups: without it, a gunzip failure mid-stream would
+  feed psql a truncated dump, which under --single-transaction would
+  commit whatever SQL made it through before EOF.
+
+- Pre-flight does NOT protect against invalid SQL. Once reset runs,
+  the DB is dropped and recreated empty. If psql then rejects the
+  dump (schema mismatch, syntax error, missing role, etc.),
+  --single-transaction rolls back the restore portion, but the
+  database is still empty — the pre-restore data is gone. There is no
+  automatic restore-of-last-good here. If you need that, back up
+  before running this script.
+
+- Runtime hardening:
+  - PGPASSWORD injected into psql's child env from POSTGRES_PASSWORD
+    so non-interactive auth works against password-protected servers.
+    Child env only — os.environ untouched.
+  - psql runs with -X (ignore ~/.psqlrc), -v ON_ERROR_STOP=1, and
+    --single-transaction. Any SQL error aborts and rolls back the
+    restore. See caveat above about reset-already-happened.
+  - psql stderr streams to the terminal live (not captured) so errors
+    surface with psql's full context.
+  - Return codes checked with psql-first ordering — producer's SIGPIPE
+    is a consequence of psql's failure, not the cause. If psql
+    succeeded but producer failed, that's a truncation case that
+    slipped past gzip -t and gets its own message.
 """
 
 import os
@@ -86,6 +99,12 @@ project_root = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 # Pre-flight — everything below this line runs BEFORE the destructive
 # reset. If any check fails, the current DB is left untouched.
+#
+# Scope: these checks catch MISSING TOOLS and CORRUPT .gz files. They
+# do NOT catch invalid SQL. Reset will drop and recreate the DB; if
+# psql then rejects the dump, the pre-restore data is gone regardless
+# of --single-transaction (which only rolls back the restore portion,
+# leaving an empty database).
 # ---------------------------------------------------------------------------
 
 if not shutil.which("psql"):
@@ -110,7 +129,7 @@ if dump_path.suffix == ".gz":
 
 # ---------------------------------------------------------------------------
 # Step 1 — reset the DB by delegating to reset_local_db.py so the
-# drop-and-recreate logic lives in one place.
+# drop-and-recreate logic lives in one place. THIS IS DESTRUCTIVE.
 # ---------------------------------------------------------------------------
 
 print(f"\nResetting {db_name}...")
@@ -175,7 +194,10 @@ producer_rc = producer.wait()
 # Reporting producer's return code first would blame gunzip for what
 # psql actually did wrong.
 if psql_rc != 0:
-    sys.exit(f"psql exited with code {psql_rc}")
+    sys.exit(
+        f"psql exited with code {psql_rc} — DB has been reset and the "
+        f"restore was rolled back. Current DB is empty."
+    )
 
 # psql succeeded but producer failed. Silent-truncation risk: psql
 # may have been fed a partial dump and (perversely) restored

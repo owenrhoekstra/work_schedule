@@ -716,3 +716,17 @@ auto` in `dialog.modal-animate` is the known mitigation if
     at the end remains as a belt-and-braces for those.
 - **Tests:** `test_details.py::DeactivationRedirectTests::test_immediate_deactivation_overrides_employee_defaults_target`,
   `test_immediate_deactivation...` companion for the future case.
+- **Corrected safety documentation (CodeRabbit follow-up):**
+  `restore_local_db.py`'s module docstring previously overstated
+  pre-flight protection. It now explicitly separates:
+  - What pre-flight catches: missing tools (psql/gunzip) and corrupt
+    .gz files. Current DB untouched in those cases.
+  - What it does NOT catch: invalid SQL. Reset drops and recreates
+    the DB before psql runs; if psql then rejects the dump,
+    --single-transaction rolls back the restore portion, but the
+    database stays empty. Pre-restore data is gone regardless.
+  - Recommended practice: back up before running if post-reset
+    failure would be costly.
+  - psql failure exit message updated to tell the user their DB is
+    now empty — the previous message ("psql exited with code N")
+    was accurate but omitted the state consequence.
