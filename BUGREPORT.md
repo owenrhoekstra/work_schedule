@@ -8,7 +8,7 @@ Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
 **Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete.
-Session 9 (QA + ship) is closing out — CodeRabbit passes 1–4 applied.
+Session 9 (QA + ship) is closing out — CodeRabbit passes 1–5 applied.
 One more CodeRabbit pass scheduled, then this document gets a
 layout restructure, then merge. No confirmed live bugs remaining;
 all tracked items are either fixed or in Deferred / out of scope.
@@ -210,6 +210,8 @@ Deferred / out of scope below.)_
    Companion prefill fix: `_grid_weeks_for_form` accepts an optional
    `pattern` argument; edit mode uses direct-pattern prefill so
    unchanged saves don't write next-pattern data into hidden offsets.
+   The truncated-edit exception lives only in `_handle_pattern_edit_post`;
+   `_handle_pattern_form_post` does not share it — see bullet 8.
 4. **Prefill dedupe on cycle extension.** When target cycle is longer
    than source cycle, later panels would wrap to source offsets
    already prefilled into earlier panels; those duplicate panels are
@@ -237,6 +239,14 @@ Deferred / out of scope below.)_
    and the save loop's modulo translation guards the same condition.
    Without this, the modulo mapping put those hidden cells back onto
    visible offsets 0 and 1 (empty = deleted, non-empty = overwrite).
+8. **Target-span check on change/add.** `_handle_pattern_form_post`
+   computes the target pattern's eventual `effective_to` (covering's
+   `effective_to` for split/edit-in-place; next pattern's
+   `effective_from` for new) and rejects `cycle_weeks > span_weeks`
+   before opening the transaction. No `covering.cycle_weeks` exception
+   — the truncated-edit path stays on `/patterns/<uuid>/`. Without
+   this, a change at a 2-week-remaining span with `cycle_weeks=4`
+   would create a pattern whose offsets 2 and 3 never display.
 
 ---
 
@@ -797,9 +807,36 @@ Deferred / out of scope below.)_
   Both the visible label and the attribute used for re-opening now
   follow the current selection.
 - **Manual verification only** — pure client-side JS.
-- **Skipped (adjacent finding, restore_local_db.py):** CodeRabbit
-  suggested adding `-f -` to psql. Not applicable: psql reads from
-  stdin by default when no `-c` or `-f` is provided and stdin is a
-  pipe, which it is (`stdin=producer.stdout`). `--single-transaction`
-  wraps commands from stdin OR `-f` identically; `-f -` adds no
-  behavior. Skipped as redundant.
+
+### FIXED-020 — Target-span check on change/add + `cat` pre-flight
+
+- **Fixed:** Session 9 (CodeRabbit pass 5).
+- **Finding 1 — target-span validation:** `_handle_pattern_form_post`
+  now rejects `cycle_weeks > span_weeks` before the transaction,
+  where span derives from the target pattern's eventual
+  `effective_to` (covering's `effective_to` for edit-in-place and
+  split, next pattern's `effective_from` for new). Without this,
+  `/schedule/change/` could create a pattern whose extra cycle
+  offsets sit past its own `effective_to` and never display — the
+  user thinks they scheduled 4 weeks, only 2 render.
+  - No `covering.cycle_weeks` exception. The truncated-pattern
+    edit exception lives in `_handle_pattern_edit_post`
+    (FIXED-012) and is reachable via `/patterns/<uuid>/`. Users
+    editing a truncated pattern from `/schedule/change/` are told
+    to shrink.
+  - `submitted_shifts` preserved on the error re-render — typed
+    values survive the rejection, same class as FIXED-009/016.
+  - `covering = _pattern_for_week(...)` computed before the
+    transaction; branch logic inside the transaction uses the
+    pre-captured reference. No behavior change inside the
+    transaction beyond the removal of the duplicate assignment.
+  - Tests:
+    `test_pattern_forms.py::test_change_rejects_cycle_larger_than_target_span`,
+    `test_change_accepts_cycle_equal_to_target_span`,
+    `test_change_new_pattern_accepts_cycle_within_next_pattern`,
+    `test_change_new_pattern_rejects_when_next_is_too_close`.
+- **Finding 2 — `cat` pre-flight:** `restore_local_db.py` now checks
+  `shutil.which("cat")` for plain `.sql` dumps (the `.gz` path was
+  already checking `gunzip`). If `cat` is missing, the script exits
+  before the destructive reset rather than after. Docstring and
+  pre-flight scope comment updated to name both streaming tools.

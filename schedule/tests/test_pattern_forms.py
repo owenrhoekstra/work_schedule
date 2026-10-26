@@ -283,3 +283,105 @@ class PatternFormViewTests(TestCase):
         self.assertEqual(s0.start_time.strftime("%H:%M"), "09:00")
         s1 = Shift.objects.get(pattern=p, week_offset=1, day=0)
         self.assertEqual(s1.start_time.strftime("%H:%M"), "10:00")
+
+    def test_change_rejects_cycle_larger_than_target_span(self):
+        # Session 9 (CodeRabbit pass 5): cycle_weeks must fit the
+        # target pattern's span. Split inherits covering's
+        # effective_to; if that's only 2 weeks out, cycle_weeks=4
+        # writes offsets 2 and 3 that never display.
+        p = ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2025, 6, 2),
+            effective_to=date(2025, 6, 30),  # 4-week span
+            cycle_weeks=1,
+        )
+        Shift.objects.create(
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
+        )
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 16),  # 2-week remaining span
+            shifts={(0, 0): ("10:00", "18:00")},
+            cycle_weeks=4,
+            retroactive_confirmed="1",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Reduce Pattern length")
+        # Nothing mutated: only the original pattern remains, its
+        # effective_to unchanged, and no split occurred.
+        self.assertEqual(self.emp.patterns.count(), 1)
+        p.refresh_from_db()
+        self.assertEqual(p.effective_to, date(2025, 6, 30))
+        # The user's typed value survived the error re-render.
+        html = resp.content.decode()
+        self.assertEqual(html.count('value="10:00 AM"'), 1)
+
+    def test_change_accepts_cycle_equal_to_target_span(self):
+        # Boundary: cycle_weeks == span_weeks is valid.
+        p = ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2025, 6, 2),
+            effective_to=date(2025, 6, 30),  # 4-week span
+            cycle_weeks=1,
+        )
+        Shift.objects.create(
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
+        )
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 16),  # 2-week remaining span
+            shifts={(0, 0): ("10:00", "18:00")},
+            cycle_weeks=2,
+            retroactive_confirmed="1",
+        )
+        self.assertEqual(resp.status_code, 302)
+        # Split occurred: 2 patterns now, target inherits covering's
+        # effective_to.
+        self.assertEqual(self.emp.patterns.count(), 2)
+        target = self.emp.patterns.order_by("-effective_from").first()
+        self.assertEqual(target.effective_from, date(2025, 6, 16))
+        self.assertEqual(target.effective_to, date(2025, 6, 30))
+        self.assertEqual(target.cycle_weeks, 2)
+
+    def test_change_new_pattern_accepts_cycle_within_next_pattern(self):
+        # No covering pattern — target inherits next_pattern's
+        # effective_from. Same span logic applies.
+        ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2025, 7, 14),
+            cycle_weeks=1,
+        )
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 2),  # 6 weeks before next pattern
+            shifts={(0, 0): ("10:00", "18:00")},
+            cycle_weeks=4,
+            retroactive_confirmed="1",
+        )
+        # 4 <= 6, so this should be accepted (span is 6 weeks).
+        self.assertEqual(resp.status_code, 302)
+
+    def test_change_new_pattern_rejects_when_next_is_too_close(self):
+        # Next pattern only 2 weeks away; cycle_weeks=4 rejected.
+        ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=date(2025, 6, 16),  # 2 weeks from 2025-06-02
+            cycle_weeks=1,
+        )
+        resp = self._post(
+            "schedule_change",
+            date(2025, 6, 2),
+            shifts={(0, 0): ("10:00", "18:00")},
+            cycle_weeks=4,
+            retroactive_confirmed="1",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Reduce Pattern length")

@@ -1381,10 +1381,49 @@ def _handle_pattern_form_post(request, employee, mode):
             ],
         )
 
+    # Target-span check: reject cycle_weeks > available span before
+    # the transaction writes any panels. Without this, a bounded
+    # target (split inheriting covering's effective_to, or new
+    # pattern inheriting next_pattern's effective_from) silently
+    # writes offsets that will never display. Unlike the edit-in-
+    # place handler, no covering.cycle_weeks exception — a truncated
+    # pattern should be edited via /patterns/<uuid>/, not /change/.
+    covering = _pattern_for_week(employee, effective_from)
+    if covering is not None:
+        # Edit-in-place or split — target inherits covering's
+        # effective_to. (For edit-in-place, that IS target's own
+        # effective_to; unchanged by the save.)
+        target_end = covering.effective_to
+    else:
+        # New pattern — inherits the next pattern's effective_from.
+        next_pattern = (
+            employee.patterns.filter(effective_from__gt=effective_from)
+            .order_by("effective_from")
+            .first()
+        )
+        target_end = next_pattern.effective_from if next_pattern else None
+
+    if target_end is not None:
+        span_weeks = (target_end - effective_from).days // 7
+        if cycle_weeks > span_weeks:
+            return _render_pattern_form(
+                request,
+                employee,
+                mode,
+                effective_from=effective_from,
+                cycle_weeks=cycle_weeks,
+                retroactive_confirmed=retroactive_confirmed,
+                submitted_shifts=submitted_shifts,
+                errors=[
+                    f"This pattern only has {span_weeks} week(s) until "
+                    f"the next pattern starts. Reduce Pattern length to "
+                    f"{span_weeks} or fewer."
+                ],
+            )
+
     # Apply edit-or-split in a transaction.
     try:
         with transaction.atomic():
-            covering = _pattern_for_week(employee, effective_from)
             if covering is None:
                 next_pattern = (
                     employee.patterns.filter(effective_from__gt=effective_from)

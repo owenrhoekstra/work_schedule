@@ -16,8 +16,9 @@ guard.
 Safety model (Session 9, BUG-005 + CodeRabbit passes):
 
 - Pre-flight catches FAILURE MODES, not data loss. Before the
-  destructive reset, we verify psql (and gunzip for .gz) are on PATH
-  and that .gz files decompress cleanly. If any check fails, the
+  destructive reset, we verify psql, the streaming tool (gunzip for
+  .gz, cat for plain .sql), and — for .gz — that the compressed file
+  decompresses cleanly. If any check fails, the
   current DB is left untouched. `gzip -t` specifically guards against
   truncated backups: without it, a gunzip failure mid-stream would
   feed psql a truncated dump, which under --single-transaction would
@@ -100,8 +101,9 @@ project_root = Path(__file__).resolve().parent.parent
 # Pre-flight — everything below this line runs BEFORE the destructive
 # reset. If any check fails, the current DB is left untouched.
 #
-# Scope: these checks catch MISSING TOOLS and CORRUPT .gz files. They
-# do NOT catch invalid SQL. Reset will drop and recreate the DB; if
+# Scope: these checks catch MISSING TOOLS (psql, plus gunzip or cat
+# depending on file type) and CORRUPT .gz files. They do NOT catch
+# invalid SQL. Reset will drop and recreate the DB; if
 # psql then rejects the dump, the pre-restore data is gone regardless
 # of --single-transaction (which only rolls back the restore portion,
 # leaving an empty database).
@@ -126,6 +128,11 @@ if dump_path.suffix == ".gz":
         sys.exit(
             f"{dump_path.name} failed integrity check — not resetting DB"
         )
+else:
+    # Non-.gz dumps are streamed via `cat`; if it's missing on this
+    # system, detect now rather than after the destructive reset.
+    if not shutil.which("cat"):
+        sys.exit("cat not found on PATH")
 
 # ---------------------------------------------------------------------------
 # Step 1 — reset the DB by delegating to reset_local_db.py so the
