@@ -24,6 +24,11 @@ Accessibility: the dialog has aria-label="Choose a week". Each week
 button gets an aria-label like "Week of Oct 5 to Oct 11" — the raw
 day numbers (5 6 7 8 9 10 11) would be meaningless to screen readers.
 
+State sync: `pickWeek` writes the picked ISO back into the trigger
+button's `data-selected` attribute as well as its text label. Without
+this, `openFromTrigger` would re-read the stale page-load value on
+reopen and highlight the wrong week.
+
 Dismiss: Cancel button, ESC, or backdrop click. All route through
 window.__closeWeekPickerModal. Close-animation uses direct classList
 manipulation rather than Alpine's :class, because HTMX reinit can
@@ -323,7 +328,14 @@ debug log).
                             hidden.dispatchEvent(new Event("change", { bubbles: true }));
                         }
                         const trigger = document.getElementById("week-picker-trigger");
-                        if (trigger) trigger.textContent = this.formatWeekLabel(iso);
+                        if (trigger) {
+                            trigger.textContent = this.formatWeekLabel(iso);
+                            // Sync data-selected so reopening the picker
+                            // (openFromTrigger reads this attribute) lands
+                            // on the just-picked week, not the stale
+                            // page-load value.
+                            trigger.dataset.selected = iso;
+                        }
                     } finally {
                         window.__closeWeekPickerModal?.();
                     }

@@ -8,9 +8,11 @@ Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
 **Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete.
-Session 9 (QA + ship) in progress — CodeRabbit passes 1–3 applied.
-No confirmed live bugs remaining; all tracked items are either
-fixed or in Deferred / out of scope. See "Target" on each entry.
+Session 9 (QA + ship) is closing out — CodeRabbit passes 1–4 applied.
+One more CodeRabbit pass scheduled, then this document gets a
+layout restructure, then merge. No confirmed live bugs remaining;
+all tracked items are either fixed or in Deferred / out of scope.
+See "Target" on each entry.
 
 ---
 
@@ -779,3 +781,25 @@ Deferred / out of scope below.)_
     would make offset-by-panel-name assertions unreliable — the
     `TruncatedPatternEditTests.setUp` version already anchors at
     `CYCLE_EPOCH`, so it was unaffected.
+
+### FIXED-019 — Week picker trigger's `data-selected` kept in sync
+
+- **Fixed:** Session 9 (CodeRabbit pass 4).
+- **Severity:** Low (cosmetic — picker highlights wrong week on
+  reopen; no data corruption).
+- **Symptom:** After picking a week via the calendar modal, reopening
+  the picker highlighted the *previous* week, not the just-picked
+  one. `openFromTrigger` reads `button.dataset.selected` for the
+  initial `selectedISO`, and `pickWeek` updated `trigger.textContent`
+  but not `trigger.dataset.selected`. The trigger's label and the
+  picker's highlighted week could therefore disagree.
+- **Fix:** `pickWeek` also sets `trigger.dataset.selected = iso`.
+  Both the visible label and the attribute used for re-opening now
+  follow the current selection.
+- **Manual verification only** — pure client-side JS.
+- **Skipped (adjacent finding, restore_local_db.py):** CodeRabbit
+  suggested adding `-f -` to psql. Not applicable: psql reads from
+  stdin by default when no `-c` or `-f` is provided and stdin is a
+  pipe, which it is (`stdin=producer.stdout`). `--single-transaction`
+  wraps commands from stdin OR `-f` identically; `-f -` adds no
+  behavior. Skipped as redundant.
