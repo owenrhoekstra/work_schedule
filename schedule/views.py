@@ -1297,10 +1297,18 @@ def _handle_pattern_form_post(request, employee, mode):
     # successfully-parsed cell in submitted_shifts so any subsequent
     # error re-render (grid error OR retroactive guard) keeps the
     # user's typed values.
+    #
+    # Cells beyond cycle_weeks-1 aren't part of the visible form.
+    # Skipping them here (a) avoids surfacing validation errors for
+    # cells the user can't see, and (b) prevents stale or crafted
+    # POST data from being mapped back onto visible offsets via the
+    # modulo translation in the save loop.
     validated_edits = {}
     submitted_shifts = {}
     errors = []
     for week_offset in range(MAX_CYCLE_WEEKS):
+        if week_offset >= cycle_weeks:
+            continue
         for day in DAYS:
             start_key = f"week_{week_offset}_day_{day}_start"
             end_key = f"week_{week_offset}_day_{day}_end"
@@ -1422,6 +1430,14 @@ def _handle_pattern_form_post(request, employee, mode):
 
             base_target_offset = _cycle_offset(effective_from, cycle_weeks)
             for (cal_offset, day), value in validated_edits.items():
+                # Defense-in-depth: the parse loop already excludes
+                # cal_offset >= cycle_weeks, but a modulo mapping from
+                # a stale or crafted hidden cell (e.g. week_2 when
+                # cycle_weeks=2) would wrap back onto a visible offset
+                # and overwrite it. Skip anything outside the visible
+                # range.
+                if cal_offset >= cycle_weeks:
+                    continue
                 target_offset = (base_target_offset + cal_offset) % cycle_weeks
                 if value is None:
                     Shift.objects.filter(
@@ -1685,10 +1701,19 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     # successfully-parsed cell so any subsequent error re-render
     # (grid error OR retroactive guard) keeps the user's typed
     # values.
+    #
+    # Skip cells beyond cycle_weeks-1. When the user shrinks a 4-week
+    # pattern to 2 weeks, the browser still submits week_2/week_3
+    # inputs (empty, or stale from before the HTMX swap). Without
+    # this skip, the save loop's modulo mapping would translate those
+    # hidden offsets back onto offsets 0 and 1, deleting the visible
+    # weeks' data.
     validated_edits = {}
     submitted_shifts = {}
     errors = []
     for cal_offset in range(MAX_CYCLE_WEEKS):
+        if cal_offset >= cycle_weeks:
+            continue
         for day in DAYS:
             start_key = f"week_{cal_offset}_day_{day}_start"
             end_key = f"week_{cal_offset}_day_{day}_end"
@@ -1771,6 +1796,12 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 
         base_target_offset = _cycle_offset(pattern.effective_from, cycle_weeks)
         for (cal_offset, day), value in validated_edits.items():
+            # Defense-in-depth: parse loop already excludes
+            # cal_offset >= cycle_weeks. Belt-and-braces against
+            # any future path that populates validated_edits
+            # without that guard.
+            if cal_offset >= cycle_weeks:
+                continue
             target_offset = (base_target_offset + cal_offset) % cycle_weeks
             if value is None:
                 Shift.objects.filter(

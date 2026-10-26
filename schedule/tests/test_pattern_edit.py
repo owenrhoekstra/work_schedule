@@ -331,6 +331,38 @@ class TruncatedPatternEditTests(TestCase):
         self.assertFalse(
             Shift.objects.filter(pattern=self.p, week_offset__gte=2).exists()
         )
+        # Valid weeks 0 and 1 must survive with their posted values.
+        # Before the CodeRabbit pass 3 fix, week_2/week_3's empty
+        # submissions mapped back onto offsets 0 and 1 via modulo and
+        # deleted them, so the test passed only because it never
+        # asserted on offsets 0 and 1.
+        w0 = Shift.objects.get(pattern=self.p, week_offset=0, day=0)
+        self.assertEqual(w0.start_time.strftime("%H:%M"), "09:00")
+        self.assertEqual(w0.end_time.strftime("%H:%M"), "17:00")
+        w1 = Shift.objects.get(pattern=self.p, week_offset=1, day=0)
+        self.assertEqual(w1.start_time.strftime("%H:%M"), "10:00")
+        self.assertEqual(w1.end_time.strftime("%H:%M"), "18:00")
+
+    def test_crafted_post_with_hidden_weeks_cannot_overwrite_visible(self):
+        # CodeRabbit pass 3: a POST with week_2/week_3 filled in
+        # while cycle_weeks=2 must not map those hidden cells back
+        # via modulo onto offsets 0 and 1.
+        resp = self._post(
+            cycle_weeks="2",
+            week_2_day_0_start="23:00",
+            week_2_day_0_end="23:30",
+            week_3_day_0_start="22:00",
+            week_3_day_0_end="22:30",
+        )
+        self.assertEqual(resp.status_code, 302)
+        # Offset 0 keeps week_0's value (09-17), not week_2's (23-23:30).
+        w0 = Shift.objects.get(pattern=self.p, week_offset=0, day=0)
+        self.assertEqual(w0.start_time.strftime("%H:%M"), "09:00")
+        self.assertEqual(w0.end_time.strftime("%H:%M"), "17:00")
+        # Offset 1 keeps week_1's value (10-18), not week_3's (22-22:30).
+        w1 = Shift.objects.get(pattern=self.p, week_offset=1, day=0)
+        self.assertEqual(w1.start_time.strftime("%H:%M"), "10:00")
+        self.assertEqual(w1.end_time.strftime("%H:%M"), "18:00")
 
     def test_grow_beyond_current_cycle_still_rejected(self):
         # Pattern has cycle_weeks=4, span=2. Trying to grow is

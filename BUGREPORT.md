@@ -8,11 +8,9 @@ Update as bugs are found or resolved. When a bug is fixed, keep the
 entry but move it to `## Fixed` at the bottom with the fixing commit.
 
 **Current snapshot:** Sessions 1–8, 5.5, 6.5, 7, 7.5 complete.
-Session 9 (QA + ship) in progress — recent CodeRabbit rounds applied
-and pending commit. See "Target" on each entry. ("Session 8.5"
-terminology used earlier in this document was pre-QA work that
-preceded Session 9; entries below now say "Session 9 (pre-QA)" or
-"Session 9 (CodeRabbit pass)" for clarity.)
+Session 9 (QA + ship) in progress — CodeRabbit passes 1–3 applied.
+No confirmed live bugs remaining; all tracked items are either
+fixed or in Deferred / out of scope. See "Target" on each entry.
 
 ---
 
@@ -130,7 +128,7 @@ Deferred / out of scope below.)_
    list (min-year = employee start year, max = today + 5).
 6. **Pre-start-date weeks are disabled.** Grays them out; the server
    would reject them anyway via the existing `effective_from <
-start_date_floor` guard, but the UI shouldn't invite the error.
+   start_date_floor` guard, but the UI shouldn't invite the error.
 7. **Keyboard:** basic only. Tab between week bands, Enter to select,
    Escape to close. No arrow-key grid navigation — this is a
    click-first app.
@@ -206,7 +204,7 @@ start_date_floor` guard, but the UI shouldn't invite the error.
 3. **Truncated-pattern edit support.** A split can leave a pattern
    with `cycle_weeks > span_weeks`. The edit guard now rejects only
    growing past the span (`cycle_weeks > span_weeks AND cycle_weeks >
-pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
+   pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
    Companion prefill fix: `_grid_weeks_for_form` accepts an optional
    `pattern` argument; edit mode uses direct-pattern prefill so
    unchanged saves don't write next-pattern data into hidden offsets.
@@ -230,6 +228,13 @@ pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
    start_date_floor, span guard) can't preserve — the user is
    changing weeks/cycles anyway, and the client-side cache is cleared
    on that change.
+7. **Hidden-week POST cells skipped in parse and save loops.** After
+   the cycle-shrink HTMX swap, `week_2_*` / `week_3_*` inputs remain
+   in the POST body even when `cycle_weeks=2`. Both `validated_edits`
+   and `submitted_shifts` construction skip `cal_offset >= cycle_weeks`,
+   and the save loop's modulo translation guards the same condition.
+   Without this, the modulo mapping put those hidden cells back onto
+   visible offsets 0 and 1 (empty = deleted, non-empty = overwrite).
 
 ---
 
@@ -260,7 +265,7 @@ pattern.cycle_weeks`); unchanged or reduced cycles are allowed.
     equivalent.
   - Focus states across all interactive elements.
   - Modal `.is-closing` animations — verify against Safari (`margin:
-auto` in `dialog.modal-animate` is the known mitigation if
+    auto` in `dialog.modal-animate` is the known mitigation if
     centering breaks).
   - Print view — verify color / B&W rendering on actual paper.
 - **Target:** Session 9 (QA + ship) at the latest.
@@ -549,10 +554,11 @@ auto` in `dialog.modal-animate` is the known mitigation if
 - **New `_confirm_save_pattern.html`.** Every non-retroactive Save on
   the pattern writing form (change / add / edit) routes through this
   confirmation modal. Cancel on the modal aborts without submitting.
-- **Retroactive save gets its own dual-duty modal.** `_retroactive_confirm.html`
-  serves as both the retroactive warning AND the save confirmation.
-  Confirm sets both `retroactive_confirmed=1` and `saveConfirmed` and
-  submits directly — one modal, one click. Non-retroactive saves use
+- **Retroactive save gets its own dual-duty modal.**
+  `_retroactive_confirm.html` serves as both the retroactive warning
+  AND the save confirmation. Confirm sets both
+  `retroactive_confirmed=1` and `saveConfirmed` and submits directly
+  — one modal, one click. Non-retroactive saves use
   `_confirm_save_pattern.html` instead. No chained modals.
 - **Cancel on pattern form** routes through `_confirm_discard.html`
   (previously a plain `<a href>` with no warning).
@@ -714,19 +720,62 @@ auto` in `dialog.modal-animate` is the known mitigation if
     received. `gzip -t` closes that gap.
   - Plain `.sql` files can't be pre-validated; the `producer_rc` check
     at the end remains as a belt-and-braces for those.
-- **Tests:** `test_details.py::DeactivationRedirectTests::test_immediate_deactivation_overrides_employee_defaults_target`,
-  `test_immediate_deactivation...` companion for the future case.
-- **Corrected safety documentation (CodeRabbit follow-up):**
+- **Tests:** `test_details.py::DeactivationRedirectTests::test_immediate_deactivation_overrides_employee_defaults_target`
+  plus a companion for the future case.
+- **Corrected safety documentation (follow-up):**
   `restore_local_db.py`'s module docstring previously overstated
   pre-flight protection. It now explicitly separates:
   - What pre-flight catches: missing tools (psql/gunzip) and corrupt
     .gz files. Current DB untouched in those cases.
   - What it does NOT catch: invalid SQL. Reset drops and recreates
     the DB before psql runs; if psql then rejects the dump,
-    --single-transaction rolls back the restore portion, but the
+    `--single-transaction` rolls back the restore portion, but the
     database stays empty. Pre-restore data is gone regardless.
   - Recommended practice: back up before running if post-reset
     failure would be costly.
   - psql failure exit message updated to tell the user their DB is
     now empty — the previous message ("psql exited with code N")
     was accurate but omitted the state consequence.
+
+### FIXED-018 — Hidden-week POST cells cannot overwrite visible offsets
+
+- **Fixed:** Session 9 (CodeRabbit pass 3).
+- **Severity:** Medium (silent data loss in a routine flow; also a
+  crafted-POST attack surface).
+- **Symptom:** When shrinking `cycle_weeks` (e.g. 4 → 2), the save
+  loops iterated all `MAX_CYCLE_WEEKS` `validated_edits` entries and
+  mapped `cal_offset` back to a target offset via modulo. A
+  `cal_offset` beyond `cycle_weeks - 1` (e.g. 2 when cycle_weeks=2)
+  mapped onto a *visible* target offset (0), and applied whatever
+  value was in the hidden cell. When the hidden cell was empty —
+  which is the normal case, since the browser still submits
+  `week_2_*` / `week_3_*` inputs after an HTMX cycle swap — the save
+  loop **deleted** offsets 0 and 1. Users shrinking a 4-week pattern
+  to 2 lost *all four* weeks, not just the two being discarded.
+- **Also:** A crafted POST with `cycle_weeks=2` and weeks 0–3 all
+  filled would overwrite week 0's data with week 2's via the same
+  modulo collision.
+- **Fix:** Both `_handle_pattern_form_post` and
+  `_handle_pattern_edit_post` now skip `cal_offset >= cycle_weeks`
+  in the parse loop (avoids surfacing errors for cells the user
+  can't see) and in the save loop (defense in depth). Cells outside
+  the visible range never reach the DB-write step. Cycle-shrink
+  orphan deletion still removes offsets >= new cycle via the existing
+  `Shift.objects.filter(pattern, week_offset__gte=cycle_weeks).delete()`
+  path.
+- **Existing test bug:** `test_reduced_cycle_save_allowed` passed
+  before this fix because it only asserted offsets ≥ 2 were gone,
+  never that offsets 0 and 1 survived. Extended to assert both.
+- **Tests:**
+  - `test_pattern_edit.py::TruncatedPatternEditTests::test_reduced_cycle_save_allowed`
+    (extended).
+  - `test_pattern_edit.py::TruncatedPatternEditTests::test_crafted_post_with_hidden_weeks_cannot_overwrite_visible`
+    (new).
+  - `test_pattern_forms.py::PatternFormViewTests::test_crafted_post_with_hidden_weeks_ignored`
+    (new). Anchors `effective_from` at `settings.CYCLE_EPOCH` so
+    `base_target_offset=0`, panel N maps to offset N, and the
+    assertions name offsets by their panel letter. Non-congruent
+    `effective_from` (e.g. arbitrary dates) flips the mapping and
+    would make offset-by-panel-name assertions unreliable — the
+    `TruncatedPatternEditTests.setUp` version already anchors at
+    `CYCLE_EPOCH`, so it was unaffected.

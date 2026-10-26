@@ -246,3 +246,40 @@ class PatternFormViewTests(TestCase):
         # The typed start/end survived the retroactive guard re-render.
         self.assertEqual(html.count('value="8:00 AM"'), 1)
         self.assertEqual(html.count('value="4:00 PM"'), 1)
+
+    def test_crafted_post_with_hidden_weeks_ignored(self):
+        # CodeRabbit pass 3: cycle_weeks=2 with weeks 0-3 all filled.
+        # Weeks 2-3 would map back onto offsets 0-1 via modulo and
+        # overwrite the visible cells. Fix skips them.
+        #
+        # effective_from = CYCLE_EPOCH so base_target_offset=0 —
+        # cal_offset N maps directly to target_offset N, letting the
+        # assertions below name offsets by their panel letter. Using
+        # a non-congruent effective_from flips the mapping (cal 0 →
+        # offset 1) and the offsets-by-panel-name assertions would be
+        # wrong even when the underlying logic is correct.
+        from django.conf import settings
+
+        resp = self.client.post(
+            reverse("schedule_change", args=[self.emp.pk]),
+            {
+                "effective_from": settings.CYCLE_EPOCH.isoformat(),
+                "cycle_weeks": "2",
+                "retroactive_confirmed": "1",
+                "week_0_day_0_start": "09:00",
+                "week_0_day_0_end": "17:00",
+                "week_1_day_0_start": "10:00",
+                "week_1_day_0_end": "18:00",
+                "week_2_day_0_start": "23:00",
+                "week_2_day_0_end": "23:30",
+                "week_3_day_0_start": "22:00",
+                "week_3_day_0_end": "22:30",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        p = self.emp.patterns.order_by("-effective_from").first()
+        self.assertEqual(p.cycle_weeks, 2)
+        s0 = Shift.objects.get(pattern=p, week_offset=0, day=0)
+        self.assertEqual(s0.start_time.strftime("%H:%M"), "09:00")
+        s1 = Shift.objects.get(pattern=p, week_offset=1, day=0)
+        self.assertEqual(s1.start_time.strftime("%H:%M"), "10:00")
