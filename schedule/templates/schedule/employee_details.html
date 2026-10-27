@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ employee }} — Edit details{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <a
+        href="{% url 'employee_defaults' employee.pk %}"
+        class="text-sm font-medium text-brand-coral hover:underline mb-4 inline-block"
+        >← Back to {{ employee }}</a
+    >
+
+    <h1
+        class="font-display text-xl sm:text-2xl font-bold text-brand-indigo mb-6"
+    >
+        Edit details for {{ employee }}
+    </h1>
+
+    {% include "schedule/partials/_identity_form.html" %}
+</div>
+
+{% include "schedule/modals/_deactivate.html" %}
+{% include "schedule/modals/_confirm_discard.html" %}
+{% include "schedule/modals/_cancel_deactivation_confirm.html" %}
+{% include "schedule/modals/_confirm_save_details.html" %}
+{% endblock %}

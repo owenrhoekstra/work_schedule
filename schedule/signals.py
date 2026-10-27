@@ -4,9 +4,12 @@ Two concerns:
 
 - Keeping User and Employee in sync (name, email) so downstream code
   that reads either one sees consistent data.
-- Auto-creating EmploymentPeriod and ShiftPattern rows when an
-  Employee is first created, so new employees are immediately
-  schedulable without a separate setup step.
+- Auto-creating an EmploymentPeriod when an Employee is first created.
+
+ShiftPattern creation is NOT automatic. A newly created employee has
+no schedule until a manager sets one up via /schedule/add/. This
+matches the redesign's intent: reading is a summary, writing is a
+deliberate action.
 """
 
 from datetime import timedelta
@@ -15,7 +18,7 @@ from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import Employee, EmploymentPeriod, ShiftPattern
+from .models import Employee, EmploymentPeriod
 
 
 @receiver(post_save, sender=Employee)
@@ -49,34 +52,4 @@ def ensure_employee_has_period(sender, instance, created, **kwargs):
     EmploymentPeriod.objects.get_or_create(
         employee=instance,
         defaults={"start_date": instance.start_date, "end_date": end_date},
-    )
-
-
-@receiver(post_save, sender=Employee)
-def ensure_employee_has_pattern(sender, instance, created, **kwargs):
-    """Create an initial ShiftPattern for a newly created Employee.
-
-    Anchored at the earliest employment period start, or the employee's
-    start_date if no periods exist yet. The pattern starts empty — the
-    manager fills in hours on the defaults page.
-
-    If a pattern was somehow created manually before the signal ran,
-    this is a no-op thanks to the exists() check.
-    """
-    if not created:
-        return
-    if instance.patterns.exists():
-        return
-    earliest = (
-        instance.periods.order_by("start_date")
-        .values_list("start_date", flat=True)
-        .first()
-    )
-    anchor = earliest or instance.start_date
-    # Normalize to Monday so pattern dates align with week-based lookups
-    anchor = anchor - timedelta(days=anchor.weekday())
-    ShiftPattern.objects.create(
-        employee=instance,
-        effective_from=anchor,
-        cycle_weeks=1,
     )

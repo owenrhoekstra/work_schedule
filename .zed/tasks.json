@@ -23,11 +23,15 @@
     "command": "uv run python manage.py createsuperuser",
   },
   {
-    "label": "flush db",
+    "label": "FLUSH db",
     "command": "uv run python manage.py flush",
   },
   {
-    "label": "reset local db",
+    "label": "RESET local db",
     "command": "uv run python scripts/reset_local_db.py && uv run python manage.py migrate && uv run python manage.py createsuperuser",
+  },
+  {
+    "label": "restore local db",
+    "command": "uv run python scripts/restore_local_db.py",
   },
 ]

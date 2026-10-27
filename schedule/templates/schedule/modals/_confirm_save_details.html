@@ -1,0 +1,108 @@
+{% comment %}
+Confirmation for Save details on the identity form. Always shown
+(user preference: explicit action every save, revisit if it becomes
+noisy).
+
+Intercepts submit on #identity-form, preventDefaults, opens this modal.
+Confirm sets form.dataset.confirmed = "1" and re-submits — the
+interceptor sees the flag, clears it, and lets the submit through.
+
+Native-button pattern; no Alpine.
+{% endcomment %}
+<dialog
+    id="confirm-save-details-modal"
+    aria-labelledby="confirm-save-details-title"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
+>
+    <div class="p-6 space-y-4">
+        <h2
+            id="confirm-save-details-title"
+            class="font-display text-lg font-bold text-brand-indigo"
+        >
+            Save changes?
+        </h2>
+        <p class="text-sm text-gray-500">
+            Save changes to
+            <strong class="text-brand-indigo" data-save-details-name>this employee</strong>?
+        </p>
+        <div class="flex justify-end gap-2 pt-2">
+            <button
+                type="button"
+                onclick="window.__dismissConfirmSaveDetails?.()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1"
+            >
+                Keep editing
+            </button>
+            <button
+                type="button"
+                onclick="window.__confirmSaveDetails?.()"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
+            >
+                Save changes
+            </button>
+        </div>
+    </div>
+</dialog>
+<script>
+    (() => {
+        if (window.__confirmSaveWired) return;
+        window.__confirmSaveWired = true;
+
+        const dialogEl = () =>
+            document.getElementById("confirm-save-details-modal");
+
+        const dismiss = () => {
+            const d = dialogEl();
+            if (!d || !d.open || d.classList.contains("is-closing")) return;
+            d.classList.add("is-closing");
+            setTimeout(() => {
+                d.close();
+                d.classList.remove("is-closing");
+            }, 200);
+        };
+
+        window.__dismissConfirmSaveDetails = dismiss;
+
+        window.__confirmSaveDetails = () => {
+            const form = document.getElementById("identity-form");
+            if (!form) return;
+            form.dataset.confirmed = "1";
+            dismiss();
+            // Small delay so the modal finishes its close animation
+            // before navigation begins — avoids a "modal on top of
+            // loading page" flash in Safari.
+            setTimeout(() => form.requestSubmit(), 60);
+        };
+
+        document.addEventListener("submit", (e) => {
+            const form = e.target;
+            if (!(form instanceof HTMLFormElement)) return;
+            if (form.id !== "identity-form") return;
+            if (form.dataset.confirmed === "1") {
+                delete form.dataset.confirmed;
+                return;
+            }
+            e.preventDefault();
+            const dialog = dialogEl();
+            if (!dialog) return;
+            const nameEl = dialog.querySelector("[data-save-details-name]");
+            if (nameEl) {
+                nameEl.textContent = form.dataset.employeeName || "this employee";
+            }
+            if (!dialog.open) dialog.showModal();
+        });
+
+        document.addEventListener(
+            "keydown",
+            (e) => {
+                if (e.key !== "Escape") return;
+                const d = dialogEl();
+                if (d && d.open) {
+                    e.preventDefault();
+                    dismiss();
+                }
+            },
+            true
+        );
+    })();
+</script>

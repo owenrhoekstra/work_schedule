@@ -1,119 +1,168 @@
-<details
-    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
-    {% if identity_form.errors %}open{% endif %}
+{% comment %}
+Identity edit form. Rendered on the employee details page (/details/).
+Posts `form=identity` to the details page URL. On success the view
+redirects to the reading page; on validation error it re-renders this
+page with bound errors.
+
+Footer variants:
+- No last_day: [Set Last Day] [Cancel] [Save details]
+- last_day set: [Cancel deactivation] [Cancel] [Save details]
+  and a banner above the fields noting the scheduled deactivation.
+
+Save details always routes through _confirm_save_details.html (the
+submit interceptor in that modal preventDefaults and re-submits once
+confirmed). Cancel routes through _confirm_discard.html (unsaved
+edits warning).
+
+Set Last Day / Cancel deactivation buttons open their respective
+modals; both modals POST to their own endpoints (not to this form).
+
+`#cancel-deactivation-form` is a hidden sibling form (HTML forms
+cannot nest) that the cancel modal submits via JS.
+{% endcomment %}
+<form
+    method="post"
+    action="{% url 'employee_details' employee.pk %}"
+    id="identity-form"
+    data-employee-name="{{ employee }}"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6"
 >
-    <summary
-        class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-brand-offwhite/40 transition-colors"
-    >
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Employee Details
-        </h2>
-        <span class="text-gray-400 text-sm">▾</span>
-    </summary>
-    <form method="post" class="border-t border-gray-200">
-        {% csrf_token %}
-        <input type="hidden" name="form" value="identity" />
+    {% csrf_token %}
+    <input type="hidden" name="form" value="identity" />
 
-        <div class="p-6 space-y-4">
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                    <label
-                        for="{{ identity_form.title.id_for_label }}"
-                        class="block text-sm font-medium text-brand-indigo mb-1"
-                        >Title</label
-                    >
-                    {{ identity_form.title }}
-                </div>
-                <div class="sm:col-span-2">
-                    <label
-                        for="{{ identity_form.first_name.id_for_label }}"
-                        class="block text-sm font-medium text-brand-indigo mb-1"
-                        >First Name</label
-                    >
-                    {{ identity_form.first_name }}
-                    {% if identity_form.first_name.errors %}
-                    <p class="text-sm text-brand-coral mt-1">
-                        {{ identity_form.first_name.errors.0 }}
-                    </p>
-                    {% endif %}
-                </div>
-            </div>
+    {% if last_day %}
+    <div class="border-b border-brand-coral/30 bg-brand-coral/5 px-6 py-3">
+        <p class="font-display text-sm font-medium text-brand-indigo">
+            Scheduled for deactivation on {{ last_day|date:"F j, Y" }}
+        </p>
+        <p class="text-xs text-gray-600 mt-1">
+            Their final day on the schedule. Off from the following day.
+            To keep them on indefinitely, use Cancel deactivation.
+        </p>
+    </div>
+    {% endif %}
 
+    <div class="p-6 space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
                 <label
-                    for="{{ identity_form.last_name.id_for_label }}"
+                    for="{{ identity_form.title.id_for_label }}"
                     class="block text-sm font-medium text-brand-indigo mb-1"
-                    >Last Name</label
+                    >Title</label
                 >
-                {{ identity_form.last_name }}
-                {% if identity_form.last_name.errors %}
-                <p class="text-sm text-brand-coral mt-1">
-                    {{ identity_form.last_name.errors.0 }}
-                </p>
-                {% endif %}
+                {{ identity_form.title }}
             </div>
-
-            <div>
+            <div class="sm:col-span-2">
                 <label
-                    for="{{ identity_form.role.id_for_label }}"
+                    for="{{ identity_form.first_name.id_for_label }}"
                     class="block text-sm font-medium text-brand-indigo mb-1"
-                    >Role</label
+                    >First Name</label
                 >
-                {{ identity_form.role }}
-                {% if identity_form.role.errors %}
+                {{ identity_form.first_name }}
+                {% if identity_form.first_name.errors %}
                 <p class="text-sm text-brand-coral mt-1">
-                    {{ identity_form.role.errors.0 }}
-                </p>
-                {% endif %}
-            </div>
-
-            <div>
-                <label
-                    for="{{ identity_form.email.id_for_label }}"
-                    class="block text-sm font-medium text-brand-indigo mb-1"
-                    >Email</label
-                >
-                {{ identity_form.email }}
-                {% if identity_form.email.errors %}
-                <p class="text-sm text-brand-coral mt-1">
-                    {{ identity_form.email.errors.0 }}
-                </p>
-                {% endif %}
-            </div>
-
-            <div>
-                <label
-                    for="{{ identity_form.start_date.id_for_label }}"
-                    class="block text-sm font-medium text-brand-indigo mb-1"
-                    >Start Date</label
-                >
-                {{ identity_form.start_date }}
-                <p class="text-xs text-gray-500 mt-1">
-                    First day on the schedule. Can be in the past.
-                </p>
-                {% if identity_form.start_date.errors %}
-                <p class="text-sm text-brand-coral mt-1">
-                    {{ identity_form.start_date.errors.0 }}
+                    {{ identity_form.first_name.errors.0 }}
                 </p>
                 {% endif %}
             </div>
         </div>
 
-        {% if can_change %}
-        <div
-            class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
-        >
-            {% if is_management %}
+        <div>
+            <label
+                for="{{ identity_form.last_name.id_for_label }}"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+                >Last Name</label
+            >
+            {{ identity_form.last_name }}
+            {% if identity_form.last_name.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ identity_form.last_name.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div>
+            <label
+                for="{{ identity_form.role.id_for_label }}"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+                >Role</label
+            >
+            {{ identity_form.role }}
+            {% if identity_form.role.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ identity_form.role.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div>
+            <label
+                for="{{ identity_form.email.id_for_label }}"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+                >Email</label
+            >
+            {{ identity_form.email }}
+            {% if identity_form.email.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ identity_form.email.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+
+        <div>
+            <label
+                for="{{ identity_form.start_date.id_for_label }}"
+                class="block text-sm font-medium text-brand-indigo mb-1"
+                >Start Date</label
+            >
+            {{ identity_form.start_date }}
+            <p class="text-xs text-gray-500 mt-1">
+                First day on the schedule. Can be in the past.
+            </p>
+            {% if identity_form.start_date.errors %}
+            <p class="text-sm text-brand-coral mt-1">
+                {{ identity_form.start_date.errors.0 }}
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div
+        class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
+    >
+        {% if perms.schedule.delete_employee %}
+            {% if last_day %}
             <button
                 type="button"
-                @click="openDeactivate()"
+                data-employee-name="{{ employee }}"
+                onclick="openCancelDeactivationModal(this)"
+                class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
+            >
+                Cancel deactivation
+            </button>
+            {% else %}
+            <button
+                type="button"
+                data-employee-id="{{ employee.pk }}"
+                data-employee-name="{{ employee }}"
+                data-next="employee_defaults"
+                onclick="openDeactivateModal(this)"
                 class="font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
             >
                 Set Last Day
             </button>
-            {% else %}
-            <span></span>
             {% endif %}
+        {% else %}
+        <span></span>
+        {% endif %}
+        <div class="flex gap-2">
+            <button
+                type="button"
+                onclick="openConfirmDiscardModal('{% url 'employee_defaults' employee.pk %}')"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
+            >
+                Cancel
+            </button>
             <button
                 type="submit"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
@@ -121,6 +170,15 @@
                 Save details
             </button>
         </div>
-        {% endif %}
-    </form>
-</details>
+    </div>
+</form>
+
+<form
+    method="post"
+    action="{% url 'settings_cancel_deactivation' employee.pk %}"
+    id="cancel-deactivation-form"
+    hidden
+>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="employee_details" />
+</form>

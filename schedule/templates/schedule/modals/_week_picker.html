@@ -1,0 +1,419 @@
+{% comment %}
+Week picker calendar modal.
+
+Replaces the old <select> week dropdown. Self-contained Alpine
+component scoped only to the dialog (x-data="weekPicker"); no
+dependence on any parent scope.
+
+Behaviour:
+- Click a week band (Mon–Sun) to select it. The modal closes
+  immediately on pick; HTMX fires the preview GET in parallel.
+- Weeks that overlap the current month are shown; days outside the
+  month are dimmed.
+- Weeks before the employee's start date are disabled.
+- Current week gets a subtle border; selected week gets a coral
+  border + background. Only these two states draw a border.
+- Today's number is bold coral.
+- Header: [Month ▾] [Year ▾] with ◀ / ▶ arrows (step months).
+- Month name opens a 12-month grid.
+- Year opens a 12-year grid with ◀◀ / ▶▶ buttons that shift the
+  window by 12 years, so employees on multi-decade patterns can
+  still be scheduled into the far future.
+
+Accessibility: the dialog has aria-label="Choose a week". Each week
+button gets an aria-label like "Week of Oct 5 to Oct 11" — the raw
+day numbers (5 6 7 8 9 10 11) would be meaningless to screen readers.
+
+State sync: `pickWeek` writes the picked ISO back into the trigger
+button's `data-selected` attribute as well as its text label. Without
+this, `openFromTrigger` would re-read the stale page-load value on
+reopen and highlight the wrong week.
+
+Dismiss: Cancel button, ESC, or backdrop click. All route through
+window.__closeWeekPickerModal. Close-animation uses direct classList
+manipulation rather than Alpine's :class, because HTMX reinit can
+leave the Alpine component's $el reference stale (see Session 6.5
+debug log).
+{% endcomment %}
+<dialog
+    id="week-picker-modal"
+    x-data="weekPicker"
+    data-today-iso="{{ today_iso }}"
+    aria-label="Choose a week"
+    @cancel.prevent="window.__closeWeekPickerModal?.()"
+    @click.self="window.__closeWeekPickerModal?.()"
+    class="modal-animate fixed rounded-xl p-0 backdrop:bg-black/40 w-full max-w-md m-0"
+>
+    <div class="p-4 space-y-4">
+        <!-- Header: prev / month + year / next -->
+        <div class="flex items-center justify-between gap-2">
+            <button
+                type="button"
+                @click="prevMonth()"
+                aria-label="Previous month"
+                class="p-2 hover:bg-gray-100 rounded text-brand-indigo transition-colors"
+            >
+                ◀
+            </button>
+            <div class="flex items-center gap-1">
+                <button
+                    type="button"
+                    @click="toggleMonthSelector()"
+                    class="font-display text-lg font-bold text-brand-indigo px-2 py-1 hover:bg-gray-100 rounded transition-colors"
+                    x-text="viewMonthName"
+                ></button>
+                <button
+                    type="button"
+                    @click="toggleYearSelector()"
+                    class="font-display text-lg font-bold text-brand-indigo px-2 py-1 hover:bg-gray-100 rounded transition-colors"
+                    x-text="viewYear"
+                ></button>
+            </div>
+            <button
+                type="button"
+                @click="nextMonth()"
+                aria-label="Next month"
+                class="p-2 hover:bg-gray-100 rounded text-brand-indigo transition-colors"
+            >
+                ▶
+            </button>
+        </div>
+
+        <!-- Month selector: 3-column grid (12 months) -->
+        <div
+            x-show="monthSelectorOpen"
+            style="display: none;"
+            class="grid grid-cols-3 gap-2"
+        >
+            <template x-for="(m, idx) in monthNames" :key="idx">
+                <button
+                    type="button"
+                    @click="selectMonth(idx)"
+                    x-text="m"
+                    :class="idx === viewMonth
+                        ? 'border-brand-coral bg-brand-coral/5 text-brand-coral font-medium'
+                        : 'border-gray-300 hover:border-brand-coral text-gray-700'"
+                    class="px-3 py-2 border rounded text-sm transition-colors"
+                ></button>
+            </template>
+        </div>
+
+        <!-- Year selector: same 3-column grid style (12 years, sliding) -->
+        <div x-show="yearSelectorOpen" style="display: none;">
+            <div class="flex items-center justify-between mb-2 px-1">
+                <button
+                    type="button"
+                    @click="prevYearWindow()"
+                    :disabled="yearWindowStart <= minYear"
+                    :class="yearWindowStart <= minYear
+                        ? 'text-gray-300 cursor-not-allowed p-1 rounded'
+                        : 'text-brand-indigo hover:bg-gray-100 p-1 rounded transition-colors'"
+                    aria-label="Previous 12 years"
+                >
+                    ◀◀
+                </button>
+                <span
+                    class="text-xs font-medium text-gray-500 tabular-nums"
+                    x-text="`${yearWindowStart}–${yearWindowStart + 11}`"
+                ></span>
+                <button
+                    type="button"
+                    @click="nextYearWindow()"
+                    aria-label="Next 12 years"
+                    class="text-brand-indigo hover:bg-gray-100 p-1 rounded transition-colors"
+                >
+                    ▶▶
+                </button>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <template x-for="y in yearRange" :key="y">
+                    <button
+                        type="button"
+                        @click="selectYear(y)"
+                        x-text="y"
+                        :class="y === viewYear
+                            ? 'border-brand-coral bg-brand-coral/5 text-brand-coral font-medium'
+                            : 'border-gray-300 hover:border-brand-coral text-gray-700'"
+                        class="px-3 py-2 border rounded text-sm transition-colors"
+                    ></button>
+                </template>
+            </div>
+        </div>
+
+        <!-- Calendar grid (hidden while a selector is open) -->
+        <div x-show="!monthSelectorOpen && !yearSelectorOpen" style="display: block;">
+            <div
+                class="grid grid-cols-7 gap-1 text-xs text-center text-gray-500 font-medium mb-2"
+            >
+                <div>Mon</div>
+                <div>Tue</div>
+                <div>Wed</div>
+                <div>Thu</div>
+                <div>Fri</div>
+                <div>Sat</div>
+                <div>Sun</div>
+            </div>
+
+            <div class="space-y-2">
+                <template x-for="week in weeks" :key="week.iso">
+                    <button
+                        type="button"
+                        @click="pickWeek(week.iso)"
+                        :disabled="week.disabled"
+                        :aria-label="week.label"
+                        :class="{
+                            'border-brand-coral bg-brand-coral/10 text-brand-coral font-medium': week.isSelected,
+                            'border-brand-coral/30 bg-brand-coral/[0.03]': week.isCurrentWeek && !week.isSelected && !week.disabled,
+                            'border-transparent hover:bg-gray-50 hover:border-gray-200': !week.isCurrentWeek && !week.isSelected && !week.disabled,
+                            'border-transparent text-gray-300 cursor-not-allowed': week.disabled
+                        }"
+                        class="w-full grid grid-cols-7 gap-1 text-center text-sm py-1.5 px-2 border rounded-lg transition-colors"
+                    >
+                        <template x-for="day in week.days" :key="day.iso">
+                            <div
+                                :class="{
+                                    'text-gray-300': day.isOtherMonth,
+                                    'text-brand-coral font-bold': day.isToday && !day.isOtherMonth
+                                }"
+                            >
+                                <span x-text="day.num"></span>
+                            </div>
+                        </template>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-gray-200">
+            <button
+                type="button"
+                onclick="window.__closeWeekPickerModal?.()"
+                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-brand-coral focus:ring-offset-1"
+            >
+                Cancel
+            </button>
+        </div>
+    </div>
+</dialog>
+<script>
+    (() => {
+        if (window.__weekPickerRegistered) return;
+        window.__weekPickerRegistered = true;
+
+        document.addEventListener("alpine:init", () => {
+            Alpine.data("weekPicker", () => ({
+                viewYear: new Date().getFullYear(),
+                viewMonth: new Date().getMonth(),
+                selectedISO: "",
+                minISO: "",
+                todayISO: "",
+                monthSelectorOpen: false,
+                yearSelectorOpen: false,
+                yearWindowStart: new Date().getFullYear() - 5,
+                monthNames: [
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December",
+                ],
+
+                init() {
+                    this.todayISO = this.$el.dataset.todayIso || "";
+                },
+
+                get viewMonthName() {
+                    return this.monthNames[this.viewMonth];
+                },
+
+                get minYear() {
+                    if (!this.minISO) return 1;
+                    return new Date(this.minISO + "T00:00:00").getFullYear();
+                },
+
+                get yearRange() {
+                    const out = [];
+                    for (let i = 0; i < 12; i++) out.push(this.yearWindowStart + i);
+                    return out;
+                },
+
+                get currentWeekISO() {
+                    const d = new Date();
+                    const daysSinceMon = (d.getDay() + 6) % 7;
+                    d.setDate(d.getDate() - daysSinceMon);
+                    return this.dateToISO(d);
+                },
+
+                get weeks() {
+                    const out = [];
+                    const firstOfMonth = new Date(this.viewYear, this.viewMonth, 1);
+                    const lastOfMonth = new Date(this.viewYear, this.viewMonth + 1, 0);
+
+                    let d = new Date(firstOfMonth);
+                    while (d.getDay() !== 1) d.setDate(d.getDate() - 1);
+
+                    while (d <= lastOfMonth) {
+                        out.push(this.buildWeek(new Date(d), firstOfMonth, lastOfMonth));
+                        d.setDate(d.getDate() + 7);
+                    }
+                    return out;
+                },
+
+                buildWeek(monday, firstOfMonth, lastOfMonth) {
+                    const days = [];
+                    for (let i = 0; i < 7; i++) {
+                        const dayDate = new Date(monday);
+                        dayDate.setDate(monday.getDate() + i);
+                        const iso = this.dateToISO(dayDate);
+                        const inMonth =
+                            dayDate >= firstOfMonth && dayDate <= lastOfMonth;
+                        days.push({
+                            num: dayDate.getDate(),
+                            iso,
+                            isToday: iso === this.todayISO,
+                            isOtherMonth: !inMonth,
+                        });
+                    }
+                    const iso = this.dateToISO(monday);
+                    const sunday = new Date(monday);
+                    sunday.setDate(monday.getDate() + 6);
+                    const monShort = this.monthNames[monday.getMonth()].slice(0, 3);
+                    const sunShort = this.monthNames[sunday.getMonth()].slice(0, 3);
+                    const label = `Week of ${monShort} ${monday.getDate()} to ${sunShort} ${sunday.getDate()}`;
+                    return {
+                        iso,
+                        days,
+                        label,
+                        disabled: this.minISO ? iso < this.minISO : false,
+                        isSelected: iso === this.selectedISO,
+                        isCurrentWeek: iso === this.currentWeekISO,
+                    };
+                },
+
+                dateToISO(d) {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const day = String(d.getDate()).padStart(2, "0");
+                    return `${y}-${m}-${day}`;
+                },
+
+                formatWeekLabel(iso) {
+                    const mon = new Date(iso + "T00:00:00");
+                    const sat = new Date(mon);
+                    sat.setDate(mon.getDate() + 5);
+                    const monName = this.monthNames[mon.getMonth()].slice(0, 3);
+                    const satName = this.monthNames[sat.getMonth()].slice(0, 3);
+                    return `Week of ${monName} ${mon.getDate()} – ${satName} ${sat.getDate()}`;
+                },
+
+                openFromTrigger(button) {
+                    this.selectedISO = button.dataset.selected || "";
+                    this.minISO = button.dataset.min || "";
+                    this.monthSelectorOpen = false;
+                    this.yearSelectorOpen = false;
+                    const anchor = this.selectedISO
+                        ? new Date(this.selectedISO + "T00:00:00")
+                        : new Date();
+                    this.viewYear = anchor.getFullYear();
+                    this.viewMonth = anchor.getMonth();
+                    this.yearWindowStart = Math.max(
+                        this.minYear,
+                        this.viewYear - 5
+                    );
+                },
+
+                pickWeek(iso) {
+                    try {
+                        this.selectedISO = iso;
+                        const hidden = document.getElementById("effective-from");
+                        if (hidden) {
+                            hidden.value = iso;
+                            hidden.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
+                        const trigger = document.getElementById("week-picker-trigger");
+                        if (trigger) {
+                            trigger.textContent = this.formatWeekLabel(iso);
+                            // Sync data-selected so reopening the picker
+                            // (openFromTrigger reads this attribute) lands
+                            // on the just-picked week, not the stale
+                            // page-load value.
+                            trigger.dataset.selected = iso;
+                        }
+                    } finally {
+                        window.__closeWeekPickerModal?.();
+                    }
+                },
+
+                prevMonth() {
+                    if (this.viewMonth === 0) {
+                        this.viewMonth = 11;
+                        this.viewYear--;
+                    } else {
+                        this.viewMonth--;
+                    }
+                },
+
+                nextMonth() {
+                    if (this.viewMonth === 11) {
+                        this.viewMonth = 0;
+                        this.viewYear++;
+                    } else {
+                        this.viewMonth++;
+                    }
+                },
+
+                toggleMonthSelector() {
+                    this.monthSelectorOpen = !this.monthSelectorOpen;
+                    this.yearSelectorOpen = false;
+                },
+
+                toggleYearSelector() {
+                    this.yearWindowStart = Math.max(
+                        this.minYear,
+                        this.viewYear - 5
+                    );
+                    this.yearSelectorOpen = !this.yearSelectorOpen;
+                    this.monthSelectorOpen = false;
+                },
+
+                prevYearWindow() {
+                    this.yearWindowStart = Math.max(
+                        this.minYear,
+                        this.yearWindowStart - 12
+                    );
+                },
+
+                nextYearWindow() {
+                    this.yearWindowStart += 12;
+                },
+
+                selectMonth(m) {
+                    this.viewMonth = m;
+                    this.monthSelectorOpen = false;
+                },
+
+                selectYear(y) {
+                    this.viewYear = y;
+                    this.yearSelectorOpen = false;
+                },
+            }));
+        });
+
+        window.__openWeekPickerModal = (button) => {
+            const dialog = document.getElementById("week-picker-modal");
+            if (!dialog || !window.Alpine) return;
+            const data = Alpine.$data(dialog);
+            if (!data) return;
+            data.openFromTrigger(button);
+            if (!dialog.open) dialog.showModal();
+        };
+
+        window.__closeWeekPickerModal = () => {
+            const dialog = document.getElementById("week-picker-modal");
+            if (!dialog || !dialog.open) return;
+            if (dialog.classList.contains("is-closing")) return;
+            dialog.classList.add("is-closing");
+            setTimeout(() => {
+                dialog.close();
+                dialog.classList.remove("is-closing");
+            }, 200);
+        };
+    })();
+</script>

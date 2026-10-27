@@ -340,63 +340,6 @@
     </section>
 </div>
 
-<!-- Deactivate modal -->
-<dialog
-    id="deactivate-modal"
-    data-url-template="{% url 'settings_deactivate_employee' '00000000-0000-0000-0000-000000000000' %}"
-    data-today="{{ today|date:'Y-m-d' }}"
-    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl p-0 backdrop:bg-black/40 w-full max-w-sm m-0"
->
-    <form method="post" id="deactivate-form" class="p-6 space-y-4">
-        {% csrf_token %}
-        <h2 class="font-display text-lg font-bold text-brand-indigo">
-            Set Last Day
-        </h2>
-        <p class="text-sm text-gray-500">
-            <span id="deactivate-name"></span>
-        </p>
-        <div>
-            <label class="block text-sm font-medium text-brand-indigo mb-1">
-                Last day
-            </label>
-            <input
-                type="date"
-                name="last_day"
-                id="deactivate-date"
-                required
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
-            />
-            <p class="text-xs text-gray-500 mt-1">
-                Their final day on the schedule. Off from the following day.
-            </p>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-brand-indigo pt-2">
-            <input
-                type="checkbox"
-                name="notify"
-                value="1"
-                class="accent-brand-coral"
-            />
-            Notify employee of this change
-        </label>
-        <div class="flex justify-end gap-2 pt-2">
-            <button
-                type="button"
-                onclick="document.getElementById('deactivate-modal').close()"
-                class="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2"
-            >
-                Cancel
-            </button>
-            <button
-                type="submit"
-                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
-            >
-                Set Last Day
-            </button>
-        </div>
-    </form>
-</dialog>
-
 <!-- Reactivate modal -->
 <dialog
     id="reactivate-modal"
@@ -484,4 +427,5 @@
         dialog.showModal();
     }
 </script>
+{% include "schedule/modals/_deactivate.html" %}
 {% endblock %}

@@ -76,6 +76,10 @@ class HomeScheduleRenderingTests(TestCase):
     Every employee created here starts well before `self.mon` so the
     "not yet employed" dash never interferes with the assertions.
     Tests that specifically exercise that dash use their own dates.
+
+    Session 8: make_employee no longer auto-creates a pattern. Tests
+    that render actual shift cells opt in with with_pattern=True (or
+    cycle_weeks=N, which implies it).
     """
 
     def setUp(self):
@@ -114,7 +118,7 @@ class HomeScheduleRenderingTests(TestCase):
             self.assertFalse(cell["is_employed"])
 
     def test_employee_deactivated_midweek_shows_gap(self):
-        emp = make_employee(start_date=self.early_start)
+        emp = make_employee(start_date=self.early_start, with_pattern=True)
         emp.last_day = self.mon + timedelta(days=1)  # Tuesday is last day
         emp.save()
         period = emp.periods.first()
@@ -175,7 +179,7 @@ class HomeScheduleRenderingTests(TestCase):
     # ----- employee overrides -----
 
     def test_employee_override_shows_times(self):
-        emp = make_employee(start_date=self.early_start)
+        emp = make_employee(start_date=self.early_start, with_pattern=True)
         pattern = emp.patterns.first()
         Shift.objects.create(
             pattern=pattern,
@@ -197,7 +201,7 @@ class HomeScheduleRenderingTests(TestCase):
         self.assertEqual(row["cells"][0]["state_class"], "text-brand-coral")
 
     def test_off_override_shows_off(self):
-        emp = make_employee(start_date=self.early_start)
+        emp = make_employee(start_date=self.early_start, with_pattern=True)
         pattern = emp.patterns.first()
         Shift.objects.create(
             pattern=pattern,
@@ -215,7 +219,7 @@ class HomeScheduleRenderingTests(TestCase):
     # ----- totals -----
 
     def test_total_hours_sums_defaults(self):
-        emp = make_employee(start_date=self.early_start)
+        emp = make_employee(start_date=self.early_start, with_pattern=True)
         pattern = emp.patterns.first()
         for day in range(3):  # Mon, Tue, Wed
             Shift.objects.create(

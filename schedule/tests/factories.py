@@ -4,13 +4,17 @@ Each helper is deliberately simple — no faker, no randomness, no
 per-test uniqueness beyond what the tests ask for. When a test needs a
 specific attribute, it passes it in; otherwise the defaults here are
 the boring middle of the road.
+
+Session 8: make_employee no longer creates a ShiftPattern
+automatically (the app no longer does either). Tests opt in with
+with_pattern=True or cycle_weeks=N.
 """
 
 from datetime import date, timedelta
 
 from django.contrib.auth.models import Permission, User
 
-from schedule.models import Employee, Role, Title
+from schedule.models import Employee, Role, ShiftPattern, Title
 
 
 def make_role(name="Staff", order=10):
@@ -28,15 +32,34 @@ def make_title(name="Dr."):
     return title
 
 
-def make_employee(email="test@example.com", role=None, start_date=None, **kwargs):
-    """Create an Employee and ensure they have a starting ShiftPattern.
+def make_employee(
+    email="test@example.com",
+    role=None,
+    start_date=None,
+    with_pattern=False,
+    **kwargs,
+):
+    """Create an Employee, optionally with an empty starting ShiftPattern.
 
-    The post_save signal on Employee creates the initial pattern, so by
-    the time this returns `employee.patterns.first()` is guaranteed to
-    exist. If `cycle_weeks` is passed, it's applied to that initial
-    pattern rather than to the Employee (which no longer has the field).
+    Post-Session 8, Employee creation no longer auto-creates a pattern
+    — matching the app, where new hires have no schedule until a
+    manager sets one up. Tests that need a pattern opt in.
+
+    Args:
+        with_pattern: create an empty open-ended ShiftPattern anchored
+            to the Monday of start_date. Defaults to False.
+        cycle_weeks: shorthand for with_pattern=True with the given
+            cycle length (1–4). Passing this kwarg at all implies
+            with_pattern=True, including cycle_weeks=1.
+
+    Any remaining kwargs are passed through to Employee.objects.create.
     """
-    cycle_weeks = kwargs.pop("cycle_weeks", 1)
+    cycle_weeks = kwargs.pop("cycle_weeks", None)
+    if cycle_weeks is not None:
+        with_pattern = True
+    if cycle_weeks is None:
+        cycle_weeks = 1
+
     role = role or make_role()
     employee = Employee.objects.create(
         first_name=kwargs.pop("first_name", "Test"),
@@ -46,10 +69,15 @@ def make_employee(email="test@example.com", role=None, start_date=None, **kwargs
         start_date=start_date or date.today(),
         **kwargs,
     )
-    if cycle_weeks != 1:
-        pattern = employee.patterns.first()
-        pattern.cycle_weeks = cycle_weeks
-        pattern.save(update_fields=["cycle_weeks"])
+
+    if with_pattern:
+        anchor = employee.start_date - timedelta(days=employee.start_date.weekday())
+        ShiftPattern.objects.create(
+            employee=employee,
+            effective_from=anchor,
+            cycle_weeks=cycle_weeks,
+        )
+
     return employee
 
 
@@ -87,6 +115,8 @@ def make_manager_user(username="manager"):
         "add_shift",
         "delete_shift",
         "add_employee",
+        "change_employee",
+        "delete_employee",
     ):
         user.user_permissions.add(Permission.objects.get(codename=codename))
     return user

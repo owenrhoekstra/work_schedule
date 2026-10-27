@@ -81,19 +81,14 @@ class SetOverrideTests(TestCase):
 
     @patch("schedule.notifications.send_email")
     def test_notify_sends_when_changed(self, mock_send):
-        # Notifications require a linked, active user
+        # Notifications require a linked, active user. No pattern is
+        # needed: the "before" display is OFF (no default shift) and
+        # the "after" display is the new override times — those differ,
+        # so the notification path fires.
         user = make_staff_user("overrideuser")
         self.emp.user = user
         self.emp.email = user.email
         self.emp.save()
-        pattern = self.emp.patterns.first()
-        Shift.objects.create(
-            pattern=pattern,
-            week_offset=0,
-            day=date(2026, 6, 1).weekday(),
-            start_time="09:00",
-            end_time="17:00",
-        )
         d = date(2026, 6, 1)
         self.client.post(
             reverse("set_override", args=[self.emp.pk, d.isoformat()]),
