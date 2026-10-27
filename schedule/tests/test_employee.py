@@ -85,3 +85,50 @@ class EmployeePageGetTests(TestCase):
         self.assertContains(resp, sunday.strftime("%B %-d, %Y"))
         # No "Week of <Sunday>" phrasing.
         self.assertNotContains(resp, f"Week of {sunday.strftime('%B %-d, %Y')}")
+
+    def test_set_last_day_button_visible_for_active_employee(self):
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertContains(resp, 'onclick="openDeactivateModal(this)"')
+        self.assertContains(resp, 'id="deactivate-modal"')
+
+    def test_cancel_deactivation_button_visible_when_scheduled(self):
+        self.emp.last_day = timezone.localdate() + timedelta(days=14)
+        self.emp.is_active = False
+        self.emp.save(update_fields=["last_day", "is_active"])
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'onclick="openCancelDeactivationModal(this)"')
+        self.assertNotContains(resp, 'onclick="openDeactivateModal(this)"')
+        self.assertContains(resp, 'id="cancel-deactivation-confirm-modal"')
+
+    def test_send_welcome_email_button_visible_for_active_employee(self):
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertContains(
+            resp,
+            f'action="{reverse("send_welcome", args=[self.emp.pk])}"',
+        )
+        self.assertContains(resp, "Send welcome email")
+
+    def test_send_welcome_email_button_hidden_when_scheduled_for_deactivation(
+        self,
+    ):
+        self.emp.last_day = timezone.localdate() + timedelta(days=14)
+        self.emp.is_active = False
+        self.emp.save(update_fields=["last_day", "is_active"])
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertNotContains(resp, "Send welcome email")
+
+    def test_send_welcome_modal_present_for_active_employee(self):
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        self.assertContains(resp, 'id="confirm-send-welcome-modal"')
+        self.assertContains(resp, 'id="send-welcome-form"')
+        self.assertContains(resp, 'data-employee-email="' + self.emp.email + '"')
+
+    def test_send_welcome_modal_absent_when_scheduled_for_deactivation(self):
+        self.emp.last_day = timezone.localdate() + timedelta(days=14)
+        self.emp.is_active = False
+        self.emp.save(update_fields=["last_day", "is_active"])
+        resp = self.client.get(reverse("employee_defaults", args=[self.emp.pk]))
+        # No form → no modal is fine either way, but the form itself
+        # must be absent (Send welcome email hidden in this state).
+        self.assertNotContains(resp, 'id="send-welcome-form"')

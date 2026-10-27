@@ -470,6 +470,9 @@
   .flex-shrink {
     flex-shrink: 1;
   }
+  .flex-shrink-0 {
+    flex-shrink: 0;
+  }
   .shrink {
     flex-shrink: 1;
   }
@@ -1479,9 +1482,24 @@
       grid-column: span 2 / span 2;
     }
   }
+  .lg\:ml-0 {
+    @media (width >= 64rem) {
+      margin-left: calc(var(--spacing) * 0);
+    }
+  }
   .lg\:grid-cols-3 {
     @media (width >= 64rem) {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .lg\:flex-col {
+    @media (width >= 64rem) {
+      flex-direction: column;
+    }
+  }
+  .lg\:items-stretch {
+    @media (width >= 64rem) {
+      align-items: stretch;
     }
   }
 }

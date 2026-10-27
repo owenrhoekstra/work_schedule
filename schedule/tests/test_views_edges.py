@@ -115,6 +115,23 @@ class SendWelcomeViewTests(TestCase):
         self.client.post(reverse("send_welcome", args=[self.emp.pk]))
         mock_send.assert_not_called()
 
+    @patch("schedule.notifications.send_email")
+    def test_next_employee_defaults_redirects_there(self, mock_send):
+        resp = self.client.post(
+            reverse("send_welcome", args=[self.emp.pk]),
+            {"next": "employee_defaults"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            resp.url, reverse("employee_defaults", args=[self.emp.pk])
+        )
+
+    @patch("schedule.notifications.send_email")
+    def test_missing_next_defaults_to_settings_home(self, mock_send):
+        resp = self.client.post(reverse("send_welcome", args=[self.emp.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("settings_home"))
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class SetOverrideEdgeTests(TestCase):

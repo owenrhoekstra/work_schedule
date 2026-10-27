@@ -68,12 +68,55 @@
                 </div>
             </div>
             {% if is_management %}
-            <div class="mt-4 pt-4 border-t border-gray-200 flex justify-end">
-                <a
-                    href="{% url 'employee_details' employee.pk %}"
-                    class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"
-                    >Edit employee</a
+            <div class="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                <div class="flex items-center gap-2 {% if last_day %}lg:flex-col lg:items-stretch{% endif %}">
+                    {% if perms.schedule.delete_employee %}
+                        {% if last_day %}
+                        <button
+                            type="button"
+                            data-employee-name="{{ employee }}"
+                            onclick="openCancelDeactivationModal(this)"
+                            class="flex-shrink-0 whitespace-nowrap text-center font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
+                        >
+                            Cancel deactivation
+                        </button>
+                        {% else %}
+                        <button
+                            type="button"
+                            data-employee-id="{{ employee.pk }}"
+                            data-employee-name="{{ employee }}"
+                            data-next="employee_defaults"
+                            onclick="openDeactivateModal(this)"
+                            class="flex-shrink-0 whitespace-nowrap text-center font-display text-sm font-medium text-brand-coral border border-brand-coral/40 hover:bg-brand-coral/10 rounded-lg px-4 py-2 transition-colors"
+                        >
+                            Set Last Day
+                        </button>
+                        {% endif %}
+                    {% endif %}
+                    <a
+                        href="{% url 'employee_details' employee.pk %}"
+                        class="ml-auto flex-shrink-0 whitespace-nowrap text-center font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors {% if last_day %}lg:ml-0{% endif %}"
+                        >Edit employee</a
+                    >
+                </div>
+                {% if perms.schedule.add_employee and not last_day %}
+                <form
+                    method="post"
+                    action="{% url 'send_welcome' employee.pk %}"
+                    id="send-welcome-form"
+                    data-employee-email="{{ employee.email }}"
+                    class="text-center"
                 >
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="employee_defaults" />
+                    <button
+                        type="submit"
+                        class="text-sm font-medium text-brand-coral hover:underline"
+                    >
+                        Send welcome email
+                    </button>
+                </form>
+                {% endif %}
             </div>
             {% endif %}
         </section>
@@ -207,4 +250,21 @@
     </details>
     {% endif %}
 </div>
+
+{% if is_management and perms.schedule.delete_employee %}
+    {% include "schedule/modals/_deactivate.html" %}
+    {% include "schedule/modals/_cancel_deactivation_confirm.html" %}
+    <form
+        method="post"
+        action="{% url 'settings_cancel_deactivation' employee.pk %}"
+        id="cancel-deactivation-form"
+        hidden
+    >
+        {% csrf_token %}
+        <input type="hidden" name="next" value="employee_defaults" />
+    </form>
+{% endif %}
+{% if is_management and perms.schedule.add_employee and not last_day %}
+    {% include "schedule/modals/_confirm_send_welcome.html" %}
+{% endif %}
 {% endblock %}
