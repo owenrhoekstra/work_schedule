@@ -15,6 +15,3 @@ Bugs fixed on the current branch, newest at the bottom.
   need to survive past merge.
 
 ---
-
-<!-- Paste FIXED-001 through FIXED-021 from the current BUGREPORT
-verbatim below this line. -->
