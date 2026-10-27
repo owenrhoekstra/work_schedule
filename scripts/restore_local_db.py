@@ -51,6 +51,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -158,65 +159,92 @@ else:
 
 print(f"Restoring {dump_path.name} into {db_name}...")
 
-# Inject PGPASSWORD into the child env only — do NOT mutate
-# os.environ, which would leak the credential to every subsequent
-# subprocess this process spawns. Skip the injection when the env
-# var is unset or empty so pg_hba.conf's trust/peer auth is
-# exercised as configured (a local dev box may not need a password).
+# Build the psql child env. Do NOT mutate os.environ — that would
+# leak the credential to every subsequent subprocess this process
+# spawns. Skip auth entirely when POSTGRES_PASSWORD is unset/empty
+# so pg_hba.conf's trust/peer auth is exercised as configured (a
+# local dev box may not need a password).
+#
+# Password is passed via PGPASSFILE (temp file, 0600, cleaned up in
+# finally) rather than PGPASSWORD (env var, visible to `ps e`). Both
+# are equivalent security-wise for a dev-only script whose password
+# also lives in .env on the same disk; PGPASSFILE is the more
+# idiomatic libpq mechanism and gets explicit cleanup.
 child_env = os.environ.copy()
+
+passfile_path = None
 if password:
-    child_env["PGPASSWORD"] = password
+    # mkstemp creates with 0600 already; chmod is defensive in case
+    # of a filesystem that doesn't honor the default.
+    fd, passfile_path = tempfile.mkstemp(prefix="pgpass-", suffix=".txt")
+    os.close(fd)
+    os.chmod(passfile_path, 0o600)
+    with open(passfile_path, "w") as f:
+        # libpq pgpass format: hostname:port:database:username:password
+        f.write(f"{host}:{port}:{db_name}:{user}:{password}\n")
+    child_env["PGPASSFILE"] = passfile_path
 
-producer = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
-psql = subprocess.Popen(
-    [
-        "psql",
-        "-X",                              # ignore ~/.psqlrc
-        "-h", host,
-        "-p", port,
-        "-U", user,
-        "-d", db_name,
-        "-q",
-        "-v", "ON_ERROR_STOP=1",
-        "--single-transaction",
-    ],
-    stdin=producer.stdout,
-    env=child_env,
-    # stderr not captured: psql's error messages stream live with
-    # full context (line number, offending SQL fragment). Capturing
-    # hides errors until the very end and forces the user to hunt
-    # through a buffer to find the actual problem.
-)
-# Close our copy of the pipe's read end so the producer receives
-# SIGPIPE if psql exits early (which it will under ON_ERROR_STOP).
-# Without this, gunzip/cat can hang waiting for a reader that's gone.
-producer.stdout.close()
-
-psql_rc = psql.wait()
-producer_rc = producer.wait()
-
-# Report psql's error first. When psql fails under ON_ERROR_STOP,
-# producer gets SIGPIPE and exits with a non-zero status (typically
-# -13 / 141) — that's a consequence of psql's failure, not the cause.
-# Reporting producer's return code first would blame gunzip for what
-# psql actually did wrong.
-if psql_rc != 0:
-    sys.exit(
-        f"psql exited with code {psql_rc} — DB has been reset and the "
-        f"restore was rolled back. Current DB is empty."
+try:
+    producer = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
+    psql = subprocess.Popen(
+        [
+            "psql",
+            "-X",                              # ignore ~/.psqlrc
+            "-h", host,
+            "-p", port,
+            "-U", user,
+            "-d", db_name,
+            "-q",
+            "-v", "ON_ERROR_STOP=1",
+            "--single-transaction",
+        ],
+        stdin=producer.stdout,
+        env=child_env,
+        # stderr not captured: psql's error messages stream live with
+        # full context (line number, offending SQL fragment). Capturing
+        # hides errors until the very end and forces the user to hunt
+        # through a buffer to find the actual problem.
     )
+    # Close our copy of the pipe's read end so the producer receives
+    # SIGPIPE if psql exits early (which it will under ON_ERROR_STOP).
+    # Without this, gunzip/cat can hang waiting for a reader that's gone.
+    producer.stdout.close()
 
-# psql succeeded but producer failed. Silent-truncation risk: psql
-# may have been fed a partial dump and (perversely) restored
-# successfully if the failure happened after the last complete SQL
-# statement. The gzip -t pre-flight above catches the common case
-# (corrupt/truncated gzip), but this check remains as a belt-and-
-# braces for any producer failure that slips past.
-if producer_rc != 0:
-    sys.exit(
-        f"{dump_cmd[0]} exited with code {producer_rc} — restore may be "
-        f"incomplete"
-    )
+    psql_rc = psql.wait()
+    producer_rc = producer.wait()
+
+    # Report psql's error first. When psql fails under ON_ERROR_STOP,
+    # producer gets SIGPIPE and exits with a non-zero status (typically
+    # -13 / 141) — that's a consequence of psql's failure, not the cause.
+    # Reporting producer's return code first would blame gunzip for what
+    # psql actually did wrong.
+    if psql_rc != 0:
+        sys.exit(
+            f"psql exited with code {psql_rc} — DB has been reset and the "
+            f"restore was rolled back. Current DB is empty."
+        )
+
+    # psql succeeded but producer failed. Silent-truncation risk: psql
+    # may have been fed a partial dump and (perversely) restored
+    # successfully if the failure happened after the last complete SQL
+    # statement. The gzip -t pre-flight above catches the common case
+    # (corrupt/truncated gzip), but this check remains as a belt-and-
+    # braces for any producer failure that slips past.
+    if producer_rc != 0:
+        sys.exit(
+            f"{dump_cmd[0]} exited with code {producer_rc} — restore may be "
+            f"incomplete"
+        )
+finally:
+    # Remove the passfile on every path: success, psql failure,
+    # producer failure, or any unexpected exception between Popen
+    # calls. sys.exit raises SystemExit which propagates through
+    # finally, so cleanup runs before process termination.
+    if passfile_path and os.path.exists(passfile_path):
+        try:
+            os.unlink(passfile_path)
+        except OSError:
+            pass
 
 print(f"Restored {dump_path.name} into {db_name}.")
 print("\nNext:")
