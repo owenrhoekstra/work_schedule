@@ -870,6 +870,8 @@ def _employee_page_context(request, employee, can_change=True):
         "can_change": can_change,
         "can_delete": request.user.has_perm("schedule.delete_shift"),
         "last_day": employee.last_day,
+        # Needed by _deactivate.html's data-today prefill.
+        "today": timezone.localdate(),
     }
 
 
@@ -2234,13 +2236,23 @@ def settings_home(request):
 @permission_required("schedule.add_employee", raise_exception=True)
 @require_POST
 def send_welcome(request, pk):
-    """Send the welcome email for an employee, respecting the cooldown."""
+    """Send the welcome email for an employee, respecting the cooldown.
+
+    Redirect target is controlled by the POST body's `next` field:
+    "employee_defaults" → the employee's reading page (used when the
+    button appears in the reading-page footer); anything else
+    (default) → settings_home (used when the button appears in the
+    settings employee list).
+    """
     employee = get_object_or_404(Employee, pk=pk, is_active=True)
     ok, error = notifications.send_welcome_email(employee)
     if ok:
         messages.success(request, f"Welcome email sent to {employee.email}.")
     else:
         messages.error(request, error)
+
+    if request.POST.get("next") == "employee_defaults":
+        return redirect("employee_defaults", pk=employee.pk)
     return redirect("settings_home")
 
 
