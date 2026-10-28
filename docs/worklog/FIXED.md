@@ -28,3 +28,4 @@ Bugs fixed on the current branch, newest at the bottom.
   preview-triggering elements, or switch the preview endpoint to POST
   and use the existing `X-CSRFToken` header path.
 - **Target:** This branch.
+- Fixed in commit 2eba2ae8017e57454eb242f131cd73ae2b83901f
