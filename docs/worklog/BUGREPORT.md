@@ -34,18 +34,6 @@ triage (ZAP + `check --deploy` + carried-over items).
   follow-up branch.
 - **Target:** This branch.
 
-### SEC-003 — Permissive CORS header on static assets
-
-- **Severity:** Low (no sensitive data in static files)
-- **Symptom:** `/static/css/dist/styles.css` returns
-  `Access-Control-Allow-Origin: *`. ZAP flags "Cross-Domain
-  Misconfiguration." No authenticated data is exposed, but a wildcard
-  CORS header on static assets is unnecessary.
-- **Fix direction:** Identify the source — likely WhiteNoise,
-  django-cors-headers if installed, or a proxy config. Remove the
-  header or restrict to the actual origin.
-- **Target:** This branch.
-
 ### SEC-004 — Server version header leak
 
 - **Severity:** Low

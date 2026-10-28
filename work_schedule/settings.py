@@ -16,7 +16,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +29,7 @@ APP_NAME = os.environ.get("APP_NAME", "Work Schedule")
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("true", "1", "yes")
+STAGING = os.environ.get("DJANGO_STAGING", "False").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -181,6 +181,9 @@ STORAGES = {
     },
 }
 
+# Static assets don't need cross-origin readability. Explicitly off to
+# avoid WhiteNoise's version-dependent default of emitting
+# `Access-Control-Allow-Origin: *` on every static file. (SEC-003)
 WHITENOISE_ALLOW_ALL_ORIGINS = False
 
 CACHES = {
@@ -194,8 +197,18 @@ CACHES = {
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+#
+# Precedence:
+#   1. STAGING -> Mailpit (SMTP catcher, no real send)
+#   2. RESEND_API_KEY present -> Resend (prod, or a dev with a real key)
+#   3. otherwise -> console backend (dev without keys)
 
-if os.environ.get("RESEND_API_KEY"):
+if STAGING:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = os.environ.get("MAILPIT_HOST", "mailpit")
+    EMAIL_PORT = int(os.environ.get("MAILPIT_PORT", "1025"))
+    EMAIL_USE_TLS = False
+elif os.environ.get("RESEND_API_KEY"):
     EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
     ANYMAIL = {"RESEND_API_KEY": os.environ["RESEND_API_KEY"]}
 else:
@@ -235,7 +248,11 @@ if SECURE:
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    # Preload is a prod-only commitment. Staging advertises HSTS but
+    # does not signal preload, so a mistake on staging can't accidentally
+    # commit the staging subdomain to the preload list via a browser
+    # that caches the header.
+    SECURE_HSTS_PRELOAD = not STAGING
 
     ADMINS = [("Owen Hoekstra", "owenrhoekstra@principiasystems.ca")]
     LOGGING = {
