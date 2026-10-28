@@ -385,3 +385,15 @@ class PatternFormViewTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Reduce Pattern length")
+
+    def test_preview_picker_excludes_csrf_token(self):
+        # SEC-002: HTMX preview GET must not serialize the CSRF token
+        # into the query string.
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        html = resp.content.decode()
+        self.assertEqual(html.count('hx-params="not csrfmiddlewaretoken"'), 2)
+
+    def test_preview_picker_excludes_csrf_token_add_mode(self):
+        resp = self.client.get(reverse("schedule_add", args=[self.emp.pk]))
+        html = resp.content.decode()
+        self.assertEqual(html.count('hx-params="not csrfmiddlewaretoken"'), 2)

@@ -34,19 +34,6 @@ triage (ZAP + `check --deploy` + carried-over items).
   follow-up branch.
 - **Target:** This branch.
 
-### SEC-002 — CSRF token leaked in HTMX preview GET query string
-
-- **Severity:** Low (informational only; token is per-session and
-  endpoint is read-only)
-- **Symptom:** `hx-include="closest form"` on the cycle/week pickers
-  serializes the form including the hidden `csrfmiddlewaretoken` field
-  into the GET URL for `pattern_form_preview`. The token appears in
-  proxy logs, access logs, and Referer headers downstream.
-- **Fix direction:** Use `hx-params="not csrfmiddlewaretoken"` on the
-  preview-triggering elements, or switch the preview endpoint to POST
-  and use the existing `X-CSRFToken` header path.
-- **Target:** This branch.
-
 ### SEC-003 — Permissive CORS header on static assets
 
 - **Severity:** Low (no sensitive data in static files)
