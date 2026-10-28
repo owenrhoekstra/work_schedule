@@ -106,10 +106,8 @@ Persistent queue of items to tackle in a future branch.
 
 ## Waiting on a specific branch
 
-- **Write-access model — permission-first, Management layered.**
-  Security sweep branch. Detail in `design/SESSIONS.md`
-  ("Handed to future branches"). Move to that branch's
-  `BUGREPORT.md` when the branch opens.
+_(None currently. The write-access model item moved to the
+security-sweep branch as SEC-006.)_
 
 ---
 
