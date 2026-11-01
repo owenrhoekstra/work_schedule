@@ -130,7 +130,7 @@ cannot nest) that the cancel modal submits via JS.
     <div
         class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
     >
-        {% if perms.schedule.delete_employee %}
+        {% if is_management and perms.schedule.delete_employee %}
             {% if last_day %}
             <button
                 type="button"

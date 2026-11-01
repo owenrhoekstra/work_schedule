@@ -18,14 +18,18 @@ differences between server and TIME_ZONE can flip tests at midnight).
 
 from datetime import date, timedelta
 
-from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from schedule.models import ShiftPattern
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import (
+    make_employee,
+    make_management_user,
+    make_role,
+    make_staff_user,
+)
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -33,11 +37,8 @@ _LOCMEM_CACHES = {
 
 
 def _manager(client):
-    """Log in a superuser-like manager with Management group membership."""
-    user = make_manager_user()
-    mgmt = Group.objects.get_or_create(name="Management")[0]
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
+    """Log in a manager with Management group + all schedule perms."""
+    user = make_management_user()
     client.force_login(user)
     return user
 

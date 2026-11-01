@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from schedule.models import Employee, EmploymentPeriod, Role, Title
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import make_employee, make_management_user, make_role, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -16,11 +16,7 @@ _LOCMEM_CACHES = {
 
 
 def make_manager():
-    user = make_manager_user(username="mgr")
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user(username="mgr")
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

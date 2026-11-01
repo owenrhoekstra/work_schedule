@@ -335,7 +335,7 @@ class OTPGatedPasswordChangeView(PasswordChangeView):
             return False
         try:
             ts = datetime.fromisoformat(raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return False
         if timezone.is_naive(ts):
             ts = timezone.make_aware(ts)

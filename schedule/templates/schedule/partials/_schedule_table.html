@@ -29,7 +29,7 @@ This partial is a straight lift from home.html — no behavior change.
                 <th
                     class="p-3 text-center font-display text-sm font-medium text-white whitespace-nowrap"
                 >
-                    {% if perms.schedule.change_shift %}
+                    {% if is_management and perms.schedule.change_shift %}
                     <button
                         type="button"
                         class="w-full hover:opacity-80 transition-opacity"

@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from schedule.models import Shift, ShiftPattern
 
-from .factories import make_employee, make_manager_user, make_role
+from .factories import make_employee, make_management_user, make_role
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -13,13 +13,7 @@ _LOCMEM_CACHES = {
 
 
 def _make_manager(username="mgr_forms"):
-    from django.contrib.auth.models import Group, Permission
-
-    user = make_manager_user(username)
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user(username)
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

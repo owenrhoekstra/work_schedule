@@ -2,13 +2,25 @@
 
 ## Status
 
-Decisions confirmed. Ready to start.
+In progress.
 
-- Write-access model: `permission_required` on every view;
-  `management_required` layered on writes, destructive actions, and
-  tenant config. UI elements gated on `is_management`.
-- CSP: Phase 1 with `'unsafe-inline'`. Nonces deferred to a
-  follow-up branch.
+- **SEC-004: verified already handled.** Cloudflare Tunnel replaces
+  the upstream `Server: WSGIServer/...` header with `Server: cloudflare`
+  on egress. Confirmed against prod. No proxy config needed. Reopens
+  if the deploy topology ever bypasses Cloudflare.
+- **SEC-005: verified already implemented.** ... (unchanged) ...
+- **SEC-006: backend + UI complete; tests passing.** Full
+  `permission_required` coverage on every view; `management_required`
+  layered on writes / destructive / tenant config. UI AND-gated
+  (`is_management and perms.schedule.X`). `is_management(request)`
+  helper centralizes the group check. Access-matrix tests in
+  `test_views_edges.Sec006AccessMatrixTests` pin the policy per view.
+- **SEC-007: verified false positive.** Django's `PasswordInput`
+  defaults to `render_value=False`; `SignUpForm` doesn't override.
+  Confirmed by code analysis. ZAP was reading its own request payload.
+  No code change. Automated test deferred to the `accounts/`
+  test-layout branch.
+- **CSP Phase 1: deferred to a follow-up branch.** ... (unchanged) ...
 
 ## Why this branch exists
 
@@ -23,17 +35,24 @@ dependency scanning) to their own branches.
 
 ## In scope
 
-- `SECURE_*` settings conditional on `not DEBUG` (SEC-005)
-- CSP Phase 1 middleware + policy (SEC-001)
-- Write-access model refactor — backend and UI (SEC-006)
-- CSRF token exclusion from HTMX preview GET query string (SEC-002)
-- CORS header audit on static assets (SEC-003)
-- Server header strip at proxy (SEC-004) — proxy-side, doc the config
-- Manual verification of password-echo on signup error (SEC-007)
+- Write-access model refactor — backend and UI (SEC-006) ✅
+- ~~Server header strip at proxy (SEC-004)~~ ✅ verified already handled
+- ~~Manual verification of password-echo on signup error (SEC-007)~~ ✅ verified false positive
+
+(Done on this branch: SEC-002 CSRF-in-URL, SEC-003 CORS on static.
+Verified-no-action: SEC-004, SEC-005, SEC-007.)
 
 ## Out of scope (future branches)
 
-- CSP Phase 2: nonces, drop `unsafe-inline`
+- **CSP Phase 1 (SEC-001).** `default-src 'self'` + `'unsafe-inline'`
+  for script/style, `frame-ancestors 'none'`, `form-action 'self'`,
+  `connect-src 'self'`. Full policy preserved at the bottom of this
+  file for when its branch starts.
+- **CSP Phase 2:** nonces, drop `'unsafe-inline'`. Requires Alpine's
+  CSP build and rewriting every `x-data` / `x-effect` / `x-init` plus
+  ~10 inline `<script>` blocks. Own session.
+- **Accounts test layout** — `accounts/tests.py` → `accounts/tests/`
+  package. Own branch.
 - HSTS preload (`preload` needs 3+ months of stable HTTPS)
 - Dependency vulnerability scanning
 - Audit logging / SIEM
@@ -42,17 +61,23 @@ dependency scanning) to their own branches.
 
 ## Findings triage
 
-### `check --deploy` warnings — all SEC-005
+### `check --deploy` warnings — SEC-005 (verified, no code change)
 
-| Code | Setting | Target |
-|---|---|---|
-| W004 | `SECURE_HSTS_SECONDS` | 3600 (ramp to 31536000 after stable HTTPS) |
-| W008 | `SECURE_SSL_REDIRECT` | True (gated on `not DEBUG`) |
-| W012 | `SESSION_COOKIE_SECURE` | True (gated on `not DEBUG`) |
-| W016 | `CSRF_COOKIE_SECURE` | True (gated on `not DEBUG`) |
-| W018 | `DEBUG=True` | Dev-only. Verify prod via `DJANGO_DEBUG=false check --deploy`. |
+All four `SECURE_*` warnings (W004, W008, W012, W016) are already
+addressed by the existing `SECURE` block in `settings.py`. W018
+(`DEBUG=True`) is dev-only. Final sweep will re-run
+`DJANGO_DEBUG=false DJANGO_SECURE=true manage.py check --deploy` and
+expect clean output.
 
 ### ZAP — false positives (mark in ZAP, no code change)
+
+> **Attribution note (SEC-003).** The `Cross-Domain Misconfiguration`
+> instances ZAP returned are on third-party CDNs (`fonts.googleapis.com`,
+> `fonts.gstatic.com`, `static.cloudflareinsights.com`) — not on the
+> app's own `/static/` paths. Our static assets don't emit
+> `Access-Control-Allow-Origin: *` (validated: `WHITENOISE_ALLOW_ALL_ORIGINS = False`
+> in `settings.py`). The "CORS on static" framing in the original
+> sweep doc was a mistaken reading of the ZAP report.
 
 - **SQL Injection on `/accounts/login/`** — evidence shows a 429
   lockout response; ZAP flagged SQLi because two 429 pages differed
@@ -71,13 +96,11 @@ dependency scanning) to their own branches.
 
 | SEC | Alert | Fix |
 |---|---|---|
-| SEC-001 | CSP Header Not Set | Middleware + Phase 1 policy |
-| SEC-002 | Sensitive Info in URL (`csrfmiddlewaretoken`) | HTMX `hx-params` exclusion |
-| SEC-003 | Cross-Domain Misconfiguration (`ACAO: *`) | Remove CORS header from static |
-| SEC-004 | Server Leaks Version (`WSGIServer/...`) | Strip at proxy |
-| SEC-005 | `check --deploy` warnings | Conditional `SECURE_*` |
-| SEC-006 | Write-access model inconsistency | Permission + Management per policy |
-| SEC-007 | Password field echo (unverified) | Manual check, fix if real |
+| SEC-002 | Sensitive Info in URL (`csrfmiddlewaretoken`) | ✅ done — `hx-params="not csrfmiddlewaretoken"` |
+| SEC-003 | Cross-Domain Misconfiguration (`ACAO: *`) | ✅ done — `WHITENOISE_ALLOW_ALL_ORIGINS = False` (third-party CDNs unfixable) |
+| SEC-004 | Server Leaks Version (`WSGIServer/...`) | ✅ verified — Cloudflare strips |
+| SEC-006 | Write-access model inconsistency | ✅ done — permission + Management, AND-gated |
+| SEC-007 | Password field echo (unverified) | ✅ verified false positive |
 
 ## View + UI gating
 
@@ -111,6 +134,12 @@ policy (writes, destructive, tenant config).
 | `settings_delete_role` | `schedule.delete_role` | yes (existing) |
 | `settings_move_role` | `schedule.change_role` | yes (existing) |
 | `print_schedule` | `schedule.view_shift` | yes (existing) |
+| `qr_code` | `schedule.view_shift` (**add**) | no |
+
+- **`qr_code`** isn't in the original table. Per policy ("every view
+  has a `permission_required`"), add `@permission_required("schedule.view_shift")`.
+  `@login_required`-only today. QR is a login URL — no data leak either
+  way — but policy consistency wins.
 
 **Notes:**
 
@@ -131,8 +160,15 @@ policy (writes, destructive, tenant config).
 
 ### Templates — UI layer
 
-Every `{% if perms.schedule.X %}` becomes `{% if is_management %}`.
-Files with perms checks that need conversion:
+**AND-gate, not replace.** Every `{% if perms.schedule.X %}` becomes
+`{% if is_management and perms.schedule.X %}`. Rationale: replace
+would show buttons to Management users who lack the perm; those 403
+on click. AND keeps UI and backend symmetric.
+
+For the two compound checks (`add_shift or delete_shift`) the AND form
+is `{% if is_management and perms.schedule.add_shift or is_management and perms.schedule.delete_shift %}` —
+Django's `and` binds tighter than `or` so this is the intended
+`(management ∧ add_shift) ∨ (management ∧ delete_shift)`.
 
 - `schedule/templates/schedule/home.html` — 3 checks
 - `schedule/templates/schedule/employee_defaults.html` — 2 checks
@@ -166,10 +202,17 @@ permission-holder who is not in Management sees:
 
 This is the intended shape: read the schedule, do nothing with it.
 
-## CSP plan (Phase 1)
+## CSP plan (deferred — follow-up branch)
 
-Install `django-csp` (or a small custom middleware; `django-csp` is
-the smaller change). Ship:
+> **Why deferred.** Phase 1 with `'unsafe-inline'` doesn't block the
+> inline-script XSS surface this app actually has (Alpine `x-data`,
+> `x-effect`, inline `onclick=`, seven inline `<script>` blocks in
+> modals/partials). It only blocks external-injection, which
+> Django's autoescape already makes hard. Phase 2 (nonces + Alpine
+> CSP build) is the meaningful version and is its own session.
+> Keep the policy below as the starting draft for that branch.
+
+[rest of CSP plan unchanged]
 
 ```
 Content-Security-Policy:
@@ -221,21 +264,19 @@ Each step is its own commit. Small diffs, easy bisect if something
 breaks.
 
 1. **Branch + seed docs** — this file, BUGREPORT update, ISSUES cleanup.
-2. **Settings flags (SEC-005).** Conditional `SECURE_*` block in
-   `settings.py`, gated on `not DEBUG`. Verify
-   `DJANGO_DEBUG=false check --deploy` is clean.
-3. **CSP Phase 1 (SEC-001).** Middleware, initial policy, deploy, QA.
-4. **Write-access backend (SEC-006, backend).** Decorator changes,
-   in-body `set_override` check. Tests for the new gates.
-5. **Write-access UI (SEC-006, UI).** Template perms → `is_management`,
-   `can_change` / `can_delete` context var refactor.
-6. **Header hygiene (SEC-002, SEC-003, SEC-004).** CSRF exclusion in
-   HTMX preview, CORS audit + removal, proxy Server strip.
-7. **Verify SEC-007.** Submit an invalid signup, inspect re-rendered
+2. **Write-access backend (SEC-006, backend).** Add `is_management(request)`
+   helper; refactor `management_required` to use it; decorator and
+   in-body changes per the views table; `_employee_page_context`
+   `can_change` / `can_delete` AND-gated; `_home_context` `employee_form`
+   gate AND-gated. Tests for the new gates.
+3. **Write-access UI (SEC-006, UI).** Template perms → AND-gate.
+4. **Header hygiene (SEC-004).** Proxy Server-header strip; doc the
+   config.
+5. **Verify SEC-007.** Submit an invalid signup, inspect re-rendered
    password input. Fix if echoed.
-8. **Final sweep.** Re-run `check --deploy` on prod config. Re-run ZAP
-   against production. Suppress the SQLi FP in the ZAP context. Update
-   this doc with final state.
+6. **Final sweep.** Re-run `check --deploy` on prod config. Re-run ZAP
+   against production. Suppress SQLi FP in ZAP context. Update this
+   doc with final state. Move CSP detail to a dedicated branch plan.
 
 ## Testing strategy
 
@@ -300,3 +341,19 @@ for the record.
   script blocks make nonces a session of their own (Alpine CSP build,
   ~10 template conversions). Phase 1 blocks external-script injection
   which is the majority of the XSS surface. Ship now, tighten later.
+- **2026-11-01** — SEC-005 verified already implemented (gated on
+  `DJANGO_SECURE`; both envs correct). No code change. CSP Phase 1
+  deferred to follow-up branch (marginal value vs Alpine CSP-build
+  cost). Write-access: confirmed AND-gate on UI (not replace). Print
+  stays management-only. `qr_code` gets `permission_required` per
+  policy. SEC-007 test deferred to accounts test-layout branch.
+- **2026-11-01** — SEC-004 verified: Cloudflare Tunnel replaces the
+  `Server` header on egress with `Server: cloudflare`. No proxy config
+  needed. Reopens if the deploy topology bypasses Cloudflare; the fix
+  would then be `proxy_hide_header Server;` (nginx) or
+  `header { -Server }` (Caddy). Documented for the record, no action now.
+- **2026-11-01** — SEC-007 verified false positive. Django's
+  `PasswordInput` defaults to `render_value=False`; `SignUpForm`
+  doesn't override, and the template uses standard rendering. ZAP was
+  reading its own request payload, not the response. No code change;
+  automated test lands with the `accounts/` test-layout branch.

@@ -68,7 +68,7 @@
             Print
         </button>
         {% endif %}
-        {% if perms.schedule.add_employee %}
+        {% if is_management and perms.schedule.add_employee %}
         <button
             @click="openAddEmployee()"
             class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
