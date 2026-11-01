@@ -52,7 +52,7 @@ Bugs fixed on the current branch, newest at the bottom.
   CSRF cookies, `/healthz/` redirect exempt. Both staging and prod
   set `DJANGO_SECURE=True`.
 - **Verification:** `DJANGO_DEBUG=false DJANGO_SECURE=true manage.py
-check --deploy` — expect clean (re-run in final sweep).
+  check --deploy` — clean.
 - **Decision:** The sweep doc originally said "gate on `not DEBUG`";
   the code gates on `DJANGO_SECURE`. Keeping the env var switch
   (documented in README). No system-check added — staging and prod
@@ -68,12 +68,52 @@ check --deploy` — expect clean (re-run in final sweep).
   `Server: cloudflare` on the way out. Confirmed against prod:
   `curl -sI https://work-schedule.principiasystems.ca | grep -i '^server:'`
   returns `server: cloudflare`.
-- **Decision:** No proxy config needed. If a future deploy topology
-  bypasses Cloudflare (direct nginx, VPS direct serve), this reopens —
-  the fix would then be `proxy_hide_header Server;` in nginx or
-  `header { -Server }` in Caddy. Noting for the record; no action now.
+- **Decision:** No proxy config needed. Reopens if the deploy topology
+  ever bypasses Cloudflare (direct nginx, VPS direct serve); the fix
+  would then be `proxy_hide_header Server;` (nginx) or
+  `header { -Server }` (Caddy). Noted for the record; no action now.
 
-### SEC-007 — Password field echoed on signup error
+### SEC-006 — Write-access model inconsistency
+
+- **Severity:** Medium (authorization logic; not a live exploit given
+  the current permissions model, but blocks a clean future state)
+- **Symptom:** Some views were `management_required`-only; others
+  `permission_required`-only. The two layers weren't consistently
+  applied, so policy could drift silently.
+- **Fix:** Every view now has `permission_required`. Writes,
+  destructive actions, and tenant config also have
+  `management_required`, outermost. UI gates on
+  `is_management and perms.schedule.X` (AND, not replace) so a
+  Management user without the underlying perm doesn't see buttons
+  that would 403 on click.
+- **Key changes:**
+  - `schedule/views.py` — new `is_management(request)` helper;
+    `management_required` refactored to use it. Decorator added to
+    20 views per the sweep table. `_employee_page_context` computes
+    `can_change` / `can_delete` as `is_management AND has_perm`.
+    `home`'s `employee_form` gate AND-gated. `set_override` gets an
+    in-body `is_management` check (no decorator — perm also branches
+    per action).
+  - Templates (8 files) — mechanical `perms.schedule.X` →
+    `is_management and perms.schedule.X`, including compound OR
+    cases in `home.html` and `_schedule_row.html`. `employee_defaults.html`
+    left alone: its perm checks are already nested inside
+    `{% if is_management %}` blocks, achieving the same AND-gate.
+  - `schedule/tests/factories.py` — new `make_management_user()`
+    consolidating the "perms + Management group" pattern duplicated
+    across 6 test files. `make_manager_user()` now grants *all*
+    schedule perms via queryset instead of a hardcoded 8-item list
+    (pre-SEC-006 that list omitted role/title perms, which now cause
+    403s on `settings_*`).
+  - `schedule/tests/test_views_edges.py` — new
+    `Sec006AccessMatrixTests`: for each of 20 views, three cases
+    (anonymous → redirect, perm-only → 403, mgmt+perm → not 403).
+    This is the enforcement of the AND-gate policy; individual
+    behaviour tests in the per-view files cover the success path.
+- **Tests:** 443 passing. `DJANGO_DEBUG=false DJANGO_SECURE=true
+  manage.py check --deploy` clean.
+
+### SEC-007 — Verify password field not re-echoed on signup error
 
 - **Verified false positive.** ZAP flagged `password1=ZAP` in the
   signup error page input. Code analysis confirms no echo:
@@ -86,9 +126,76 @@ check --deploy` — expect clean (re-run in final sweep).
     `render_value` is False — the rendered HTML has no `value`
     attribute.
   - `registration/signup.html` uses `{{ form.password1 }}` (standard
-    rendering), no manual `value=` attribute.
+    rendering); no manual `value=` attribute.
 - **Root cause of the ZAP finding:** ZAP reading its own request
   payload, not the response. Matches the "may be a false positive"
   hypothesis in the original sweep triage.
 - **Target: verified no-op.** Automated test for this deferred to the
   `accounts/` test-layout branch (per SECURITY_SWEEP.md out-of-scope).
+
+### CodeRabbit #1 — Signup OTP accepts stale sessions
+
+- **Severity:** Low (requires an abandoned mailbox plus access to a
+  pending signup session).
+- **Symptom:** `verify_signup_otp` reloaded the employee by cached
+  ID and checked only `user_id is not None`. If management changed
+  the email or deactivated the employee between signup start and
+  OTP verification, the old mailbox holder could still complete, and
+  the intended owner couldn't.
+- **Fix:** `accounts/views.py` — new `_pending_signup_eligible()`
+  helper checks email/active/user-link; called before issuing a
+  replacement code on resend. Final account creation reloads under
+  `select_for_update()` inside `transaction.atomic()` and revalidates
+  all three conditions before attaching. Stale sessions get a clear
+  message and redirect to `signup`.
+
+### CodeRabbit #2 — Admin password change bypasses OTP gate
+
+- **Severity:** Low (assumes an active `is_staff` account; the admin
+  is not externally discoverable beyond the URL, but the bypass is
+  real for anyone who finds it).
+- **Symptom:** `work_schedule/urls.py` mounts `admin.site`. Django's
+  `AdminSite.password_change` uses the standard `PasswordChangeForm`,
+  which only checks the current password. `OTPGatedPasswordChangeView`
+  only applies to `/accounts/password_change/`, so an `is_staff` user
+  could replace their password via the admin URL without ever passing
+  the OTP gate.
+- **Fix:** `work_schedule/urls.py` — `admin.site.password_change`
+  overridden with `_admin_password_change_redirect`, which redirects
+  to `password_change` (the OTP-gated view). Prefix-agnostic; works
+  wherever `admin.site.urls` is mounted.
+
+### CodeRabbit #3 — Write endpoints render protected data without read perm
+
+- **Severity:** Low (requires a Management user with write but not
+  read perms — a misconfiguration, not an attack surface).
+- **Symptom:** Several write endpoints rendered roster or saved-pattern
+  fragments without checking `schedule.view_shift` /
+  `schedule.view_employee`. A caller with `add_employee` but not
+  `view_shift` could see roster data via the add-employee modal path.
+- **Fix:** `schedule/views.py` — `@permission_required` for the read
+  perm added to: `add_employee`, `schedule_change`, `schedule_add`,
+  `pattern_edit`, `pattern_form_preview`, `set_override`,
+  `set_day_override`. Policy: **write implies read.** Delegation:
+  refuse the operation, don't strip the response — simpler, and
+  eliminates the "what does the minimal response look like"
+  question.
+
+### CodeRabbit #4 — Axes admin add-permission gap
+
+- **Severity:** Low (requires an `is_staff` account holding
+  `axes.add_accessattempt`).
+- **Symptom:** `accounts/admin.py` overrides
+  `has_view` / `has_change` / `has_delete` / `has_module` to
+  superuser-only, but not `has_add`. Django's default checks only the
+  model add permission. A non-superuser staff user with
+  `axes.add_accessattempt` could create authentication records via
+  admin — including failure counters used in lockout decisions.
+- **Fix:** `accounts/admin.py` — `has_add_permission` on both
+  `AccessAttemptAdmin` and `AccessLogAdmin` returns
+  `request.user.is_superuser`.
+- **Tests:** `accounts/tests/test_axes_admin.py` (new) — 4 cases:
+  non-superuser staff with the perm gets `False` on both; superuser
+  gets `True` on both. Uses the "is_staff + permission" shape, which
+  is what Django's default would have accepted — otherwise the tests
+  would pass trivially.

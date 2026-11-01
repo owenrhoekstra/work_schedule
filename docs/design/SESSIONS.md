@@ -315,16 +315,126 @@ Technical detail: see `FIXED-003`.
 
 ---
 
+## Session 10 — Security sweep
+
+Branch-level hardening pass. Session 9's QA and the ZAP scan both fed
+into it; the write-access item carried from `ISSUES.md` was its first
+job. See `docs/security/SECURITY_SWEEP.md` for the item-by-item record.
+
+1. **Write-access model — permission-first, Management as a layer.**
+   Every view has `permission_required`. Writes, destructive actions,
+   and tenant config also have `management_required`, applied
+   **outermost** so a non-Management user gets a uniform 403 before
+   the perm check runs. `is_management(request)` is the single source
+   of truth for the group check; `management_required` uses it, and
+   view bodies / context builders use it for UI AND-gating.
+
+2. **AND-gate on UI, not replace.** Every `{% if perms.schedule.X %}`
+   becomes `{% if is_management and perms.schedule.X %}` unless
+   already nested inside an `{% if is_management %}` block.
+   Rationale: **replace** would show buttons to a Management user who
+   lacks the underlying permission — those clicks would 403. **AND**
+   has no such failure mode; the UI and backend stay symmetric by
+   construction.
+
+3. **Write implies read.** Seven write views got a second
+   `@permission_required` for the read perm they render
+   (`add_employee`, `schedule_change`, `schedule_add`, `pattern_edit`,
+   `pattern_form_preview`, `set_override`, `set_day_override`).
+   Refusing the operation was chosen over stripping the response:
+   simpler, and eliminates a class of "what does the minimal response
+   look like" questions. A user with write but not read perms is a
+   misconfiguration, and refusing is the right failure mode for it.
+
+4. **`set_override` exception.** It has no `management_required`
+   decorator because its perm also branches per `action` (delete for
+   `off` / `reset`, add for `save`). The `is_management` check runs
+   in-body at the top of the function, before the action branch,
+   matching the same failure shape as the decorator would.
+
+5. **`qr_code` is permission-only, not management.** The QR is a
+   login URL and carries no data. Policy consistency wins (every view
+   has a perm), but layering Management on top would add friction
+   with no security benefit. Login already requires an account; the
+   QR just points at the form.
+
+6. **`print_schedule` stays management-only.** Confirms Session 7's
+   read/write distinction — print is a bulk data export, not a
+   personal view. Management + `view_shift` both required.
+
+7. **Factory consolidation.** New `make_management_user()` collapses
+   the "perms + Management group" pattern duplicated across six test
+   files. `make_manager_user()` now grants every `schedule.*`
+   permission via queryset rather than a hardcoded 8-item list — the
+   missing role/title perms became 403s the moment `settings_*` views
+   got their `@permission_required` decorators.
+
+8. **Access matrix test.** `Sec006AccessMatrixTests` in
+   `test_views_edges.py` pins the policy per view: anonymous →
+   login redirect, perm-only → 403 (Management gate fires),
+   mgmt+perm → not 403. Three assertions per view × 20 views.
+   Behaviour tests in per-view files cover the success path;
+   the matrix covers the authorization policy itself, so decorator
+   wiring can't drift silently.
+
+9. **`check --deploy` verification.** `DJANGO_DEBUG=false
+   DJANGO_SECURE=true manage.py check --deploy` clean. Confirms the
+   SEC-005 `SECURE_*` block works end-to-end for a prod-config run.
+
+10. **CodeRabbit follow-ups.** Four additional findings landed
+    cleanly:
+
+    - **Signup OTP stale session.** Final OTP verification now
+      reloads the employee under `select_for_update()` inside
+      `transaction.atomic()` and revalidates email / active /
+      user-link before attaching. Resends check the same conditions
+      before issuing a replacement code. Rejects the "management
+      changed the email but old holder completed" scenario.
+    - **Admin password_change bypass.** `AdminSite.password_change`
+      is overridden in `work_schedule/urls.py` to redirect to the
+      OTP-gated `/accounts/password_change/` flow. Prefix-agnostic
+      (works at `/admin/`, `/back-panel.../`, wherever mounted).
+    - **Write endpoints leak read data.** Covered by (3) above.
+    - **Axes admin `has_add_permission`.** Both
+      `AccessAttemptAdmin` and `AccessLogAdmin` override it to
+      superuser-only, matching the other permission methods. Django's
+      default would have accepted any `is_staff` user with
+      `axes.add_accessattempt`.
+
+    Fifth finding (reactivate/cancel activates pending-approval
+    accounts) is deferred — needs a distinct `approved_at` field to
+    separate "account approved" from "employment active." Deferred
+    to `ISSUES.md`; its own branch.
+
+11. **Verified-no-op items.**
+    - **SEC-004 (server header leak).** Cloudflare Tunnel replaces
+      the upstream `Server` header with `server: cloudflare`.
+      Confirmed via `curl -sI` against prod.
+    - **SEC-005 (`SECURE_*` settings).** Already implemented; gated
+      on `DJANGO_SECURE`; both envs correct.
+    - **SEC-007 (password echo).** ZAP was reading its own request
+      payload. `PasswordInput` defaults to `render_value=False` and
+      `SignUpForm` doesn't override it.
+
+12. **ZAP re-scan deferred to staging.** Staging mirrors prod
+    behaviour (`DJANGO_DEBUG=false`, same Cloudflare tunnel, real
+    egress headers, `DJANGO_SECURE=true`), so it's a valid surface
+    for the re-scan while traffic is disposable. Prod re-scan
+    optional after staging goes clean.
+
+---
+
 ## Handed to future branches
 
-- **Write-access model — permission-first, with Management as a
-  layer.** Currently `schedule_change` / `add` / `edit` /
-  `delete_pattern` are gated on `permission_required`, while
-  `employee_details` / `settings_home` / `print_schedule` are
-  `management_required`. The target state is: **everything is
-  permission-gated; Management group membership is layered on top
-  where the *class* of action warrants it** (destructive global
-  operations, tenant-level settings). Migrating the current
-  `management_required`-only views to permission-gated with
-  Management layered is the first item on the security sweep
-  branch. Not a CodeRabbit cleanup, not a Session 9 concern.
+- **Reactivation/cancel privilege confusion** — needs an
+  `approved_at` field on `User` (or `is_approved` on `Employee`) to
+  separate account approval from employment state. Currently both
+  flows set `is_active = True`, which lets a Management user without
+  `auth.change_user` approve pending accounts through employment
+  restoration. See `ISSUES.md`.
+- **CSP Phases 1 and 2.** Phase 1 (unsafe-inline) is a small win
+  over Django's autoescape; Phase 2 (nonces + Alpine CSP build) is
+  the real one. Own session. See `SECURITY_SWEEP.md` "CSP plan
+  (deferred)".
+- **Accounts test layout** (`accounts/tests.py` → `accounts/tests/`).
+  Prerequisite for the deferred SEC-007 automated test.

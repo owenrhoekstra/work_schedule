@@ -31,16 +31,7 @@ yet, but don't design in ways that block them.
 
 ## Commands
 
-All commands assume `uv run` prefix unless noted.
-
-    uv run python manage.py runserver          # dev server
-    uv run python manage.py test               # full suite
-    uv run python manage.py test schedule.tests.test_home  # one module
-    uv run python manage.py check              # fast syntax/config check
-    uv run python manage.py collectstatic --noinput
-    uv run python manage.py migrate
-    uv run python manage.py shell
-    uv lock --check                            # verify lockfile
+All commands ensure are prefixed with `uv run` prefix unless noted.
 
 **Before every commit**, run the full pre-commit sequence:
 
@@ -154,8 +145,11 @@ week is in the past).
 
 ### Python
 
-- **Python 3.14 syntax only.** `except A, B:` is invalid — always
-  `except (A, B):`. This has bitten us; double-check except clauses.
+- **Python 3.14 syntax.** `except (A, B):` is the canonical form; keep
+  it for consistency with the pre-3.14 codebase. PEP 758 (3.14) also
+  permits the un-parenthesized `except A, B:` form, but the parens
+  work in every version and match the rest of the code. Point out any 
+  occurences that do not have parens.
 - No custom user model. `Employee` links to Django's `User` via
   `OneToOneField(null=True)`. Employee is the source of truth for name
   and email; a `post_save` signal mirrors to User.

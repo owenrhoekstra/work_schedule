@@ -24,6 +24,34 @@ Persistent queue of items to tackle in a future branch.
 
 ## Open
 
+### Reactivate / cancel activates pending-approval accounts
+
+- **Origin:** CodeRabbit finding #5 (`feb9c6a6-3585-4431-a8f9-6e766085d5d6`),
+  reviewed during SEC-006 sweep. Not a SEC-006 regression.
+- **Problem:** `settings_cancel_deactivation` and
+  `settings_reactivate_employee` both set `User.is_active = True` on
+  the linked user. This activates accounts created via signup but
+  never approved through `approve_account` (`auth.change_user`-gated).
+  Employment state and account-approval state share the same flag, so
+  a Management user without `auth.change_user` can approve accounts
+  through employment restoration.
+- **Possible directions:**
+  - Add a distinct `approved_at` field to `User` (or
+    `Employee.is_approved`). `approve_account` sets it. Cancel /
+    reactivate restore `is_active` only for already-approved accounts;
+    unapproved accounts stay inactive with a "pending approval" note
+    to management.
+  - Require `auth.change_user` on the activation branch of the two
+    employment-restoration views when the account was never approved.
+  - Heuristic (fragile): `user.groups.filter(name="Staff").exists()` —
+    the Staff group is granted by `approve_account`. Not recommended
+    as the real fix.
+- **Priority:** Medium. Not a live exploit — the views are
+  Management-gated — but a privilege-confusion issue. The real fix
+  is the `approved_at` field plus a data migration to set it for
+  existing active accounts.
+- **Target:** own branch. Not in SEC-006 scope.
+
 ### Cycle-length change reinterprets stored offsets
 
 - **Origin:** FIXED-003 known limitation.
@@ -106,8 +134,10 @@ Persistent queue of items to tackle in a future branch.
 
 ## Waiting on a specific branch
 
-_(None currently. The write-access model item moved to the
-security-sweep branch as SEC-006.)_
+- **Accounts test layout** (`accounts/tests.py` → `accounts/tests/`
+  package) — SEC-007's automated test (password field not echoed on
+  signup error) lands with this branch. Manual verification done;
+  code analysis conclusive; test deferred for organisational reasons.
 
 ---
 

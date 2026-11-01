@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import PasswordChangeView
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -63,6 +64,25 @@ def signup(request):
     return render(request, "registration/signup.html", {"form": form})
 
 
+def _pending_signup_eligible(pending):
+    """Recheck a pending_signup session's eligibility (SEC-006 finding #1).
+
+    Employee email, active status, or user link may have changed since
+    signup was initiated. Called before issuing replacement OTP codes;
+    final account creation does the authoritative check with a
+    select_for_update row lock.
+    """
+    try:
+        employee = Employee.objects.get(pk=pending["employee_id"])
+    except Employee.DoesNotExist:
+        return False
+    return (
+        employee.email.lower() == pending["email"].lower()
+        and employee.is_active
+        and employee.user_id is None
+    )
+
+
 def verify_signup_otp(request):
     pending = request.session.get("pending_signup")
     if not pending:
@@ -78,6 +98,17 @@ def verify_signup_otp(request):
         action = request.POST.get("action")
 
         if action == "resend":
+            # Reject stale sessions before issuing a replacement code —
+            # management may have changed the employee's email or
+            # deactivated them since the signup started (SEC-006 #1).
+            if not _pending_signup_eligible(pending):
+                request.session.pop("pending_signup", None)
+                messages.error(
+                    request,
+                    "Your enrollment has changed. Please start again.",
+                )
+                return redirect("signup")
+
             # Rate-limit resends per email
             can_send, wait = otp_service.send_status(f"signup:{email}")
             if can_send:
@@ -102,29 +133,53 @@ def verify_signup_otp(request):
             )
 
         if otp_service.verify_signup_otp(email, code):
-            # Success — create the User and link to the Employee
-            employee = Employee.objects.get(pk=pending["employee_id"])
+            # Success — create the User and link to the Employee.
+            # Reload the employee under a row lock and revalidate
+            # eligibility before attaching. Rejects stale sessions:
+            # management may have changed the email or deactivated the
+            # employee between signup start and OTP verification
+            # (SEC-006 finding #1).
+            with transaction.atomic():
+                try:
+                    employee = Employee.objects.select_for_update().get(
+                        pk=pending["employee_id"]
+                    )
+                except Employee.DoesNotExist:
+                    employee = None
 
-            # Guard: another session may have completed first
-            if employee.user_id is not None:
-                messages.error(
-                    request,
-                    "This account has already been completed. Try logging in.",
+                if employee is not None and employee.user_id is not None:
+                    otp_service.clear_signup_otp(email)
+                    request.session.pop("pending_signup", None)
+                    messages.error(
+                        request,
+                        "This account has already been completed. Try logging in.",
+                    )
+                    return redirect("login")
+
+                if (
+                    employee is None
+                    or employee.email.lower() != email.lower()
+                    or not employee.is_active
+                ):
+                    otp_service.clear_signup_otp(email)
+                    request.session.pop("pending_signup", None)
+                    messages.error(
+                        request,
+                        "Your enrollment has changed. Please contact management.",
+                    )
+                    return redirect("signup")
+
+                user = User(
+                    username=pending["username"],
+                    email=email,
+                    password=pending["password_hash"],
+                    first_name=employee.first_name,
+                    last_name=employee.last_name,
+                    is_active=False,
                 )
-                request.session.pop("pending_signup", None)
-                return redirect("login")
-
-            user = User(
-                username=pending["username"],
-                email=email,
-                password=pending["password_hash"],
-                first_name=employee.first_name,
-                last_name=employee.last_name,
-                is_active=False,
-            )
-            user.save()
-            employee.user = user
-            employee.save(update_fields=["user"])
+                user.save()
+                employee.user = user
+                employee.save(update_fields=["user"])
 
             otp_service.clear_signup_otp(email)
             request.session.pop("pending_signup", None)

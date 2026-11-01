@@ -9,12 +9,29 @@ from django.contrib.auth.views import (
     PasswordChangeDoneView,
     PasswordChangeView,
 )
+from django.shortcuts import redirect
 from django.urls import include, path
 from django.views.generic import RedirectView
 
 from accounts.forms import StyledLoginForm, StyledPasswordChangeForm
 from accounts.views import OTPGatedPasswordChangeView
 from work_schedule import views as project_views
+
+
+def _admin_password_change_redirect(request, extra_context=None):
+    """SEC-006 finding #2: force admin's self-service password change
+    through the OTP-gated /accounts/password_change/ flow.
+
+    The default admin handler (AdminSite.password_change) uses Django's
+    standard PasswordChangeForm, which only checks the current password.
+    Our OTP-gated view requires a fresh email code first. Without this
+    redirect, an active staff account could replace its password at
+    the admin URL without ever satisfying the OTP requirement.
+    """
+    return redirect("password_change")
+
+
+admin.site.password_change = _admin_password_change_redirect
 
 urlpatterns = [
     path("healthz/", project_views.healthz, name="healthz"),

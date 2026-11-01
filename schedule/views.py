@@ -684,6 +684,7 @@ def home(request):
 @login_required
 @management_required
 @permission_required("schedule.add_employee", raise_exception=True)
+@permission_required("schedule.view_shift", raise_exception=True)
 def add_employee(request):
     """Create a new employee from the modal form on the home page.
 
@@ -1578,6 +1579,7 @@ def _render_pattern_form(
 @login_required
 @management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def schedule_change(request, pk):
     """Change schedule from a week forward."""
     today = timezone.localdate()
@@ -1603,6 +1605,7 @@ def schedule_change(request, pk):
 @login_required
 @management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def schedule_add(request, pk):
     """Add a new pattern at a chosen week."""
     today = timezone.localdate()
@@ -1639,6 +1642,7 @@ def schedule_add(request, pk):
 @login_required
 @management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def pattern_form_preview(request, pk):
     """Return just the banner + grid body for HTMX live updates."""
     today = timezone.localdate()
@@ -1911,6 +1915,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 @login_required
 @management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def pattern_edit(request, employee_pk, pk):
     """Edit one existing pattern in place.
 
@@ -2045,6 +2050,7 @@ def delete_pattern(request, pk):
 
 
 @login_required
+@permission_required("schedule.view_shift", raise_exception=True)
 @require_POST
 def set_override(request, employee_pk, date_iso):
     """Create, update, or clear a per-day shift override.
@@ -2195,6 +2201,7 @@ def set_override(request, employee_pk, date_iso):
 @login_required
 @management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_shift", raise_exception=True)
 @require_POST
 def set_day_override(request, date_iso):
     """Mark a whole date as Closed or Holiday, or clear that status."""

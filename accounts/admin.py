@@ -33,6 +33,14 @@ class AccessAttemptAdmin(admin.ModelAdmin):
     def has_view_permission(self, request, obj=None):
         return request.user.is_superuser
 
+    def has_add_permission(self, request):
+        # SEC-006 finding #4: deny manual additions. Axes creates these
+        # records automatically on login attempts; nobody should forge
+        # them through admin. Django's default would check the model
+        # add permission (axes.add_accessattempt), which a non-superuser
+        # staff account could hold.
+        return request.user.is_superuser
+
     def has_change_permission(self, request, obj=None):
         return request.user.is_superuser
 
@@ -51,6 +59,10 @@ class AccessLogAdmin(admin.ModelAdmin):
         return request.user.is_superuser
 
     def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        # SEC-006 finding #4: see AccessAttemptAdmin.has_add_permission.
         return request.user.is_superuser
 
     def has_change_permission(self, request, obj=None):
