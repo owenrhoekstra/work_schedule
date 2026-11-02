@@ -74,9 +74,9 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "work_schedule.middleware.HTMXLoginRedirectMiddleware",
     "schedule.middleware.EmployeeDeactivationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "work_schedule.middleware.HTMXLoginRedirectMiddleware",
     "axes.middleware.AxesMiddleware",
 ]
 

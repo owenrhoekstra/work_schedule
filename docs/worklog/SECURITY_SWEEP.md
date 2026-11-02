@@ -149,7 +149,7 @@ because the perm varies per `action` value).
 | `set_override` | in-body (per-action) + `schedule.view_shift` | in-body |
 | `set_day_override` | `schedule.change_shift` + `schedule.view_shift` | yes |
 | `settings_home` | `schedule.view_employee` | yes |
-| `settings_deactivate_employee` | `schedule.change_employee` | yes |
+| `settings_deactivate_employee` | `schedule.delete_employee` | yes |
 | `settings_cancel_deactivation` | `schedule.change_employee` | yes |
 | `settings_reactivate_employee` | `schedule.change_employee` | yes |
 | `settings_add_title` | `schedule.add_title` | yes |

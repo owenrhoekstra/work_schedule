@@ -251,6 +251,8 @@
 
 {% if is_management and perms.schedule.delete_employee %}
     {% include "schedule/modals/_deactivate.html" %}
+{% endif %}
+{% if is_management and perms.schedule.change_employee %}
     {% include "schedule/modals/_cancel_deactivation_confirm.html" %}
     <form
         method="post"

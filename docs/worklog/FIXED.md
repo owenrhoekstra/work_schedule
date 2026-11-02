@@ -192,8 +192,15 @@ Bugs fixed on the current branch, newest at the bottom.
   refuse the operation, don't strip the response — simpler, and
   eliminates the "what does the minimal response look like"
   question.
-- **Tests:** covered by `Sec006AccessMatrixTests` (perm-only user
-  without the read perm gets 403 on the write view).
+- **Tests:** Two complementary classes in `test_views_edges.py`:
+  - `Sec006AccessMatrixTests` — perm-only user (has ALL schedule
+    perms, no Management group) gets 403 on write views. This
+    verifies the Management gate, not the read-perm gate.
+  - `WriteWithoutReadPermissionTests` — write-only user (has the
+    write perm, lacks the corresponding read perm, in Management)
+    gets 403. This verifies the read-perm `@permission_required`
+    decorators added by this fix. Distinct concern from the class
+    above — see the class docstring.
 
 ### CodeRabbit #4 — Axes admin add-permission gap
 

@@ -135,3 +135,23 @@ class HTMXLoginRedirectMiddlewareTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn("HX-Redirect", resp)
+
+    def test_htmx_request_during_deactivation_redirects_via_login(self):
+        """CodeRabbit finding: the deactivation middleware returns 302
+        on expired accounts. HTMX must not follow that and swap the
+        login page into a fragment. The middleware order in settings.py
+        puts HTMXLoginRedirectMiddleware above EmployeeDeactivationMiddleware
+        so its response phase wraps the deactivation 302.
+        """
+        user = make_staff_user("deacthtmx")
+        emp = make_employee(email=user.email)
+        emp.user = user
+        emp.last_day = timezone.localdate() - timedelta(days=1)
+        emp.save()
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+
+        self.client.force_login(user)
+        resp = self.client.get(reverse("home"), HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 204)
+        self.assertIn("/accounts/login/", resp["HX-Redirect"])

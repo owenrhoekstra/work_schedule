@@ -3,8 +3,8 @@
 Chronological design rationale from each session. Persistent across
 branches.
 
-For "what got fixed and how," see `docs/bugs/FIXED.md`. For "what to
-do next," see `docs/UX_BACKLOG.md`.
+For "what got fixed and how," see `docs/worklog/FIXED.md`. For "what
+to do next," see `docs/UX_BACKLOG.md`.
 
 Sessions are numbered by planned work. Decimals (5.5, 6.5, 7.5) are
 sub-sessions that emerged during the work — same numbering as the
@@ -319,7 +319,7 @@ Technical detail: see `FIXED-003`.
 
 Branch-level hardening pass. Session 9's QA and the ZAP scan both fed
 into it; the write-access item carried from `ISSUES.md` was its first
-job. See `docs/security/SECURITY_SWEEP.md` for the item-by-item record.
+job. See `docs/worklog/SECURITY_SWEEP.md` for the item-by-item record.
 
 1. **Write-access model — permission-first, Management as a layer.**
    Every view has `permission_required`. Writes, destructive actions,

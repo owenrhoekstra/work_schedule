@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission, User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -416,3 +416,65 @@ class Sec006AccessMatrixTests(TestCase):
 
     def test_employee_details(self):
         self._check(reverse("employee_details", args=[self.emp.pk]))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class WriteWithoutReadPermissionTests(TestCase):
+    """CodeRabbit #3 regression: write endpoints require the read perm.
+
+    Distinct from Sec006AccessMatrixTests. That class exercises the
+    Management gate with a perm-only user (has ALL schedule perms, not
+    in Management). This class exercises the read-perm gate with a
+    write-only user (in Management, has the write perm, lacks the
+    read perm). Each view has TWO @permission_required decorators
+    post-CR#3; this class pins the second one.
+
+    Views chosen: one per read perm kind (view_shift for roster-
+    rendering endpoints, view_employee for pattern-rendering endpoints).
+    """
+
+    def setUp(self):
+        self.role = make_role()
+        self.emp = make_employee(role=self.role, with_pattern=True)
+
+    def _write_only_user(self, *write_codenames):
+        user = User.objects.create_user(
+            username="writeonly_" + "_".join(write_codenames), password="p"
+        )
+        for codename in write_codenames:
+            user.user_permissions.add(Permission.objects.get(codename=codename))
+        mgmt, _ = Group.objects.get_or_create(name="Management")
+        user.groups.add(mgmt)
+        return user
+
+    def test_add_employee_requires_view_shift(self):
+        user = self._write_only_user("add_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("add_employee"))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_schedule_change_requires_view_employee(self):
+        user = self._write_only_user("change_shift")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_set_override_requires_view_shift(self):
+        user = self._write_only_user("add_shift")
+        self.client.force_login(user)
+        d = date(2026, 6, 1)
+        resp = self.client.post(
+            reverse("set_override", args=[self.emp.pk, d.isoformat()]),
+            {"action": "save", "start_time": "10:00", "end_time": "18:00"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_set_day_override_requires_view_shift(self):
+        user = self._write_only_user("change_shift")
+        self.client.force_login(user)
+        d = date(2026, 6, 1)
+        resp = self.client.post(
+            reverse("set_day_override", args=[d.isoformat()]),
+            {"action": "closed"},
+        )
+        self.assertEqual(resp.status_code, 403)
