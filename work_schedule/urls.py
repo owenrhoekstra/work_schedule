@@ -101,7 +101,11 @@ class _OTPGatedUserAdmin(_BaseUserAdmin):
     Existing authorization stays in place: admin_view (is_active +
     is_staff + has_permission) still runs first, and user_change_password
     still checks has_change_permission before rendering or saving.
-    Only the OTP gate is inserted.
+
+    Two additions on top of stock UserAdmin:
+      1. Require a fresh `otp_verified_at` stamp before delegating.
+      2. Clear the stamp on a successful POST so one OTP unlocks one
+         change — matches OTPGatedPasswordChangeView.form_valid.
     """
 
     def get_urls(self):
@@ -132,7 +136,22 @@ class _OTPGatedUserAdmin(_BaseUserAdmin):
         #   - has_change_permission (auth.change_user) check
         #   - AdminPasswordChangeForm vs PasswordChangeForm (self vs other)
         #   - all form rendering and POST handling
-        return self.user_change_password(request, object_id)
+        response = self.user_change_password(request, object_id)
+
+        # Clear the OTP stamp only on successful save, matching
+        # OTPGatedPasswordChangeView.form_valid's behavior. One OTP
+        # unlocks one password change; GETs and validation-error POSTs
+        # preserve the stamp so the user can retry without re-verifying.
+        #
+        # user_change_password returns a redirect on success and a
+        # TemplateResponse otherwise — the status check distinguishes
+        # the two without re-inspecting the form.
+        if request.method == "POST" and response.status_code in (
+            301, 302, 303, 307, 308
+        ):
+            request.session.pop("otp_verified_at", None)
+
+        return response
 
 
 try:

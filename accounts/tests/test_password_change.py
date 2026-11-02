@@ -212,3 +212,68 @@ class AdminPasswordChangeRedirectTests(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)
         self.assertIn(reverse("verify_otp"), resp.url)
+
+    # ----- OTP stamp clearing on successful save -----
+
+    def test_user_admin_password_change_clears_otp_after_success(self):
+        """Successful POST clears the stamp — one OTP per change.
+
+        Mirrors OTPGatedPasswordChangeView.form_valid's behavior.
+        Otherwise an admin could reset N passwords within the 5-minute
+        window after one OTP while the accounts flow enforces
+        one-OTP-per-change.
+
+        UserAdmin's user_change_password uses AdminPasswordChangeForm
+        (fields: password1/password2, no old_password) — different from
+        the accounts flow's PasswordChangeForm. Post the field names
+        that form actually declares.
+        """
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        url = reverse("admin:auth_user_password_change", args=[self.user.pk])
+        resp = self.client.post(
+            url,
+            {
+                "password1": "newcomplexpass456!",
+                "password2": "newcomplexpass456!",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn("otp_verified_at", self.client.session)
+
+    def test_user_admin_password_change_get_preserves_otp(self):
+        """GET renders the form; the stamp survives for the eventual POST."""
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        target = make_staff_user("targetpw_get")
+        url = reverse("admin:auth_user_password_change", args=[target.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("otp_verified_at", self.client.session)
+
+    def test_user_admin_password_change_invalid_post_preserves_otp(self):
+        """Invalid POST renders the form with errors; the stamp survives
+        so the user can correct and resubmit without re-verifying.
+
+        Mismatched password1/password2 triggers AdminPasswordChangeForm's
+        validation error (password_mismatch) — a real validation failure,
+        not a missing-required-field failure.
+        """
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        url = reverse("admin:auth_user_password_change", args=[self.user.pk])
+        resp = self.client.post(
+            url,
+            {
+                "password1": "newcomplexpass456!",
+                "password2": "differentpass789!",  # mismatch → form invalid
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("otp_verified_at", self.client.session)

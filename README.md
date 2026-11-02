@@ -1,332 +1,158 @@
 # Work Schedule
 
-![Tests](https://github.com/owenrhoekstra/work_schedule/actions/workflows/tests.yml/badge.svg)
+A web application for managing employee work schedules. Managers build
+recurring shift patterns — including multi-week rotations — set
+exceptions for individual days, and manage the full lifecycle of each
+employee's employment. Employees see their upcoming schedule at a
+glance.
 
-A small internal tool for managing employee schedules. Built for a home-services team: managers define weekly shift patterns, employees see their upcoming schedule, and notification emails are opt-in per action.
+Designed for small-to-medium workplaces where schedules change week to
+week and someone needs to keep track of who's working when.
+
+---
+
+## What it does
+
+Work Schedule replaces the spreadsheet-and-text-message scheduling that
+small workplaces usually fall back on. It centralizes shift patterns,
+keeps a history of every schedule change, and gives both managers and
+employees a single place to check what's coming up.
+
+The app makes a specific set of trade-offs:
+
+- **Patterns over per-week editing.** Most schedules repeat. Defining a
+  pattern once and letting it play out avoids re-entering the same
+  hours every week.
+- **Overrides over pattern changes.** A one-day exception shouldn't
+  require rewriting the pattern. Click a cell, change the day, move on.
+- **Written history matters.** Editing a past week takes an explicit
+  confirmation. Deactivating an employee doesn't erase their history.
+  The schedule remembers what actually happened.
+- **Quiet by default.** No email goes out without a manager ticking a
+  checkbox first. Setup doesn't blast the whole team.
 
 ---
 
 ## Features
 
-- **Weekly schedule grid** — every active employee and their shifts, Mon–Sat, scrollable by week with a date picker for jumping.
-- **Multi-week cycle patterns** — support for 1, 2, 3, or 4-week rotations (e.g. mornings this week, afternoons next).
-- **Per-day overrides** — click any cell to change that employee's shift for one specific day without touching their default pattern. Overridden cells render in coral.
-- **Day-level overrides** — mark a whole date as Closed or Holiday; every employee's cell for that day is suppressed.
-- **Employment periods** — an employee can be deactivated and later reactivated without losing their history. The schedule correctly shows gaps between periods.
-- **Last-day semantics** — deactivating an employee sets their final day on the schedule. Everything internal (period closure, user deactivation) is anchored to the day after.
-- **Invite-only signup** — a manager adds an employee, the employee signs up with that email, verifies with a one-time code, and waits for manager approval.
-- **OTP-gated password change** — changing a password requires a fresh email code, valid for 5 minutes.
-- **Rate limiting** — django-axes locks out repeated failed logins per username+IP, with the real client IP resolved through Cloudflare Tunnel.
-- **Email notifications** — welcome, account-approved, shift-changed, and deactivation emails, all opt-in via checkboxes. Plain-text fallbacks for every HTML template.
-- **Custom error pages** — branded 404, 403, 500, and lockout pages.
-- **Mobile responsive** — nav, home schedule, and auth pages work at phone widths.
+### For managers
+
+- **Weekly schedule view** — every active employee and their shifts at
+  a glance, with a date picker for jumping to any week.
+- **Multi-week cycle patterns** — 1, 2, 3, or 4-week rotations (e.g.
+  mornings this week, afternoons next). Cycles align across the team,
+  so "Week B" means the same week for everyone on a 2-week cycle.
+- **Flexible pattern editing** — change a schedule from any future week
+  forward (splitting the previous pattern cleanly at the boundary), or
+  edit an existing pattern in place. Retroactive edits require an extra
+  confirmation.
+- **Per-day overrides** — change one employee's shift for one specific
+  date without touching their default pattern. Overridden cells render
+  in coral so exceptions stand out.
+- **Day-level statuses** — mark a whole date as Closed or Holiday and
+  every employee's cell for that day is suppressed.
+- **Pattern history** — every employee's full timeline of schedule
+  changes, expandable week-by-week.
+- **Employment lifecycle** — deactivate an employee (setting a final
+  working day) and reactivate them later without losing their history.
+  The schedule correctly shows gaps between periods.
+- **Opt-in notifications** — welcome, approval, schedule-change, and
+  deactivation emails, each triggered only by an explicit checkbox.
+
+### For employees
+
+- **Upcoming schedule** — a clean view of their week, with the current
+  cycle position shown when the pattern rotates.
+- **Email-based signup** — employees sign up with the email a manager
+  recorded for them; no shared links, no invite codes to distribute.
+- **Self-service profile** — update name and contact details without
+  going through a manager.
+
+### Security and access
+
+- **Invite-only signup** — an account can only be created against an
+  email that a manager has already added to the roster. Unknown emails
+  are rejected at signup.
+- **One-time-code verification** — signup and password changes are
+  gated by a fresh email code, valid 5 minutes. Applies to both the
+  normal account flow and the admin portal.
+- **Rate limiting** — repeated failed logins lock out the account
+  temporarily, per username + IP.
+- **Approval workflow** — new accounts require a manager's approval
+  before they become active, so the app never grants access to an
+  unvetted signup.
 
 ---
 
-## Tech Stack
+## Design principles
 
-| Layer              | Tool                                 |
-| ------------------ | ------------------------------------ |
-| Framework          | Django 6.1                           |
-| Language           | Python 3.14                          |
-| Database           | PostgreSQL 18                        |
-| Cache / sessions   | Redis 7                              |
-| Email              | Resend via django-anymail            |
-| Rate limiting      | django-axes                          |
-| Static files       | WhiteNoise                           |
-| Styling            | Tailwind CSS 4 (via django-tailwind) |
-| Dependency manager | uv                                   |
-| Deployment         | Docker Compose                       |
-| Ingress            | Cloudflare Tunnel                    |
-| Offsite backups    | Backblaze B2 via rclone (encrypted)  |
+These are the rules the app is built around. They explain why certain
+behaviors differ from what you might expect from a generic scheduler.
 
----
+### Reading is summary; writing is deliberate
 
-## Local Development
+A newly-added employee has no schedule until a manager creates one.
+There is no auto-generated starter pattern. Adding someone to the
+roster and deciding what hours they work are two separate decisions,
+and the app treats them that way. The reading page surfaces three
+distinct states — currently scheduled, past schedules but not this
+week, or no schedule at all — so a manager always knows which case
+they're looking at.
 
-### Prerequisites
+### Every edit is a boundary
 
-- Python 3.14
-- [uv](https://docs.astral.sh/uv/)
-- PostgreSQL 18 running locally
-- Redis running locally
+Changing a schedule from a given week forward splits the existing
+pattern at that boundary. The weeks before the split keep their
+original hours; the weeks after use the new ones. Nobody's history
+silently rewrites itself.
 
-On macOS:
+### Destructive actions announce themselves
 
-```bash
-brew install postgresql@18 redis
-brew services start postgresql@18
-brew services start redis
-```
+Editing an already-saved pattern that starts in the past triggers a
+retroactive confirmation. Deleting a pattern asks first. Deactivating
+an employee opens a modal naming the last working day. Every action
+that changes written history is one click harder than an action that
+doesn't.
 
-Create the dev database and user:
+### Employment is a timeline, not a flag
 
-```sql
-psql postgres
-CREATE USER work_schedule_user WITH PASSWORD 'changeme';
-CREATE DATABASE work_schedule OWNER work_schedule_user;
-\q
-```
+An employee can be active, scheduled for future departure, or already
+departed — and can move between those states without erasing what came
+before. Rehires pick up where the last period ended. The schedule
+always answers "was this person employed on this specific date?" not
+"are they on the roster right now?"
 
-### Setup
+### The manager controls the volume
 
-```bash
-git clone git@github.com:owenrhoekstra/work_schedule.git
-cd work_schedule
-uv sync
-```
+Nothing is emailed to an employee without a manager checking a box.
+Welcome emails, schedule changes, deactivations — all opt-in per
+action. Setup doesn't produce noise. Notifications are a tool, not a
+default.
 
-Create a `.env` file at the project root:
+### Sessions expire gracefully
 
-```bash
-DJANGO_SECRET_KEY=<generate with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())">
-DJANGO_DEBUG=True
-DJANGO_SECURE=False
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=
-
-POSTGRES_DB=work_schedule
-POSTGRES_USER=work_schedule_user
-POSTGRES_PASSWORD=changeme
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5432
-
-REDIS_URL=redis://127.0.0.1:6379/0
-
-SITE_URL=http://localhost:8000
-DEFAULT_FROM_EMAIL="Work Schedule <noreply@example.com>"
-# RESEND_API_KEY=re_...   # leave unset to print emails to the console
-```
-
-Apply migrations and create a superuser:
-
-```bash
-uv run python manage.py migrate
-uv run python manage.py createsuperuser
-```
-
-Build the Tailwind stylesheet:
-
-```bash
-uv run python manage.py tailwind build
-```
-
-### Running
-
-```bash
-uv run python manage.py runserver
-```
-
-Open http://localhost:8000. The root redirects to `/schedule/home/`.
-
-For iterative frontend work, run Tailwind in watch mode in a separate terminal:
-
-```bash
-uv run python manage.py tailwind start
-```
-
-### Environment variables
-
-| Variable                      | Purpose                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------------ |
-| `DJANGO_SECRET_KEY`           | Django's signing key. Required.                                                |
-| `DJANGO_DEBUG`                | `True` in dev, `False` in prod.                                                |
-| `DJANGO_SECURE`               | Set to `True` in prod to enable SSL redirect, HSTS, secure cookies.            |
-| `DJANGO_ALLOWED_HOSTS`        | Comma-separated list of valid `Host` headers.                                  |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Comma-separated list of full origins (`https://…`) allowed for POST requests.  |
-| `POSTGRES_*`                  | Database connection.                                                           |
-| `REDIS_URL`                   | Redis connection string for sessions and OTP storage.                          |
-| `SITE_URL`                    | Public base URL used in outgoing email links.                                  |
-| `DEFAULT_FROM_EMAIL`          | Sender address for all outgoing email. Must be a verified domain in Resend.    |
-| `RESEND_API_KEY`              | API key from Resend. If unset, emails print to the console instead of sending. |
+If a manager's session expires while they're mid-edit, the app sends
+them back to login with their work preserved in the form they return
+to. Broken login pages inside half-rendered schedules aren't part of
+the experience.
 
 ---
 
-## Testing
+## Built on
 
-Run the full suite:
-
-```bash
-uv run python manage.py test
-```
-
-With coverage:
-
-```bash
-uv run coverage run manage.py test
-uv run coverage report --skip-covered
-```
-
-Tests run automatically on every push via GitHub Actions (`.github/workflows/tests.yml`). The workflow spins up a fresh Postgres and runs `collectstatic` before the suite — both are required for tests to pass in a clean environment.
-
-### Pre-commit checks
-
-Three commands to run before any push that touches code:
-
-```bash
-uv run python manage.py check          # Django system check
-uv run python manage.py test           # full test suite
-uv lock --check                        # confirm lockfile is current
-```
-
-If `uv lock --check` fails, run `uv lock` to regenerate.
-
----
-
-## Deployment
-
-Production runs on a Linux server with Docker Compose. Ingress is handled by a Cloudflare Tunnel — no ports are exposed on the host.
-
-### Layout
-
-```
-/srv/storage/work_schedule/
-├── docker-compose.yml
-├── .env
-├── backup.sh
-└── app/                ← git clone of this repo
-```
-
-### First deploy
-
-1. Install Docker and Docker Compose on the server.
-2. Clone the repo into `app/`:
-   ```bash
-   cd /srv/storage/work_schedule
-   git clone git@github.com:owenrhoekstra/work_schedule.git app
-   ```
-3. Create a `.env` at the deploy root — same variables as dev, with `DJANGO_DEBUG=False`, `DJANGO_SECURE=True`, `DJANGO_ALLOWED_HOSTS=<your-domain>`, and a fresh `DJANGO_SECRET_KEY`.
-4. Build and start:
-   ```bash
-   docker compose up -d
-   ```
-5. Create the first superuser:
-   ```bash
-   docker compose exec -it web python manage.py createsuperuser
-   ```
-
-### Redeploy
-
-```bash
-cd /srv/storage/work_schedule/app
-git pull
-cd ..
-docker compose build web
-docker compose up -d
-docker compose logs -f web
-```
-
-Watch the startup log until `Listening at: http://0.0.0.0:8000`. Then verify:
-
-```bash
-docker compose exec web python manage.py check --deploy
-curl -i http://localhost:8000/healthz/
-```
-
-### Rollback
-
-```bash
-cd /srv/storage/work_schedule/app
-git log --oneline -5
-git checkout <previous-commit>
-cd ..
-docker compose build web
-docker compose up -d
-```
-
-### Services
-
-| Service       | Purpose                                                                    |
-| ------------- | -------------------------------------------------------------------------- |
-| `db`          | PostgreSQL 18. Data in a named volume `postgres_data`.                     |
-| `redis`       | Redis 7 for sessions and OTP. Data in `redis_data`.                        |
-| `web`         | Gunicorn + Django. Built from `app/Dockerfile`.                            |
-| `cloudflared` | Cloudflare Tunnel connector. Reads `CLOUDFLARE_TUNNEL_SECRET` from `.env`. |
-
----
-
-## Backups
-
-Local and offsite backups run nightly via a systemd timer on the server.
-
-- **Local:** `/srv/storage/work_schedule/backups/` — 30-day retention.
-- **Offsite:** Backblaze B2, encrypted client-side via `rclone crypt`.
-- **Retention:** 30 days both places.
-
-The backup script runs `pg_dump` inside the `db` container, gzips the result, and pipes it through rclone.
-
-To run a backup manually:
-
-```bash
-sudo systemctl start work-schedule-backup.service
-sudo journalctl -u work-schedule-backup.service -n 20 --no-pager
-```
-
-To verify an offsite backup exists:
-
-```bash
-sudo rclone ls b2-workschedule-crypt:
-```
-
-The rclone crypt passphrases must be stored somewhere durable — losing them means the offsite backups are unrecoverable.
-
----
-
-## Project Structure
-
-```
-work_schedule/
-├── accounts/                  # auth, signup, profile, OTP, approval flow
-│   ├── emails.py              # send_email() wrapper
-│   ├── otp.py                 # OTP generation, storage, verification
-│   ├── views.py
-│   └── tests/
-├── schedule/                  # the schedule itself
-│   ├── middleware.py          # enforces last_day at request time
-│   ├── models.py              # Employee, EmploymentPeriod, Shift, ShiftOverride, DayOverride, Role, Title
-│   ├── notifications.py       # email helpers for welcome/approved/shift/deactivation
-│   ├── signals.py             # EmploymentPeriod creation, User↔Employee sync
-│   ├── views.py
-│   └── tests/
-├── theme/                     # Tailwind app
-│   └── static_src/src/styles.css
-├── templates/                 # project-level templates
-│   ├── base.html
-│   ├── emails/                # HTML + .txt email templates
-│   └── registration/          # auth pages
-├── work_schedule/             # project config
-│   ├── settings.py
-│   ├── urls.py
-│   └── views.py               # healthz
-├── Dockerfile
-├── entrypoint.sh              # builds Tailwind, collects static, migrates
-├── docker-compose.yml
-├── pyproject.toml
-└── uv.lock
-```
-
----
-
-## Design Notes
-
-### Employment periods
-
-An `Employee` can have multiple `EmploymentPeriod` rows. The schedule asks "was this person employed on this specific date?" rather than reading a single start/end pair. This lets a rehire preserve their prior history without creating duplicate employee records.
-
-### Last day vs. inactivated on
-
-The UI says "last day" everywhere. Internally, `Employee.last_day` is the final working day; `EmploymentPeriod.end_date` is exclusive (the day after). The middleware enforces user deactivation on `last_day + 1` by checking `last_day < today` at every authenticated request, rather than relying on a scheduled task.
-
-### Cycle patterns
-
-Employees can have a 1–4 week repeating schedule. All cycles share a global epoch (`CYCLE_EPOCH` in `settings.py`) so different employees on different cycle lengths stay synchronized — a manager can look at a week and say "this is Week B for everyone on a 2-week cycle."
-
-### Notifications are opt-in
-
-Adding an employee, changing a shift, approving an account, and deactivating an employee all have a "notify" checkbox. No emails go out automatically. This keeps the manager in control of what the employee receives and prevents noise during setup.
+Django on PostgreSQL, with a small HTMX + Alpine.js layer for the
+interactive schedule grid. Deployed behind a Cloudflare Tunnel with
+Redis for sessions and OTP storage. Full technical detail — local
+setup, deployment, backups, coding conventions — lives in `docs/` and
+`AGENTS.md`.
 
 ---
 
 ## License
 
-Private project. Not licensed for redistribution.
+Copyright (c) 2026 Owen R. Hoekstra. All rights reserved.
+
+This software and its source code are proprietary and confidential.
+Unauthorized copying, distribution, modification, or use of this
+software, in whole or in part, is strictly prohibited without prior
+written permission from the copyright holder.
