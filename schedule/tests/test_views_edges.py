@@ -1,15 +1,16 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission, User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, Role, Shift, ShiftOverride, Title
+from schedule.models import Employee, Role, Shift, ShiftOverride, ShiftPattern, Title
 
 from .factories import (
     make_employee,
+    make_management_user,
     make_manager_user,
     make_role,
     make_staff_user,
@@ -122,9 +123,7 @@ class SendWelcomeViewTests(TestCase):
             {"next": "employee_defaults"},
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(
-            resp.url, reverse("employee_defaults", args=[self.emp.pk])
-        )
+        self.assertEqual(resp.url, reverse("employee_defaults", args=[self.emp.pk]))
 
     @patch("schedule.notifications.send_email")
     def test_missing_next_defaults_to_settings_home(self, mock_send):
@@ -246,9 +245,236 @@ class SettingsEdgeTests(TestCase):
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class ManagementRequiredTests(TestCase):
-    def test_management_group_grants_access(self):
-        user = make_staff_user("groupmgr")
+    def test_management_group_plus_perm_grants_access(self):
+        """SEC-006: Management AND the required permission grants access."""
+        user = make_management_user("groupmgr")
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(reverse("settings_home")).status_code, 200)
+
+    def test_management_group_without_perm_gets_403(self):
+        """SEC-006: Management alone is not enough — the perm is also required.
+
+        A user in the Management group who lacks `view_employee` still
+        403s on settings_home. This is the whole point of the AND gate.
+        """
+        user = make_staff_user("mgmtnoperm")  # view_shift only
         mgmt = Group.objects.create(name="Management")
         user.groups.add(mgmt)
         self.client.force_login(user)
-        self.assertEqual(self.client.get(reverse("settings_home")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("settings_home")).status_code, 403)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class Sec006AccessMatrixTests(TestCase):
+    """SEC-006: writes require Management AND the view's permission.
+
+    For each view: anonymous → login redirect; permission-only user
+    (has perms, not Management) → 403; Management + perm → not 403
+    (may be 200, 302, 405, etc. — this test only cares that the
+    management gate didn't fire).
+
+    Complements the individual behaviour tests in the view-specific
+    test files. Those exercise the success path; this class pins the
+    access policy itself so the decorator wiring can't drift.
+    """
+
+    def setUp(self):
+        self.role = make_role()
+        self.emp = make_employee(role=self.role, with_pattern=True)
+        self.pattern = self.emp.patterns.first()
+        self.perm_user = make_manager_user("perm-only")
+        self.mgmt_user = make_management_user("mgmt-perm")
+        self.d = date(2026, 6, 1)  # Monday
+
+    def _check(self, url, method="get", data=None):
+        data = data or {}
+
+        # Anonymous → login redirect
+        self.client.logout()
+        resp = getattr(self.client, method)(url, data)
+        self.assertEqual(resp.status_code, 302, f"{url} anon expected 302")
+        self.assertIn(
+            "/accounts/login/",
+            resp.url,
+            f"{url} anon should redirect to login",
+        )
+
+        # Perm-only (has perms, not Management) → 403
+        self.client.force_login(self.perm_user)
+        resp = getattr(self.client, method)(url, data)
+        self.assertEqual(resp.status_code, 403, f"{url} perm-only expected 403")
+
+        # Management + perm → not 403
+        self.client.force_login(self.mgmt_user)
+        resp = getattr(self.client, method)(url, data)
+        self.assertNotEqual(resp.status_code, 403, f"{url} mgmt+perm should not 403")
+
+    # ----- write views -----
+
+    def test_add_employee(self):
+        self._check(
+            reverse("add_employee"),
+            "post",
+            data={
+                "first_name": "X",
+                "last_name": "Y",
+                "role": str(self.role.pk),
+                "email": "x@x.com",
+                "start_date": "2026-01-01",
+            },
+        )
+
+    def test_schedule_change(self):
+        self._check(reverse("schedule_change", args=[self.emp.pk]))
+
+    def test_schedule_add(self):
+        self._check(reverse("schedule_add", args=[self.emp.pk]))
+
+    def test_pattern_edit(self):
+        self._check(reverse("pattern_edit", args=[self.emp.pk, self.pattern.pk]))
+
+    def test_pattern_form_preview(self):
+        self._check(reverse("pattern_form_preview", args=[self.emp.pk]))
+
+    def test_delete_pattern(self):
+        later = ShiftPattern.objects.create(
+            employee=self.emp,
+            effective_from=self.pattern.effective_from + timedelta(weeks=4),
+            cycle_weeks=1,
+        )
+        self._check(reverse("delete_pattern", args=[later.pk]), "post")
+
+    def test_send_welcome(self):
+        self._check(reverse("send_welcome", args=[self.emp.pk]), "post")
+
+    def test_set_override(self):
+        self._check(
+            reverse("set_override", args=[self.emp.pk, self.d.isoformat()]),
+            "post",
+            data={"action": "off"},
+        )
+
+    def test_set_day_override(self):
+        self._check(
+            reverse("set_day_override", args=[self.d.isoformat()]),
+            "post",
+            data={"action": "closed"},
+        )
+
+    # ----- settings views -----
+
+    def test_settings_home(self):
+        self._check(reverse("settings_home"))
+
+    def test_settings_deactivate(self):
+        self._check(
+            reverse("settings_deactivate_employee", args=[self.emp.pk]),
+            "post",
+            data={"last_day": "2026-12-31"},
+        )
+
+    def test_settings_cancel_deactivation(self):
+        self._check(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+            "post",
+        )
+
+    def test_settings_reactivate(self):
+        self._check(
+            reverse("settings_reactivate_employee", args=[self.emp.pk]),
+            "post",
+            data={"reactivation_date": "2026-09-01"},
+        )
+
+    def test_settings_add_title(self):
+        self._check(reverse("settings_add_title"), "post", data={"name": "Mr."})
+
+    def test_settings_delete_title(self):
+        t = Title.objects.create(name="Temp")
+        self._check(reverse("settings_delete_title", args=[t.pk]), "post")
+
+    def test_settings_add_role(self):
+        self._check(reverse("settings_add_role"), "post", data={"name": "Temp"})
+
+    def test_settings_delete_role(self):
+        r = Role.objects.create(name="Unused", display_order=99)
+        self._check(reverse("settings_delete_role", args=[r.pk]), "post")
+
+    def test_settings_move_role(self):
+        self._check(
+            reverse("settings_move_role", args=[self.role.pk, "up"]),
+            "post",
+        )
+
+    # ----- management-only reads -----
+
+    def test_print_schedule(self):
+        self._check(reverse("print_schedule"))
+
+    def test_employee_defaults(self):
+        self._check(reverse("employee_defaults", args=[self.emp.pk]))
+
+    def test_employee_details(self):
+        self._check(reverse("employee_details", args=[self.emp.pk]))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class WriteWithoutReadPermissionTests(TestCase):
+    """CodeRabbit #3 regression: write endpoints require the read perm.
+
+    Distinct from Sec006AccessMatrixTests. That class exercises the
+    Management gate with a perm-only user (has ALL schedule perms, not
+    in Management). This class exercises the read-perm gate with a
+    write-only user (in Management, has the write perm, lacks the
+    read perm). Each view has TWO @permission_required decorators
+    post-CR#3; this class pins the second one.
+
+    Views chosen: one per read perm kind (view_shift for roster-
+    rendering endpoints, view_employee for pattern-rendering endpoints).
+    """
+
+    def setUp(self):
+        self.role = make_role()
+        self.emp = make_employee(role=self.role, with_pattern=True)
+
+    def _write_only_user(self, *write_codenames):
+        user = User.objects.create_user(
+            username="writeonly_" + "_".join(write_codenames), password="p"
+        )
+        for codename in write_codenames:
+            user.user_permissions.add(Permission.objects.get(codename=codename))
+        mgmt, _ = Group.objects.get_or_create(name="Management")
+        user.groups.add(mgmt)
+        return user
+
+    def test_add_employee_requires_view_shift(self):
+        user = self._write_only_user("add_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("add_employee"))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_schedule_change_requires_view_employee(self):
+        user = self._write_only_user("change_shift")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_set_override_requires_view_shift(self):
+        user = self._write_only_user("add_shift")
+        self.client.force_login(user)
+        d = date(2026, 6, 1)
+        resp = self.client.post(
+            reverse("set_override", args=[self.emp.pk, d.isoformat()]),
+            {"action": "save", "start_time": "10:00", "end_time": "18:00"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_set_day_override_requires_view_shift(self):
+        user = self._write_only_user("change_shift")
+        self.client.force_login(user)
+        d = date(2026, 6, 1)
+        resp = self.client.post(
+            reverse("set_day_override", args=[d.isoformat()]),
+            {"action": "closed"},
+        )
+        self.assertEqual(resp.status_code, 403)

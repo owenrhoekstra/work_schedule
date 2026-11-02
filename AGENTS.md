@@ -1,3 +1,11 @@
+
+---
+
+## `AGENTS.md` — full rewrite
+
+Only one line changes from my previous full rewrite: the `DEPLOYMENT.md` entry in the Docs list loses its "May not exist yet" parenthetical and gains "branch flow" in the description. Everything else is identical.
+
+```markdown
 # AGENTS.md
 
 Guidance for AI coding agents (Claude Code, Cursor, Codex, etc.) working
@@ -6,15 +14,17 @@ contradicts what you're about to do, flag it and ask.
 
 ## Project overview
 
-A Django web app for managing employee work schedules at a single
-workplace. Managers add employees, define recurring shift patterns
-(including multi-week rotations), and set per-day overrides. Employees
-view the schedule and can sign up with an invite link.
+A Django web app for managing employee work schedules. Managers add
+employees, define recurring shift patterns (including multi-week
+rotations), and set per-day overrides. Employees view their schedule
+and sign up with a manager-provided email address.
 
-Current scope: single workplace. Long-term roadmap includes multi-tenancy
-(companies and teams) and SaaS licensing; the codebase is deliberately
-structured so those are additive rather than rewrites. Don't build either
-yet, but don't design in ways that block them.
+Currently scoped to a single workplace. Long-term direction is
+multi-tenancy (companies + teams) and SaaS licensing. The codebase is
+deliberately structured so those are additive rather than rewrites —
+don't build either yet, but don't design in ways that block them. See
+"Multi-tenancy and beyond" at the bottom for the specific habits that
+preserve the path.
 
 ## Stack
 
@@ -31,16 +41,8 @@ yet, but don't design in ways that block them.
 
 ## Commands
 
-All commands assume `uv run` prefix unless noted.
-
-    uv run python manage.py runserver          # dev server
-    uv run python manage.py test               # full suite
-    uv run python manage.py test schedule.tests.test_home  # one module
-    uv run python manage.py check              # fast syntax/config check
-    uv run python manage.py collectstatic --noinput
-    uv run python manage.py migrate
-    uv run python manage.py shell
-    uv lock --check                            # verify lockfile
+All manage.py commands must be prefixed with `uv run`. An exception is
+`uv lock --check` as it is not using manage.py.
 
 **Before every commit**, run the full pre-commit sequence:
 
@@ -52,13 +54,15 @@ All commands assume `uv run` prefix unless noted.
 `collectstatic` matters more than it looks. Static storage is
 manifest-based; a template referencing a `{% static %}` file that isn't
 in `staticfiles.json` raises `Missing staticfiles manifest entry` at
-render time and takes every page down. Whenever you add or rename a
-static file, run `collectstatic` before running tests.
+render time and takes every page down. Running `test` without
+`collectstatic` first fails in a clean checkout. Whenever you add or
+rename a static file, run `collectstatic` before running tests.
 
 ## Architecture
 
-    work_schedule/       # project settings, urls, wsgi, context processors
-    accounts/            # auth, signup, OTP, profile
+    work_schedule/       # project settings, urls, wsgi, context processors,
+                         #   HTMX login-redirect middleware
+    accounts/            # auth, signup, OTP, profile, admin gate
     schedule/            # employees, patterns, shifts, schedule view
     theme/               # Tailwind config and compiled CSS
     templates/           # project-level templates (base.html, emails, partials)
@@ -66,6 +70,12 @@ static file, run `collectstatic` before running tests.
     staticfiles/         # collectstatic output, do not edit
     docs/                # living docs (see "Docs" section below)
     scripts/             # one-off dev scripts (db reset/restore)
+
+Deployment (Docker Compose + Cloudflare Tunnel, staging + prod) is
+documented separately — `docs/DEPLOYMENT.md` for prod,
+`docs/STAGING.md` for staging. This file covers how to work on the
+code, not how to run it. If you need to touch Docker, backups, or the
+proxy config, ask first.
 
 ### Docs (living documents)
 
@@ -77,10 +87,16 @@ See `docs/README.md` for the full model. Short version:
   Cleared at merge; follow-ups extracted to `ISSUES.md`.
 - `docs/design/SESSIONS.md` — chronological design rationale.
   Persistent across branches.
-- `docs/UX_BACKLOG.md` — forward-looking UX/feature requests.
-  Persistent.
+- `docs/design/CSP_PLAN.md` — deferred Content Security Policy branch
+  plan. Phase 1 policy draft, Phase 2 nonce requirements, deployment
+  caveats. Persistent. Read this before touching CSP.
+- `docs/UX_BACKLOG.md` — forward-looking UX/feature requests. Persistent.
 - `docs/ISSUES.md` — persistent queue of follow-ups awaiting a branch.
   Items move out of here and into a branch's worklog when picked up.
+- `docs/STAGING.md` — staging environment setup (parallel stack, isolated
+  data/tunnel/access). Reference, not lifecycle.
+- `docs/DEPLOYMENT.md` — prod deployment, services, backups, branch
+  flow. Reference.
 
 Don't put design rationale into `FIXED.md` — it goes in `SESSIONS.md`.
 Don't put active bugs into `ISSUES.md` — they go in `BUGREPORT.md`.
@@ -154,8 +170,11 @@ week is in the past).
 
 ### Python
 
-- **Python 3.14 syntax only.** `except A, B:` is invalid — always
-  `except (A, B):`. This has bitten us; double-check except clauses.
+- **Python 3.14 syntax.** `except (A, B):` is the canonical form; keep
+  it for consistency with the pre-3.14 codebase. PEP 758 (3.14) also
+  permits the un-parenthesized `except A, B:` form, but the parens
+  work in every version and match the rest of the code. Point out any
+  occurrences that do not have parens.
 - No custom user model. `Employee` links to Django's `User` via
   `OneToOneField(null=True)`. Employee is the source of truth for name
   and email; a `post_save` signal mirrors to User.
@@ -165,7 +184,8 @@ week is in the past).
   — a `date.today()` in a test can flake at midnight when the server's
   system timezone differs from `TIME_ZONE`.
 - Test suite is `unittest`-style `TestCase`, not pytest. Factories live
-  in `schedule/tests/factories.py`.
+  in `schedule/tests/factories.py` (schedule side) and
+  `accounts/tests/factories.py` (accounts side).
 - `schedule/views.py` is large and sectioned by comment banners. Add new
   helpers to the right section rather than appending at the bottom.
 
@@ -200,11 +220,23 @@ week is in the past).
   - This is the #1 surprise for new agents writing tests. If your test
     touches `employee.patterns` or expects a schedule to render, it needs
     `with_pattern=True` or `cycle_weeks=N`.
-- `make_manager_user()` grants every schedule permission but is **not**
-  a superuser and is **not** in the "Management" group. Views gated on
-  `management_required` (details page, settings, print) need the user
-  to be added to a Management group — see `_manager()` helpers in
-  `test_details.py` and `test_settings.py` for the pattern.
+- **`make_manager_user()` grants every `schedule.*` permission** (via
+  queryset, so newly-added perms are auto-granted) but is **not** a
+  superuser and is **not** in the "Management" group. Sufficient for
+  permission-only views (home, QR), insufficient for views gated on
+  `management_required`.
+- **`make_management_user()` = `make_manager_user()` + Management group
+  membership.** This is the shape you want for most write views and all
+  `settings_*` views after SEC-006 — those now require Management AND
+  the underlying permission. Reach for this first when a test needs to
+  hit a gated view.
+- **The `_manager()` / `make_manager()` helpers in test files are thin
+  wrappers around `make_management_user()`.** If you see `_manager(client)`
+  in `test_details.py` or `make_manager()` in `test_settings.py` /
+  `test_overrides.py` / `test_print.py` / `test_pattern_forms.py`, they're
+  just convenience constructors. New tests can call
+  `make_management_user()` directly — prefer that over adding another
+  wrapper.
 - The factory uses `date.today()` for `start_date` default (minor
   deviation from the timezone rule; fine in practice because most tests
   override `start_date` explicitly).
@@ -298,6 +330,22 @@ These are the sharp edges. Read carefully.
 - **Content inserted by an HTMX swap needs Alpine re-init.** `base.html`
   has a global listener that calls `Alpine.initTree(root)` on every
   `htmx:afterSwap`. `initTree` is idempotent.
+
+### HTMX session expiry
+
+`work_schedule/middleware.py::HTMXLoginRedirectMiddleware` catches HTMX
+requests that redirect to `settings.LOGIN_URL` (302 from
+`@login_required`) and rewrites them to `204 + HX-Redirect`. Without it,
+HTMX follows the redirect, receives the login page HTML (200), and
+swaps it into the fragment target — the user sees the login form
+embedded in a schedule slot. Same middleware catches the deactivation
+middleware's kick-out redirect.
+
+**Middleware ordering is load-bearing.** `HTMXLoginRedirectMiddleware`
+must appear *before* `EmployeeDeactivationMiddleware` in `MIDDLEWARE`.
+The deactivation middleware's 302 short-circuits the stack; if the
+HTMX redirect middleware is below it, its response phase never sees
+the 302 and the fragment swap happens anyway.
 
 ### Alpine
 
@@ -481,23 +529,75 @@ Client-side validation never blocks submission from the user's point of
 view; it disables the Save button as a hint. The server is always the
 final authority.
 
+## Auth and admin gating
+
+Two auth surfaces have custom gating the app relies on. Read this before
+touching `work_schedule/urls.py`, `accounts/views.py`, or
+`accounts/admin.py`.
+
+### OTP-gated password change
+
+Two entry points, both gated by the same `otp_verified_at` session stamp
+(set by `verify_otp` on success, valid 5 min):
+
+1. **Accounts flow** — `OTPGatedPasswordChangeView` (subclass of
+   `PasswordChangeView`). `dispatch()` redirects to `verify_otp?next=…`
+   if the stamp is missing. `form_valid` clears the stamp on successful
+   save. Uses `PasswordChangeForm` (old_password + new).
+
+2. **Admin flow** — two overrides in `work_schedule/urls.py`:
+   - `admin.site.password_change = _admin_password_change_redirect` —
+     redirects the self-service entry point (`/admin/password_change/`)
+     to `accounts:password_change`.
+   - `_OTPGatedUserAdmin._otp_gated_password_change` — swaps the
+     per-user form route (`/admin/auth/user/<id>/password/`) for a
+     wrapper that checks the stamp then delegates to
+     `user_change_password`. Covers both self-change and other-user
+     reset. Clears the stamp after successful POST (redirect status);
+     preserves it for GET and validation-error POSTs. Uses
+     `AdminPasswordChangeForm` (new only, no old_password).
+
+**Success signal:** `user_change_password` returns a redirect (3xx) on
+save success and a `TemplateResponse` (200) on GET or invalid POST.
+That's the reliable check for "did the save happen" — no need to
+re-inspect the form.
+
+**If you add another admin action requiring OTP**, follow the same
+pattern: subclass the relevant `ModelAdmin`, override `get_urls()` to
+wrap the target route in an `admin_view`-wrapped view that checks
+`_recently_verified(request)` then delegates.
+
+### Axes admin
+
+`accounts/admin.py` re-registers `AccessAttempt` and `AccessLog` with
+subclasses that restrict all permission methods (`has_view`, `has_add`,
+`has_change`, `has_delete`, `has_module`) to superusers. Axes creates
+these records automatically; nobody should forge them through admin. If
+you add another method (e.g. a bulk action), override its permission
+check too — the superuser gate is the whole point.
+
 ## Testing
 
-- `unittest` TestCase. Factories in `schedule/tests/factories.py`.
+- `unittest` TestCase. Factories in `schedule/tests/factories.py` and
+  `accounts/tests/factories.py`.
 - Every test class that hits a template needs
   `@override_settings(CACHES=_LOCMEM_CACHES)` because the cache is Redis
   in prod.
 - Test files by concern:
+
+  **schedule/tests/**
   - `test_home.py` — schedule view
   - `test_employee.py` — employee reading page
-  - `test_details.py` — employee details page (/details/)
+  - `test_details.py` — employee details page (`/details/`)
   - `test_overrides.py` — shift and day overrides
-  - `test_print.py` — print view
+  - `test_print.py` — print view + QR code
   - `test_notifications.py` — transactional emails
   - `test_models.py`, `test_helpers.py`, `test_cycle.py`
-  - `test_middleware.py`, `test_signals.py`
-  - `test_views_edges.py` — auth/permission edge cases across views
-  - `test_settings.py` — settings page
+  - `test_middleware.py` — deactivation + HTMX login-redirect
+  - `test_signals.py` — EmploymentPeriod creation, User↔Employee sync
+  - `test_views_edges.py` — auth/permission edge cases across views,
+    plus `Sec006AccessMatrixTests` and `WriteWithoutReadPermissionTests`
+  - `test_settings.py` — settings page + lifecycle permissions
   - `test_pattern_forms.py` — change/add form and preview
   - `test_pattern_edit.py` — pattern edit page
   - `test_pattern_alignment.py` — cycle/calendar alignment
@@ -505,6 +605,22 @@ final authority.
   - `test_delete_pattern.py` — delete_pattern view
   - `test_week_picker.py` — calendar week picker
   - `test_employees_for_week.py` — employment-period overlap query
+
+  **accounts/tests/**
+  - `test_forms.py` — signup, profile, password change forms
+  - `test_signup.py` — signup flow, rate limit, stale session
+  - `test_password_change.py` — accounts + admin OTP-gated password
+    change
+  - `test_otp.py` — OTP service (generate, verify, cooldown)
+  - `test_login.py` — login view
+  - `test_profile.py` — profile view
+  - `test_approval.py` — pending accounts + approval flow
+  - `test_context_processors.py` — pending count, is_management
+  - `test_emails.py` — send_email wrapper, HTML→text conversion
+  - `test_management.py` — management commands
+  - `test_views_edges.py` — auth edges for signup/verify/profile
+  - `test_axes_admin.py` — Axes admin permission overrides
+
 - Notifications are tested with
   `@patch("schedule.notifications.send_email")`.
 - The HTMX branches of `set_override`, `set_day_override`, and
@@ -520,10 +636,10 @@ final authority.
 - **`collectstatic` before `test`.** Missing manifest entries take down
   every page. Pre-commit script handles it; if you run tests manually,
   run collectstatic first.
-- **The `.env` file is load-bearing.** `settings.py` reads
-  `APP_NAME`, `SITE_URL`, `POSTGRES_*`, `REDIS_URL`, `RESEND_API_KEY`,
-  `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`.
-  Missing keys fail at startup, not at first use.
+- **The `.env` file is load-bearing.** `settings.py` reads `APP_NAME`,
+  `SITE_URL`, `POSTGRES_*`, `REDIS_URL`, `RESEND_API_KEY`,
+  `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`. Missing
+  keys fail at startup, not at first use.
 - **Favicon cache is aggressive.** After changing `favicon.ico` or
   `favicon.svg`, hard refresh or open a private window. Logging out and
   back in also refreshes the tab in most browsers. Don't chase this as
@@ -555,6 +671,17 @@ final authority.
   `CYCLE_EPOCH` as the anchor. Prefill, save, and notification-diff all
   depend on this being consistent. Don't touch the anchor without
   understanding the blast radius.
+- **`MIDDLEWARE` order is significant for `HTMXLoginRedirectMiddleware`
+  vs `EmployeeDeactivationMiddleware`.** If you reorder, keep the HTMX
+  one above the deactivation one or HTMX requests against an expired
+  account will get a raw 302 → login page swapped into the fragment
+  instead of an `HX-Redirect`. See the "HTMX session expiry" section.
+- **Admin password change clears `otp_verified_at` on successful save.**
+  Both the accounts flow (`form_valid`) and the admin per-user route
+  (after `user_change_password` returns a redirect) clear the stamp.
+  One OTP unlocks one password change. Don't preserve the stamp across
+  a successful save "for convenience" — that would let an admin reset N
+  passwords per OTP while the accounts flow enforces one-per-change.
 
 ## What NOT to do
 
@@ -572,6 +699,13 @@ final authority.
   decorator when the test loads any template.
 - Don't add `make_employee()` calls without thinking about whether the
   test needs a pattern (`with_pattern=True` or `cycle_weeks=N`).
+- Don't reorder `HTMXLoginRedirectMiddleware` below
+  `EmployeeDeactivationMiddleware` in `MIDDLEWARE`. See Gotchas.
+- Don't bypass the OTP gate on admin password change — both entry
+  points (`/admin/password_change/` and
+  `/admin/auth/user/<id>/password/`) are covered by the same session
+  check. If you add a new admin action that resets credentials or
+  similar, follow the same wrapper pattern.
 - Don't build multi-tenancy or licensing until those branches are
   explicitly started. Don't design in ways that block them, either —
   see the "keep in mind" note below.
@@ -613,9 +747,14 @@ add it later:
 | Add a new modal | `schedule/templates/schedule/modals/`, follow Pattern B (see Modal patterns) |
 | Add a new confirmation modal | `schedule/templates/schedule/modals/_confirm_*.html`, follow the confirmation matrix above |
 | Add a new reusable partial | `schedule/templates/schedule/partials/`, use `{% include %}` |
-| Add a new test | `schedule/tests/test_*.py`, use factories |
+| Add a new test | `schedule/tests/test_*.py` or `accounts/tests/test_*.py`, use factories |
 | Change the pattern form (change/add/edit) | `_pattern_form_body.html`, `pattern_form.html`, `_week_picker.html` — see "Pattern form domain" |
+| Change auth gating (password change, admin) | `work_schedule/urls.py`, `accounts/views.py`, `accounts/admin.py` — see "Auth and admin gating" |
+| Change HTMX session behavior | `work_schedule/middleware.py` — see "HTMX session expiry" |
+| Deploy / redeploy / rollback | `docs/DEPLOYMENT.md` |
+| Set up staging | `docs/STAGING.md` |
 | Add a new transactional email | `templates/emails/` (HTML + txt), `schedule/notifications.py` sender, register in `accounts/management/commands/send_test_emails.py` |
 | Debug a template | `uv run python manage.py shell` then `render_to_string` the template manually |
 | Understand past design decisions | `docs/design/SESSIONS.md` |
+| Understand deferred CSP work | `docs/design/CSP_PLAN.md` |
 | Find stale template paths | `grep -rn '"schedule/_' schedule/views.py` |

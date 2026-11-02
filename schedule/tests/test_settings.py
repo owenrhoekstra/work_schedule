@@ -1,14 +1,14 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group, Permission, User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from schedule.models import Employee, EmploymentPeriod, Role, Title
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import make_employee, make_management_user, make_role, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -16,11 +16,7 @@ _LOCMEM_CACHES = {
 
 
 def make_manager():
-    user = make_manager_user(username="mgr")
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user(username="mgr")
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
@@ -124,6 +120,122 @@ class DeactivationViewTests(TestCase):
         )
         user.refresh_from_db()
         self.assertTrue(user.is_active)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class DeactivationPermissionTests(TestCase):
+    """CodeRabbit #7: deactivation endpoints require the semantically
+    matching perm.
+
+    Deactivate = destructive → delete_employee.
+    Cancel deactivation = restorative → change_employee.
+
+    Both endpoints previously required change_employee while their
+    buttons gated on delete_employee — a user with delete but not
+    change saw the button and got a 403 on click.
+    """
+
+    def setUp(self):
+        self.emp = make_employee()
+
+    def _user_with(self, *codenames):
+        user = User.objects.create_user(
+            username="dtest_" + "_".join(codenames), password="p"
+        )
+        for codename in codenames:
+            user.user_permissions.add(
+                Permission.objects.get(codename=codename)
+            )
+        mgmt, _ = Group.objects.get_or_create(name="Management")
+        user.groups.add(mgmt)
+        return user
+
+    # ----- deactivate -----
+
+    def test_deactivate_with_delete_employee_succeeds(self):
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.post(
+            reverse("settings_deactivate_employee", args=[self.emp.pk]),
+            {"last_day": (timezone.localdate() + timedelta(days=7)).isoformat()},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.emp.refresh_from_db()
+        self.assertFalse(self.emp.is_active)
+
+    def test_deactivate_with_change_employee_only_gets_403(self):
+        user = self._user_with("view_employee", "change_employee")
+        self.client.force_login(user)
+        resp = self.client.post(
+            reverse("settings_deactivate_employee", args=[self.emp.pk]),
+            {"last_day": (timezone.localdate() + timedelta(days=7)).isoformat()},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.is_active)
+
+    # ----- cancel deactivation -----
+
+    def test_cancel_deactivation_with_change_employee_succeeds(self):
+        self.emp.is_active = False
+        self.emp.last_day = timezone.localdate() + timedelta(days=7)
+        self.emp.save()
+        user = self._user_with("view_employee", "change_employee")
+        self.client.force_login(user)
+        resp = self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+        )
+        self.assertEqual(resp.status_code, 302)
+
+    def test_cancel_deactivation_with_delete_employee_only_gets_403(self):
+        self.emp.is_active = False
+        self.emp.last_day = timezone.localdate() + timedelta(days=7)
+        self.emp.save()
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.post(
+            reverse("settings_cancel_deactivation", args=[self.emp.pk]),
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    # ----- settings-page button visibility -----
+
+    def test_settings_page_hides_deactivate_without_delete_employee(self):
+        user = self._user_with("view_employee", "change_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("settings_home"))
+        self.assertNotContains(resp, 'onclick="openDeactivateModal(this)"')
+
+    def test_settings_page_shows_deactivate_with_delete_employee(self):
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("settings_home"))
+        self.assertContains(resp, 'onclick="openDeactivateModal(this)"')
+
+    def test_settings_page_hides_cancel_deactivation_without_change_employee(self):
+        self.emp.is_active = False
+        self.emp.last_day = timezone.localdate() + timedelta(days=7)
+        self.emp.save()
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("settings_home"))
+        # Cancel deactivation is a form submit, not a click handler.
+        self.assertNotContains(resp, "Cancel deactivation")
+
+    def test_settings_page_hides_send_welcome_without_add_employee(self):
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("settings_home"))
+        self.assertNotContains(resp, "Send welcome email")
+
+    def test_settings_page_hides_reactivate_without_change_employee(self):
+        self.emp.is_active = False
+        self.emp.last_day = timezone.localdate() - timedelta(days=1)
+        self.emp.save()
+        user = self._user_with("view_employee", "delete_employee")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("settings_home"))
+        self.assertNotContains(resp, 'onclick="openReactivateModal(this)"')
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

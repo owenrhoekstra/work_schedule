@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from schedule.models import ShiftPattern
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import make_employee, make_management_user, make_role, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -16,12 +16,7 @@ _LOCMEM_CACHES = {
 @override_settings(CACHES=_LOCMEM_CACHES)
 class EmployeePageGetTests(TestCase):
     def setUp(self):
-        self.user = make_manager_user()
-        from django.contrib.auth.models import Group, Permission
-
-        mgmt = Group.objects.create(name="Management")
-        mgmt.permissions.set(Permission.objects.all())
-        self.user.groups.add(mgmt)
+        self.user = make_management_user()
         self.client.force_login(self.user)
         self.role = make_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role)

@@ -70,8 +70,7 @@
             {% if is_management %}
             <div class="mt-4 pt-4 border-t border-gray-200 space-y-3">
                 <div class="flex items-center gap-2 {% if last_day %}lg:flex-col lg:items-stretch{% endif %}">
-                    {% if perms.schedule.delete_employee %}
-                        {% if last_day %}
+                    {% if last_day and perms.schedule.change_employee %}
                         <button
                             type="button"
                             data-employee-name="{{ employee }}"
@@ -80,7 +79,7 @@
                         >
                             Cancel deactivation
                         </button>
-                        {% else %}
+                    {% elif not last_day and perms.schedule.delete_employee %}
                         <button
                             type="button"
                             data-employee-id="{{ employee.pk }}"
@@ -91,7 +90,6 @@
                         >
                             Set Last Day
                         </button>
-                        {% endif %}
                     {% endif %}
                     <a
                         href="{% url 'employee_details' employee.pk %}"
@@ -253,6 +251,8 @@
 
 {% if is_management and perms.schedule.delete_employee %}
     {% include "schedule/modals/_deactivate.html" %}
+{% endif %}
+{% if is_management and perms.schedule.change_employee %}
     {% include "schedule/modals/_cancel_deactivation_confirm.html" %}
     <form
         method="post"

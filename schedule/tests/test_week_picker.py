@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from schedule.views import _week_start
 
-from .factories import make_employee, make_manager_user
+from .factories import make_employee, make_management_user, make_manager_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -22,7 +22,7 @@ _LOCMEM_CACHES = {
 @override_settings(CACHES=_LOCMEM_CACHES)
 class WeekPickerModalTests(TestCase):
     def setUp(self):
-        self.user = make_manager_user()
+        self.user = make_management_user()
         self.client.force_login(self.user)
         self.emp = make_employee(with_pattern=True)
 
@@ -36,16 +36,12 @@ class WeekPickerModalTests(TestCase):
 
     def test_edit_mode_excludes_picker_modal(self):
         pattern = self.emp.patterns.order_by("effective_from").first()
-        resp = self.client.get(
-            reverse("pattern_edit", args=[self.emp.pk, pattern.pk])
-        )
+        resp = self.client.get(reverse("pattern_edit", args=[self.emp.pk, pattern.pk]))
         self.assertNotContains(resp, 'id="week-picker-modal"')
 
     def test_edit_mode_shows_static_week_label(self):
         pattern = self.emp.patterns.order_by("effective_from").first()
-        resp = self.client.get(
-            reverse("pattern_edit", args=[self.emp.pk, pattern.pk])
-        )
+        resp = self.client.get(reverse("pattern_edit", args=[self.emp.pk, pattern.pk]))
         # Static display, no trigger button
         self.assertNotContains(resp, 'id="week-picker-trigger"')
         # Label appears in the picker row
@@ -55,7 +51,7 @@ class WeekPickerModalTests(TestCase):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class WeekPickerContextTests(TestCase):
     def setUp(self):
-        self.user = make_manager_user()
+        self.user = make_management_user()
         self.client.force_login(self.user)
 
     def test_week_picker_min_iso_is_employee_start_monday(self):
@@ -67,9 +63,7 @@ class WeekPickerContextTests(TestCase):
     def test_today_iso_is_today(self):
         emp = make_employee()
         resp = self.client.get(reverse("schedule_change", args=[emp.pk]))
-        self.assertEqual(
-            resp.context["today_iso"], timezone.localdate().isoformat()
-        )
+        self.assertEqual(resp.context["today_iso"], timezone.localdate().isoformat())
 
     def test_week_options_removed_from_context(self):
         emp = make_employee()

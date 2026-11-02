@@ -127,3 +127,141 @@ class SignupRateLimitTests(TestCase):
         resp = self.client.post(reverse("signup"), {**data, "username": "user6"})
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.context.get("rate_limited"))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class StalePendingSignupTests(TestCase):
+    """CodeRabbit #1 regression: pending_signup is rejected when the
+    employee changes state between signup start and OTP verification.
+
+    Covers: email change, deactivation, and pre-linked user. Both the
+    verify path (mock verify_signup_otp → True) and the resend path.
+    Resend must NOT call send_email for a stale session — the check
+    runs before otp_service.issue_signup_otp fires.
+
+    Assertions per case:
+    - redirect to signup (except already-linked, which redirects to
+      login — preserves the pre-fix behavior for that branch)
+    - pending_signup cleared from session
+    - no User created (verify path)
+    - employee.user_id stays unset (email-change / deactivation)
+    - resend path: send_email not called
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _prime_session(self, emp):
+        session = self.client.session
+        session["pending_signup"] = {
+            "username": "stale",
+            "email": emp.email,
+            "password_hash": "fake-hash",
+            "employee_id": str(emp.pk),
+        }
+        session.save()
+        return emp
+
+    # ----- verify path -----
+
+    @patch("accounts.otp.verify_signup_otp", return_value=True)
+    def test_email_change_rejects_verification(self, mock_verify):
+        emp = make_employee(email="original@example.com")
+        self._prime_session(emp)
+        emp.email = "changed@example.com"
+        emp.save(update_fields=["email"])
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"code": "123456"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("signup"))
+        self.assertNotIn("pending_signup", self.client.session)
+        emp.refresh_from_db()
+        self.assertIsNone(emp.user_id)
+        self.assertFalse(User.objects.filter(username="stale").exists())
+
+    @patch("accounts.otp.verify_signup_otp", return_value=True)
+    def test_inactive_employee_rejects_verification(self, mock_verify):
+        emp = make_employee(email="active@example.com")
+        self._prime_session(emp)
+        emp.is_active = False
+        emp.save(update_fields=["is_active"])
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"code": "123456"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("signup"))
+        self.assertNotIn("pending_signup", self.client.session)
+        emp.refresh_from_db()
+        self.assertIsNone(emp.user_id)
+        self.assertFalse(User.objects.filter(username="stale").exists())
+
+    @patch("accounts.otp.verify_signup_otp", return_value=True)
+    def test_already_linked_employee_redirects_to_login(self, mock_verify):
+        # Existing branch (not new): the user was linked between signup
+        # start and verification. Preserves the pre-fix behavior —
+        # redirect to login, not signup.
+        emp = make_employee(email="linked@example.com")
+        other = User.objects.create_user(username="preclaimed", password="p")
+        emp.user = other
+        emp.save(update_fields=["user"])
+        self._prime_session(emp)
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"code": "123456"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("login"))
+        self.assertNotIn("pending_signup", self.client.session)
+
+    # ----- resend path -----
+
+    @patch("accounts.otp.send_email")
+    def test_email_change_rejects_resend(self, mock_send):
+        emp = make_employee(email="orig2@example.com")
+        self._prime_session(emp)
+        emp.email = "new2@example.com"
+        emp.save(update_fields=["email"])
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"action": "resend"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("signup"))
+        self.assertNotIn("pending_signup", self.client.session)
+        mock_send.assert_not_called()
+
+    @patch("accounts.otp.send_email")
+    def test_inactive_employee_rejects_resend(self, mock_send):
+        emp = make_employee(email="act2@example.com")
+        self._prime_session(emp)
+        emp.is_active = False
+        emp.save(update_fields=["is_active"])
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"action": "resend"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("signup"))
+        self.assertNotIn("pending_signup", self.client.session)
+        mock_send.assert_not_called()
+
+    @patch("accounts.otp.send_email")
+    def test_already_linked_employee_rejects_resend(self, mock_send):
+        emp = make_employee(email="linked2@example.com")
+        other = User.objects.create_user(username="preclaimed2", password="p")
+        emp.user = other
+        emp.save(update_fields=["user"])
+        self._prime_session(emp)
+
+        resp = self.client.post(
+            reverse("verify_signup_otp"), {"action": "resend"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("signup"))
+        self.assertNotIn("pending_signup", self.client.session)
+        mock_send.assert_not_called()
