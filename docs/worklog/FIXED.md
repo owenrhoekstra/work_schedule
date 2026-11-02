@@ -97,8 +97,8 @@ Bugs fixed on the current branch, newest at the bottom.
   - Templates (8 files) — mechanical `perms.schedule.X` →
     `is_management and perms.schedule.X`, including compound OR
     cases in `home.html` and `_schedule_row.html`. `employee_defaults.html`
-    left alone: its perm checks are already nested inside
-    `{% if is_management %}` blocks, achieving the same AND-gate.
+    left alone where perm checks were already nested inside
+    `{% if is_management %}` blocks — implicit AND.
   - `schedule/tests/factories.py` — new `make_management_user()`
     consolidating the "perms + Management group" pattern duplicated
     across 6 test files. `make_manager_user()` now grants *all*
@@ -110,8 +110,8 @@ Bugs fixed on the current branch, newest at the bottom.
     (anonymous → redirect, perm-only → 403, mgmt+perm → not 403).
     This is the enforcement of the AND-gate policy; individual
     behaviour tests in the per-view files cover the success path.
-- **Tests:** 443 passing. `DJANGO_DEBUG=false DJANGO_SECURE=true
-  manage.py check --deploy` clean.
+- **Tests:** 443 passing at time of this entry. `DJANGO_DEBUG=false
+  DJANGO_SECURE=true manage.py check --deploy` clean.
 
 ### SEC-007 — Verify password field not re-echoed on signup error
 
@@ -130,8 +130,10 @@ Bugs fixed on the current branch, newest at the bottom.
 - **Root cause of the ZAP finding:** ZAP reading its own request
   payload, not the response. Matches the "may be a false positive"
   hypothesis in the original sweep triage.
-- **Target: verified no-op.** Automated test for this deferred to the
-  `accounts/` test-layout branch (per SECURITY_SWEEP.md out-of-scope).
+- **Target: verified no-op.** Automated test for this still deferred
+  — see `ISSUES.md` ("Waiting on a specific branch") — but the
+  `accounts/tests/` package landed on this branch, so it can be
+  picked up whenever.
 
 ### CodeRabbit #1 — Signup OTP accepts stale sessions
 
@@ -148,6 +150,12 @@ Bugs fixed on the current branch, newest at the bottom.
   `select_for_update()` inside `transaction.atomic()` and revalidates
   all three conditions before attaching. Stale sessions get a clear
   message and redirect to `signup`.
+- **Tests:** `StalePendingSignupTests` in
+  `accounts/tests/test_signup.py` — 6 cases covering email change,
+  deactivation, and pre-linked user on both verify and resend paths.
+  Verify path mocks `verify_signup_otp` to True so the post-OTP
+  revalidation branch is exercised. Resend path asserts
+  `send_email` is not called for stale sessions.
 
 ### CodeRabbit #2 — Admin password change bypasses OTP gate
 
@@ -164,6 +172,10 @@ Bugs fixed on the current branch, newest at the bottom.
   overridden with `_admin_password_change_redirect`, which redirects
   to `password_change` (the OTP-gated view). Prefix-agnostic; works
   wherever `admin.site.urls` is mounted.
+- **Tests:** `AdminPasswordChangeRedirectTests` in
+  `accounts/tests/test_password_change.py` — 3 cases: GET and POST
+  both redirect to `password_change`; the redirect target actually
+  hits the OTP gate (`verify_otp`).
 
 ### CodeRabbit #3 — Write endpoints render protected data without read perm
 
@@ -180,6 +192,8 @@ Bugs fixed on the current branch, newest at the bottom.
   refuse the operation, don't strip the response — simpler, and
   eliminates the "what does the minimal response look like"
   question.
+- **Tests:** covered by `Sec006AccessMatrixTests` (perm-only user
+  without the read perm gets 403 on the write view).
 
 ### CodeRabbit #4 — Axes admin add-permission gap
 
@@ -194,8 +208,99 @@ Bugs fixed on the current branch, newest at the bottom.
 - **Fix:** `accounts/admin.py` — `has_add_permission` on both
   `AccessAttemptAdmin` and `AccessLogAdmin` returns
   `request.user.is_superuser`.
-- **Tests:** `accounts/tests/test_axes_admin.py` (new) — 4 cases:
-  non-superuser staff with the perm gets `False` on both; superuser
-  gets `True` on both. Uses the "is_staff + permission" shape, which
-  is what Django's default would have accepted — otherwise the tests
-  would pass trivially.
+- **Tests:** `AxesAdminAddPermissionTests` in
+  `accounts/tests/test_axes_admin.py` — 4 cases: non-superuser staff
+  with the perm gets `False` on both; superuser gets `True` on both.
+  Uses the "is_staff + permission" shape, which is what Django's
+  default would have accepted — otherwise the tests would pass
+  trivially.
+
+### CodeRabbit #7 — Lifecycle action-button / endpoint perm drift
+
+- **Severity:** Low (requires a Management user with a lifecycle
+  perm mismatched to their button visibility — a misconfiguration,
+  not an attack surface).
+- **Symptom:**
+  - `settings_deactivate_employee` required `change_employee` while
+    its trigger buttons gated on `delete_employee`. A user with
+    `delete_employee` but not `change_employee` saw the button and
+    got a 403 on click.
+  - `settings.html` rendered Deactivate / Cancel deactivation /
+    Reactivate / Send welcome buttons **entirely ungated** — a
+    perm-less Management user saw all of them.
+  - `_identity_form.html` and `employee_defaults.html` gated the
+    Cancel deactivation button on `delete_employee`, but its endpoint
+    requires `change_employee`.
+- **Fix — perm alignment per endpoint (destruction vs restoration):**
+  - `settings_deactivate_employee` → `delete_employee` (was
+    `change_employee`). Deactivation is destructive: sets
+    `is_active = False`, closes an employment period.
+  - `settings_cancel_deactivation` — **unchanged at
+    `change_employee`**. Restoration, not destruction; matches
+    `settings_reactivate_employee`.
+  - `settings_reactivate_employee` — unchanged at `change_employee`.
+  - `send_welcome` — unchanged at `add_employee`.
+- **Fix — button gates aligned to their endpoint's perm:**
+  - `settings.html` — Deactivate → `delete_employee`; Cancel
+    deactivation → `change_employee`; Reactivate → `change_employee`;
+    Send welcome → `add_employee`. All wrapped in
+    `{% if is_management and perms.schedule.X %}`.
+  - `_identity_form.html` — combined `delete_employee` gate split:
+    Cancel deactivation → `change_employee`; Set Last Day →
+    `delete_employee`.
+  - `employee_defaults.html` — same split.
+- **Tests:** `DeactivationPermissionTests` in
+  `test_settings.py` — 9 cases: deactivate on `delete_employee` (302),
+  deactivate on `change_employee` (403), cancel on `change_employee`
+  (302), cancel on `delete_employee` (403), plus 5 settings-page
+  button visibility cases.
+- **Related:** general class tracked in `ISSUES.md` — "Action-button
+  / endpoint permission drift." Rule: the button's gate equals the
+  endpoint's perm, nothing more, nothing less.
+
+### CodeRabbit #6 — Identity form POST missing write-permission check
+
+- **Severity:** Low (requires a Management user with `view_employee`
+  but not `change_employee` — a misconfiguration, not an attack
+  surface).
+- **Symptom:** `employee_details` gated on
+  `@permission_required("schedule.view_employee")` for both GET and
+  POST. POST dispatches to `_handle_identity_post`, which calls
+  `form.save()` on the Employee row — a write. A Management user with
+  `view_employee` but not `change_employee` could edit identity
+  fields. Inconsistent with `settings_deactivate_employee` and
+  friends, all of which require an action perm.
+- **Fix:**
+  - `schedule/views.py` — in-body
+    `if not request.user.has_perm("schedule.change_employee"): raise PermissionDenied`
+    at the top of the POST branch, before form-type dispatch. Covers
+    the "unknown form" branch too. GET unchanged on `view_employee`.
+  - `_identity_form.html` — Save details button gated on
+    `is_management and perms.schedule.change_employee`.
+- **Tests:** `EmployeeDetailsWritePermissionTests` in
+  `test_details.py` — 4 cases (GET 200 for view-only, POST 403
+  without change_employee + no DB mutation, unknown-form POST 403,
+  Save button absent in template).
+
+### HTMX session expiry — redirect to login instead of swapping the login page
+
+- **Severity:** Low (UX breakage, no data exposure).
+- **Symptom:** When a session expired and the user clicked Save on an
+  HTMX form, `@login_required` returned 302 → login. HTMX followed
+  the redirect (browser fetch), got the login page HTML (200), and
+  swapped it into the fragment's `hx-target` — usually
+  `#schedule-table` or a modal body. User saw the login form
+  embedded in a broken page, with no clear error and lost input.
+- **Fix:** `work_schedule/middleware.py` — new
+  `HTMXLoginRedirectMiddleware`. Detects HTMX request + 3xx to
+  `settings.LOGIN_URL`, rewrites to 204 with `HX-Redirect`. HTMX does
+  a full-page navigation; `?next=` is preserved so the user lands
+  back on the form after re-auth. Also catches the deactivation
+  middleware's 302-to-login (same failure mode).
+- **Tests:** `HTMXLoginRedirectMiddlewareTests` in
+  `schedule/tests/test_middleware.py` — 6 cases covering HTMX
+  anonymous (POST/GET), `?next=` preservation, non-HTMX path
+  unchanged, authenticated HTMX path unchanged.
+- **Not addressed:** 403 on unauthorized-write for logged-in users
+  (HTMX silently does nothing on 4xx). Different concern; tracked in
+  `ISSUES.md`.

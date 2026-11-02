@@ -76,6 +76,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "schedule.middleware.EmployeeDeactivationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "work_schedule.middleware.HTMXLoginRedirectMiddleware",
     "axes.middleware.AxesMiddleware",
 ]
 

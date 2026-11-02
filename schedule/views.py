@@ -1989,6 +1989,11 @@ def employee_details(request, pk):
     )
 
     if request.method == "POST":
+        # All POSTs on this endpoint are writes — the check runs
+        # before form-type dispatch so the "unknown form" branch is
+        # covered too (it's a write attempt, not a read).
+        if not request.user.has_perm("schedule.change_employee"):
+            raise PermissionDenied
         form_type = request.POST.get("form")
         if form_type == "identity":
             return _handle_identity_post(request, employee)
@@ -2301,7 +2306,7 @@ def send_welcome(request, pk):
 
 @login_required
 @management_required
-@permission_required("schedule.change_employee", raise_exception=True)
+@permission_required("schedule.delete_employee", raise_exception=True)
 @require_POST
 def settings_deactivate_employee(request, pk):
     """Record a last day and close the current employment period.

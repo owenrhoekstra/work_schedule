@@ -71,7 +71,7 @@
                                 class="text-sm font-medium text-brand-coral hover:underline mr-4"
                                 >Edit</a
                             >
-                            {% if not emp.last_day %}
+                            {% if is_management and perms.schedule.add_employee and not emp.last_day %}
                             <form
                                 method="post"
                                 action="{% url 'send_welcome' emp.id %}"
@@ -86,7 +86,7 @@
                                 </button>
                             </form>
                             {% endif %}
-                            {% if emp.last_day %}
+                            {% if is_management and perms.schedule.change_employee and emp.last_day %}
                             <form
                                 method="post"
                                 action="{% url 'settings_cancel_deactivation' emp.id %}"
@@ -100,7 +100,7 @@
                                     Cancel deactivation
                                 </button>
                             </form>
-                            {% else %}
+                            {% elif is_management and perms.schedule.delete_employee and not emp.last_day %}
                             <button
                                 type="button"
                                 data-employee-id="{{ emp.id }}"
@@ -173,6 +173,7 @@
                                 {{ emp.last_day|date:"Y-m-d" }}
                             </td>
                             <td class="p-3 text-right whitespace-nowrap">
+                                {% if is_management and perms.schedule.change_employee %}
                                 <button
                                     type="button"
                                     data-employee-id="{{ emp.id }}"
@@ -182,6 +183,7 @@
                                 >
                                     Reactivate
                                 </button>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

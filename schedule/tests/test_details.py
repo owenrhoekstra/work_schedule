@@ -18,6 +18,7 @@ differences between server and TIME_ZONE can flip tests at midnight).
 
 from datetime import date, timedelta
 
+from django.contrib.auth.models import Group, Permission, User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -321,3 +322,64 @@ class CancelDeactivationNextTests(TestCase):
         self.assertTrue(self.emp.is_active)
         latest = self.emp.periods.order_by("-start_date").first()
         self.assertIsNone(latest.end_date)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class EmployeeDetailsWritePermissionTests(TestCase):
+    """Follow-up to SEC-006: identity form POST requires change_employee.
+
+    GET stays on view_employee (Management user without change_employee
+    can still see the page). POST writes to the Employee row, so it
+    also requires change_employee — otherwise a view-only Management
+    user could edit identity fields.
+    """
+
+    def setUp(self):
+        self.role = make_role(name="Receptionist", order=20)
+        self.emp = make_employee(role=self.role)
+
+        # view_employee + Management group, but NOT change_employee.
+        user = User.objects.create_user(username="detailsviewonly", password="p")
+        user.user_permissions.add(Permission.objects.get(codename="view_employee"))
+        mgmt, _ = Group.objects.get_or_create(name="Management")
+        user.groups.add(mgmt)
+        self.client.force_login(user)
+
+    def _payload(self, **overrides):
+        data = {
+            "form": "identity",
+            "title": "",
+            "first_name": "Attempted",
+            "last_name": "Edit",
+            "role": str(self.role.pk),
+            "email": self.emp.email,
+            "start_date": self.emp.start_date.isoformat(),
+        }
+        data.update(overrides)
+        return data
+
+    def test_get_still_accessible_with_view_only(self):
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_post_identity_without_change_employee_gets_403(self):
+        resp = self.client.post(
+            reverse("employee_details", args=[self.emp.pk]),
+            self._payload(),
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.emp.refresh_from_db()
+        self.assertNotEqual(self.emp.first_name, "Attempted")
+
+    def test_post_unknown_form_without_change_employee_gets_403(self):
+        # All POSTs are treated as writes — the check runs before
+        # form-type dispatch.
+        resp = self.client.post(
+            reverse("employee_details", args=[self.emp.pk]),
+            {"form": "garbage"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_save_button_hidden_without_change_employee(self):
+        resp = self.client.get(reverse("employee_details", args=[self.emp.pk]))
+        self.assertNotContains(resp, "Save details")

@@ -422,6 +422,17 @@ job. See `docs/security/SECURITY_SWEEP.md` for the item-by-item record.
     for the re-scan while traffic is disposable. Prod re-scan
     optional after staging goes clean.
 
+13. **HTMX session-expiry handling.** `HTMXLoginRedirectMiddleware`
+    catches HTMX requests that redirect to `settings.LOGIN_URL` and
+    rewrites to `204 + HX-Redirect`. Without it, HTMX follows the 302,
+    receives the login page HTML (200), and swaps it into the fragment
+    target — the user sees a login form embedded in a schedule slot.
+    Also catches the deactivation middleware's kick-out redirect
+    (same failure mode). Placed at the bottom of `MIDDLEWARE` so it
+    runs first on the response chain, before any other middleware
+    touches the 302. Related 403 silent-failure case deferred to
+    `ISSUES.md`.
+
 ---
 
 ## Handed to future branches

@@ -92,3 +92,51 @@ class OtpGatedPasswordChangeTests(TestCase):
         resp = self.client.get(reverse("verify_otp"))
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("profile"))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class AdminPasswordChangeRedirectTests(TestCase):
+    """CodeRabbit #2 regression: admin's self-service password change
+    is redirected to the OTP-gated /accounts/password_change/ flow.
+
+    Both GET and POST go through the override — the redirect is
+    unconditional in _admin_password_change_redirect. Admin's
+    admin_view wrapper runs first (auth/staff check) and is intact.
+
+    The follow-the-redirect case is the important one: it verifies the
+    redirect chain actually ends at the OTP gate, not just at another
+    password change view. Without it, a future refactor that redirects
+    admin:password_change to a non-gated target would still pass the
+    first two tests.
+    """
+
+    def setUp(self):
+        self.user = make_superuser("adminpwtest")
+        self.client.force_login(self.user)
+
+    def test_get_redirects_to_accounts_password_change(self):
+        resp = self.client.get(reverse("admin:password_change"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("password_change"))
+
+    def test_post_redirects_to_accounts_password_change(self):
+        # The old-password form is never processed — the redirect
+        # fires before PasswordChangeView.form_valid runs.
+        resp = self.client.post(
+            reverse("admin:password_change"),
+            {
+                "old_password": "pass",
+                "new_password1": "x",
+                "new_password2": "x",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("password_change"))
+
+    def test_redirect_target_is_otp_gated(self):
+        # Follow the redirect and confirm the OTP gate fires (session
+        # has no otp_verified_at, so dispatch redirects to verify_otp).
+        resp = self.client.get(reverse("admin:password_change"), follow=False)
+        follow = self.client.get(resp.url, follow=False)
+        self.assertEqual(follow.status_code, 302)
+        self.assertIn(reverse("verify_otp"), follow.url)

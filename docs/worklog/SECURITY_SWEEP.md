@@ -165,7 +165,7 @@ Decorator order: `@login_required` → `@management_required` →
 `@permission_required("schedule.view_*", raise_exception=True)` (where
 applicable, per CodeRabbit #3) → `@require_POST` (innermost).
 
-**Read implies write** for the seven views with a second read-perm
+**Write implies read** for the seven views with a second read-perm
 decorator (CodeRabbit #3). A user with `change_shift` but not
 `view_employee` can no longer open the pattern edit form. This
 eliminates the class of "write endpoint renders protected data"
