@@ -40,5 +40,4 @@ staticfiles/
 checklists.txt
 
 frontend/node_modules/
-frontend/.pnpm/
 frontend/dist/
