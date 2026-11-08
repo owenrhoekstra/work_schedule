@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from schedule.models import Shift, ShiftPattern
 
-from .factories import make_employee, make_manager_user, make_role
+from .factories import make_employee, make_management_user, make_role
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -13,13 +13,7 @@ _LOCMEM_CACHES = {
 
 
 def _make_manager(username="mgr_forms"):
-    from django.contrib.auth.models import Group, Permission
-
-    user = make_manager_user(username)
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user(username)
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
@@ -385,3 +379,15 @@ class PatternFormViewTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Reduce Pattern length")
+
+    def test_preview_picker_excludes_csrf_token(self):
+        # SEC-002: HTMX preview GET must not serialize the CSRF token
+        # into the query string.
+        resp = self.client.get(reverse("schedule_change", args=[self.emp.pk]))
+        html = resp.content.decode()
+        self.assertEqual(html.count('hx-params="not csrfmiddlewaretoken"'), 2)
+
+    def test_preview_picker_excludes_csrf_token_add_mode(self):
+        resp = self.client.get(reverse("schedule_add", args=[self.emp.pk]))
+        html = resp.content.decode()
+        self.assertEqual(html.count('hx-params="not csrfmiddlewaretoken"'), 2)

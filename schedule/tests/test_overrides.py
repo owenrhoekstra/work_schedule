@@ -1,14 +1,12 @@
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import patch
 
-from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
 
-from schedule.models import DayOverride, Shift, ShiftOverride
+from schedule.models import DayOverride, ShiftOverride
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import make_employee, make_management_user, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -16,11 +14,7 @@ _LOCMEM_CACHES = {
 
 
 def make_manager():
-    user = make_manager_user("mgr2")
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user("mgr2")
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

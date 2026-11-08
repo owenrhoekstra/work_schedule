@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from schedule.models import Shift, ShiftPattern
 
-from .factories import make_employee, make_manager_user
+from .factories import make_employee, make_management_user, make_manager_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -23,7 +23,7 @@ def _monday(d):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class PatternEditGetTests(TestCase):
     def setUp(self):
-        self.user = make_manager_user()
+        self.user = make_management_user()
         self.client.force_login(self.user)
         self.emp = make_employee(with_pattern=True)
         self.pattern = self.emp.patterns.order_by("effective_from").first()
@@ -106,7 +106,7 @@ class PatternEditGetTests(TestCase):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class PatternEditPostTests(TestCase):
     def setUp(self):
-        self.user = make_manager_user()
+        self.user = make_management_user()
         self.client.force_login(self.user)
         self.emp = make_employee(with_pattern=True)
         self.pattern = self.emp.patterns.order_by("effective_from").first()
@@ -244,7 +244,7 @@ class TruncatedPatternEditTests(TestCase):
     """
 
     def setUp(self):
-        self.user = make_manager_user()
+        self.user = make_management_user()
         self.client.force_login(self.user)
         self.emp = make_employee(start_date=settings.CYCLE_EPOCH, with_pattern=True)
         self.p = self.emp.patterns.order_by("effective_from").first()

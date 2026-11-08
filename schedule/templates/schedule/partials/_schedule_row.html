@@ -18,7 +18,7 @@ Straight lift from home.html — no behavior change.
     class="border-t border-gray-200 hover:bg-brand-offwhite/60 transition-colors"
 >
     <td class="p-3">
-        {% if perms.schedule.view_employee %}
+        {% if is_management and perms.schedule.view_employee %}
         <a
             href="{% url 'employee_defaults' row.employee.id %}"
             class="font-medium text-brand-indigo hover:text-brand-coral transition-colors whitespace-nowrap"
@@ -54,7 +54,7 @@ Straight lift from home.html — no behavior change.
     <td class="p-3 text-center text-sm whitespace-nowrap">
         {% if not cell.is_employed %}
         <span class="{{ cell.state_class }}">{{ cell.display }}</span>
-        {% elif perms.schedule.add_shift or perms.schedule.delete_shift %}
+        {% elif is_management and perms.schedule.add_shift or is_management and perms.schedule.delete_shift %}
         <button
             type="button"
             class="hover:underline {{ cell.state_class }}"

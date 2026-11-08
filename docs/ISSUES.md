@@ -24,6 +24,64 @@ Persistent queue of items to tackle in a future branch.
 
 ## Open
 
+### Reactivate / cancel activates pending-approval accounts
+
+- **Origin:** CodeRabbit finding #5 (`feb9c6a6-3585-4431-a8f9-6e766085d5d6`),
+  reviewed during SEC-006 sweep. Not a SEC-006 regression.
+- **Problem:** `settings_cancel_deactivation` and
+  `settings_reactivate_employee` both set `User.is_active = True` on
+  the linked user. This activates accounts created via signup but
+  never approved through `approve_account` (`auth.change_user`-gated).
+  Employment state and account-approval state share the same flag, so
+  a Management user without `auth.change_user` can approve accounts
+  through employment restoration.
+- **Possible directions:**
+  - Add a distinct `approved_at` field to `User` (or
+    `Employee.is_approved`). `approve_account` sets it. Cancel /
+    reactivate restore `is_active` only for already-approved accounts;
+    unapproved accounts stay inactive with a "pending approval" note
+    to management.
+  - Require `auth.change_user` on the activation branch of the two
+    employment-restoration views when the account was never approved.
+  - Heuristic (fragile): `user.groups.filter(name="Staff").exists()` —
+    the Staff group is granted by `approve_account`. Not recommended
+    as the real fix.
+- **Priority:** Medium. Not a live exploit — the views are
+  Management-gated — but a privilege-confusion issue. The real fix
+  is the `approved_at` field plus a data migration to set it for
+  existing active accounts.
+- **Target:** own branch. Not in SEC-006 scope.
+
+### Action-button / endpoint permission drift
+
+- **Origin:** CodeRabbit #7 (deactivation endpoints/buttons perm
+  mismatch) and the follow-up reactivate + send welcome button
+  gates, both fixed on this branch. Entry documents the class of bug
+  worth keeping an eye on.
+- **Pattern:** A page renders an action button (form submit or
+  `onclick` handler) without gating on the same perm its endpoint
+  requires. Result: a Management user with the page's read perm but
+  not the action's write perm sees the button, clicks it, and gets a
+  403. Cosmetic hole (server is correct), but easy to introduce on
+  new buttons.
+- **Coverage as of this branch:** every action button on
+  `settings.html`, `_identity_form.html`, and `employee_defaults.html`
+  gates on `is_management and perms.schedule.X`, matched to its
+  endpoint's `@permission_required("schedule.X")`. Rule going
+  forward: **the button's gate equals the endpoint's perm, nothing
+  more, nothing less**.
+- **Semantics recap:**
+  - Destructive → `delete_<model>`
+  - Restorative or modifying → `change_<model>`
+  - Additive → `add_<model>`
+- **Possible direction:** Add a lightweight template test per page
+  that asserts "for a Management user with read perms only, no write
+  action buttons appear." Broader than the current per-endpoint
+  tests, catches new buttons automatically.
+- **Priority:** Low. Not a security issue. Hygiene for the next set
+  of pages.
+- **Target:** whenever.
+
 ### Cycle-length change reinterprets stored offsets
 
 - **Origin:** FIXED-003 known limitation.
@@ -102,14 +160,47 @@ Persistent queue of items to tackle in a future branch.
 - **Priority:** Low, cosmetic for Notify, arguably correct for
   retroactive-confirmed. Revisit if friction surfaces.
 
+### HTMX 403 silent failure on unauthorized writes
+
+- **Origin:** HTMX session-expiry fix (`HTMXLoginRedirectMiddleware`,
+  Session 10). Related but distinct: session expiry (302) is handled
+  by the middleware; the unauthorized-write case (403) still fails
+  silently.
+- **Problem:** When a logged-in user lacks a perm and clicks Save on
+  an HTMX form, `@permission_required(raise_exception=True)` returns
+  403. HTMX by default does not swap 4xx responses, so the user sees
+  *nothing happen* — no error, no redirect, no feedback. Compare with
+  the session-expiry case, which now shows the login page via
+  `HX-Redirect`.
+- **Decision:** land the fix as part of the global toast
+  introduction. Not a standalone patch — adding a one-off error
+  surface now would be reworked when the toast system lands. The
+  toast branch is the right home; this entry documents the exact
+  behavior to cover.
+- **Direction for the toast branch:** catch 403 for HTMX requests —
+  either in `HTMXLoginRedirectMiddleware` (extend to return 204 +
+  `HX-Trigger: show-toast` with a message) or via a general
+  `htmx:responseError` handler in `base.html` that reads
+  `X-Toast-Message` / falls back to a generic error. Server-side is
+  more explicit; client-side is more general. Decide when the toast
+  API is defined.
+- **Priority:** Low. The 403 is doing its job (user genuinely
+  shouldn't write), but silent failure is bad UX for the
+  misconfiguration case.
+- **Target:** global-toast branch. Not SEC-006 / not standalone.
+
 ---
 
 ## Waiting on a specific branch
 
-- **Write-access model — permission-first, Management layered.**
-  Security sweep branch. Detail in `design/SESSIONS.md`
-  ("Handed to future branches"). Move to that branch's
-  `BUGREPORT.md` when the branch opens.
+- **SEC-007 automated test** — password field not echoed on signup
+  error. Manual verification and code analysis were done during
+  SEC-006; the test itself was deferred pending the `accounts/tests/`
+  package layout, which has since landed. Ready to pick up whenever
+  — no other branch dependency. Assertion to write: submit an
+  invalid `SignUpForm`, assert `'value="'` never appears inside the
+  `password1`/`password2` input HTML. Fits naturally in
+  `accounts/tests/test_forms.py` alongside `SignUpFormTests`.
 
 ---
 

@@ -59,6 +59,7 @@
                     hx-target="#pattern-form-body"
                     hx-swap="outerHTML"
                     hx-include="closest form"
+                    hx-params="not csrfmiddlewaretoken"
                     hx-trigger="change"
                 />
                 {% endif %}
@@ -76,6 +77,7 @@
                     hx-target="#pattern-form-body"
                     hx-swap="outerHTML"
                     hx-include="closest form"
+                    hx-params="not csrfmiddlewaretoken"
                     hx-trigger="change"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-coral"
                 >
@@ -94,7 +96,7 @@
     {% include "schedule/modals/_week_picker.html" %}
     {% endif %}
 
-    {% if mode == "edit" and not is_earliest_pattern and perms.schedule.delete_shift %}
+    {% if mode == "edit" and not is_earliest_pattern and is_management and perms.schedule.delete_shift %}
     <div
         class="mt-4 pt-4 border-t border-gray-200"
         x-data="deletePatternModal"

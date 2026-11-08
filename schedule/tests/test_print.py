@@ -1,13 +1,17 @@
 from datetime import date, timedelta
 
-from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from schedule.views import _ordinal
 
-from .factories import make_employee, make_manager_user, make_role, make_staff_user
+from .factories import (
+    make_employee,
+    make_management_user,
+    make_role,
+    make_staff_user,
+)
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -15,11 +19,7 @@ _LOCMEM_CACHES = {
 
 
 def _make_manager(username="printmgr"):
-    user = make_manager_user(username)
-    mgmt, _ = Group.objects.get_or_create(name="Management")
-    mgmt.permissions.set(Permission.objects.all())
-    user.groups.add(mgmt)
-    return user
+    return make_management_user(username)
 
 
 def _first_monday_of_june(year):
@@ -158,6 +158,26 @@ class QRCodeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "image/svg+xml")
         self.assertIn(b"<svg", resp.content[:200])
+
+    def test_staff_with_view_shift_can_view(self):
+        """SEC-006: qr_code is permission-only — no Management layer.
+
+        Policy decision logged in SECURITY_SWEEP.md: qr_code gets
+        `permission_required` per "every view has a perm" but not
+        `management_required` (it's a login URL, no data).
+        """
+        self.client.logout()
+        self.client.force_login(make_staff_user("qrstaff"))
+        resp = self.client.get(reverse("qr_code"))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_user_without_view_shift_gets_403(self):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="qrnoperm", password="p")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("qr_code"))
+        self.assertEqual(resp.status_code, 403)
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

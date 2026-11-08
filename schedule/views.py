@@ -91,13 +91,23 @@ _TIME_FORMATS = (
 # ---------------------------------------------------------------------------
 
 
+def is_management(request):
+    """True if the request's user is a superuser or Management member.
+
+    Single source of truth for the "is this user Management?" question.
+    `management_required` uses it; views and context builders use it for
+    UI AND-gating so template and backend stay symmetric.
+    """
+    user = request.user
+    return user.is_superuser or user.groups.filter(name="Management").exists()
+
+
 def management_required(view):
     """Allow superusers and members of the Management group."""
 
     @wraps(view)
     def wrapper(request, *args, **kwargs):
-        user = request.user
-        if user.is_superuser or user.groups.filter(name="Management").exists():
+        if is_management(request):
             return view(request, *args, **kwargs)
         raise PermissionDenied
 
@@ -658,16 +668,23 @@ def _home_context(week_start):
 @login_required
 @permission_required("schedule.view_shift", raise_exception=True)
 def home(request):
-    """Render the week view for the given (or current) week."""
+    """Render the week view for the given (or current) week.
+
+    `employee_form` is AND-gated: Management AND add_employee. The
+    view itself stays permission-only — reading the schedule doesn't
+    require Management.
+    """
     week_start = _parse_week_param(request) or _week_start(timezone.localdate())
     context = _home_context(week_start)
-    if request.user.has_perm("schedule.add_employee"):
+    if is_management(request) and request.user.has_perm("schedule.add_employee"):
         context["employee_form"] = EmployeeForm()
     return render(request, "schedule/home.html", context)
 
 
 @login_required
+@management_required
 @permission_required("schedule.add_employee", raise_exception=True)
+@permission_required("schedule.view_shift", raise_exception=True)
 def add_employee(request):
     """Create a new employee from the modal form on the home page.
 
@@ -809,13 +826,19 @@ def _build_default_weeks(pattern):
     return weeks
 
 
-def _employee_page_context(request, employee, can_change=True):
+def _employee_page_context(request, employee):
     """Build the shared context for the employee reading page.
 
     Renders the two-column layout: employee identity on the left,
     currently-scheduled pattern on the right, full pattern history
     below in a disclosure. Read-only — identity edits live at
     /details/.
+
+    Write affordances are AND-gated: `can_change` / `can_delete`
+    require both Management and the underlying permission. Templates
+    read those flags; keeping the AND here means UI and backend stay
+    symmetric — a Management user without the perm doesn't see a
+    button that would 403 on click.
 
     `last_week` is the Monday of the last covered week (used for
     "week starting" display in banner copy); `last_week_end` is the
@@ -867,21 +890,23 @@ def _employee_page_context(request, employee, can_change=True):
         "current_cycle_label": current_cycle_label,
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
-        "can_change": can_change,
-        "can_delete": request.user.has_perm("schedule.delete_shift"),
+        "can_change": (
+            is_management(request)
+            and request.user.has_perm("schedule.change_shift")
+        ),
+        "can_delete": (
+            is_management(request)
+            and request.user.has_perm("schedule.delete_shift")
+        ),
         "last_day": employee.last_day,
         # Needed by _deactivate.html's data-today prefill.
         "today": timezone.localdate(),
     }
 
 
-def _render_employee_page(request, employee, can_change=True):
+def _render_employee_page(request, employee):
     """Render the employee reading page."""
-    context = _employee_page_context(
-        request,
-        employee,
-        can_change=can_change,
-    )
+    context = _employee_page_context(request, employee)
     return render(request, "schedule/employee_defaults.html", context)
 
 
@@ -1552,7 +1577,9 @@ def _render_pattern_form(
 
 
 @login_required
+@management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def schedule_change(request, pk):
     """Change schedule from a week forward."""
     today = timezone.localdate()
@@ -1576,7 +1603,9 @@ def schedule_change(request, pk):
 
 
 @login_required
+@management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def schedule_add(request, pk):
     """Add a new pattern at a chosen week."""
     today = timezone.localdate()
@@ -1611,7 +1640,9 @@ def schedule_add(request, pk):
 
 
 @login_required
+@management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def pattern_form_preview(request, pk):
     """Return just the banner + grid body for HTMX live updates."""
     today = timezone.localdate()
@@ -1882,7 +1913,9 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 
 
 @login_required
+@management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_employee", raise_exception=True)
 def pattern_edit(request, employee_pk, pk):
     """Edit one existing pattern in place.
 
@@ -1919,28 +1952,25 @@ def employee_defaults(request, pk):
     """Render the employee reading page.
 
     Read-only. Identity edits and deactivation live at /details/.
+    Write affordances are AND-gated inside _employee_page_context.
     """
     today = timezone.localdate()
     employee = get_object_or_404(
         Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
         pk=pk,
     )
-    can_change = request.user.has_perm("schedule.change_shift")
-    return _render_employee_page(
-        request,
-        employee,
-        can_change=can_change,
-    )
+    return _render_employee_page(request, employee)
 
 
 @login_required
 @management_required
+@permission_required("schedule.view_employee", raise_exception=True)
 def employee_details(request, pk):
     """Edit an employee's identity, or trigger deactivation.
 
-    Gated on `is_management` (superuser or Management group). The
-    reading page stays read-only; this is the only entry point for
-    identity edits.
+    Gated on `is_management` (superuser or Management group) AND
+    `schedule.view_employee`. The reading page stays read-only; this
+    is the only entry point for identity edits.
 
     GET: render the form. POST: dispatch on `form=identity` to
     _handle_identity_post, which redirects back to the reading page on
@@ -1959,6 +1989,11 @@ def employee_details(request, pk):
     )
 
     if request.method == "POST":
+        # All POSTs on this endpoint are writes — the check runs
+        # before form-type dispatch so the "unknown form" branch is
+        # covered too (it's a write attempt, not a read).
+        if not request.user.has_perm("schedule.change_employee"):
+            raise PermissionDenied
         form_type = request.POST.get("form")
         if form_type == "identity":
             return _handle_identity_post(request, employee)
@@ -1969,6 +2004,7 @@ def employee_details(request, pk):
 
 
 @login_required
+@management_required
 @permission_required("schedule.delete_shift", raise_exception=True)
 @require_POST
 def delete_pattern(request, pk):
@@ -2019,6 +2055,7 @@ def delete_pattern(request, pk):
 
 
 @login_required
+@permission_required("schedule.view_shift", raise_exception=True)
 @require_POST
 def set_override(request, employee_pk, date_iso):
     """Create, update, or clear a per-day shift override.
@@ -2032,6 +2069,11 @@ def set_override(request, employee_pk, date_iso):
     If `notify` is set and the cell actually changed, sends a shift
     change email to the employee — subject to eligibility rules.
 
+    Gated on Management AND the matching shift permission (delete for
+    "off"/"reset", add for "save"). Both layers are checked in-body:
+    the management check runs first, then the action-dependent perm
+    check. Keeps the per-action permission gate in one place.
+
     Responds two ways:
 
     - Plain POST → redirect back to the schedule (full page reload).
@@ -2040,6 +2082,9 @@ def set_override(request, employee_pk, date_iso):
       response into the modal's `#override-error` element so the user
       sees the message without losing their input.
     """
+    if not is_management(request):
+        raise PermissionDenied
+
     action = request.POST.get("action")
     is_htmx = request.headers.get("HX-Request") == "true"
 
@@ -2095,8 +2140,7 @@ def set_override(request, employee_pk, date_iso):
                     "schedule/partials/_schedule_row.html",
                     {
                         "row": rows[0],
-                        "is_management": request.user.is_superuser
-                        or request.user.groups.filter(name="Management").exists(),
+                        "is_management": is_management(request),
                     },
                     request=request,
                 )
@@ -2160,7 +2204,9 @@ def set_override(request, employee_pk, date_iso):
 
 
 @login_required
+@management_required
 @permission_required("schedule.change_shift", raise_exception=True)
+@permission_required("schedule.view_shift", raise_exception=True)
 @require_POST
 def set_day_override(request, date_iso):
     """Mark a whole date as Closed or Holiday, or clear that status."""
@@ -2204,6 +2250,7 @@ def set_day_override(request, date_iso):
 
 @login_required
 @management_required
+@permission_required("schedule.view_employee", raise_exception=True)
 def settings_home(request):
     """Management landing page: active employees, former employees,
     titles, and roles."""
@@ -2233,6 +2280,7 @@ def settings_home(request):
 
 
 @login_required
+@management_required
 @permission_required("schedule.add_employee", raise_exception=True)
 @require_POST
 def send_welcome(request, pk):
@@ -2258,6 +2306,7 @@ def send_welcome(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.delete_employee", raise_exception=True)
 @require_POST
 def settings_deactivate_employee(request, pk):
     """Record a last day and close the current employment period.
@@ -2342,6 +2391,7 @@ def settings_deactivate_employee(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.change_employee", raise_exception=True)
 @require_POST
 def settings_cancel_deactivation(request, pk):
     """Reverse a scheduled (or immediate) deactivation.
@@ -2387,6 +2437,7 @@ def settings_cancel_deactivation(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.change_employee", raise_exception=True)
 @require_POST
 def settings_reactivate_employee(request, pk):
     """Reactivate a former employee as of a chosen date.
@@ -2444,6 +2495,7 @@ def settings_reactivate_employee(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.add_title", raise_exception=True)
 @require_POST
 def settings_add_title(request):
     """Create a new title. Empty names are ignored."""
@@ -2455,6 +2507,7 @@ def settings_add_title(request):
 
 @login_required
 @management_required
+@permission_required("schedule.delete_title", raise_exception=True)
 @require_POST
 def settings_delete_title(request, pk):
     """Delete a title by ID."""
@@ -2464,6 +2517,7 @@ def settings_delete_title(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.add_role", raise_exception=True)
 @require_POST
 def settings_add_role(request):
     """Create a new role, placing it last in the display order."""
@@ -2477,6 +2531,7 @@ def settings_add_role(request):
 
 @login_required
 @management_required
+@permission_required("schedule.delete_role", raise_exception=True)
 @require_POST
 def settings_delete_role(request, pk):
     """Delete a role, unless any employees are still assigned to it."""
@@ -2493,6 +2548,7 @@ def settings_delete_role(request, pk):
 
 @login_required
 @management_required
+@permission_required("schedule.change_role", raise_exception=True)
 @require_POST
 def settings_move_role(request, pk, direction):
     """Swap a role's position with its neighbor and renumber everything."""
@@ -2516,6 +2572,7 @@ def settings_move_role(request, pk, direction):
 
 @login_required
 @management_required
+@permission_required("schedule.view_shift", raise_exception=True)
 def print_schedule(request):
     """Print-ready view of the schedule for one or more weeks.
 
@@ -2579,8 +2636,13 @@ def print_schedule(request):
 
 
 @login_required
+@permission_required("schedule.view_shift", raise_exception=True)
 def qr_code(request):
     """SVG QR code pointing at the login page.
+
+    Permission-only (no management layer): the QR is a login URL and
+    carries no data, so policy consistency is the only reason for the
+    perm check.
 
     Uses error-correction level H (30%) so the print template can
     overlay a favicon in the center without breaking scanning.

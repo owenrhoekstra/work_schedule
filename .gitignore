@@ -38,3 +38,6 @@ env/
 
 staticfiles/
 checklists.txt
+
+frontend/node_modules/
+frontend/dist/

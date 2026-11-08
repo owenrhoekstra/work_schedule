@@ -12,7 +12,7 @@ with_pattern=True or cycle_weeks=N.
 
 from datetime import date, timedelta
 
-from django.contrib.auth.models import Permission, User
+from django.contrib.auth.models import Group, Permission, User
 
 from schedule.models import Employee, Role, ShiftPattern, Title
 
@@ -100,25 +100,38 @@ def make_staff_user(username="staff"):
 def make_manager_user(username="manager"):
     """A user with every schedule permission but no superuser flag.
 
+    Grants all current schedule permissions via queryset, so new
+    permissions added to the app are automatically granted here.
+    This matters post-SEC-006: `settings_*` views are gated on both
+    `management_required` AND `permission_required("schedule.X")`,
+    so "manager" users need the underlying perms too.
+
     Note: `management_required` checks group membership by name
     ("Management"), not permissions. Tests that need to hit management
-    views must additionally add this user to a Management group. See
-    `ManagementRequiredTests` for the pattern.
+    views must additionally add this user to a Management group — see
+    `make_management_user` below.
     """
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
-    for codename in (
-        "view_shift",
-        "view_employee",
-        "change_shift",
-        "add_shift",
-        "delete_shift",
-        "add_employee",
-        "change_employee",
-        "delete_employee",
-    ):
-        user.user_permissions.add(Permission.objects.get(codename=codename))
+    user.user_permissions.set(
+        Permission.objects.filter(content_type__app_label="schedule")
+    )
+    return user
+
+
+def make_management_user(username="management"):
+    """A user with every schedule permission AND Management group membership.
+
+    Required shape for views gated on both `management_required` and
+    `permission_required` (SEC-006). Most write views and all settings
+    views now require this combination. `make_manager_user` alone is
+    insufficient — it grants the perms but not the Management group.
+    """
+
+    user = make_manager_user(username)
+    mgmt, _ = Group.objects.get_or_create(name="Management")
+    user.groups.add(mgmt)
     return user
 
 

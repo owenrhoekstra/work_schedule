@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from .factories import make_staff_user, make_superuser
 
@@ -92,3 +93,187 @@ class OtpGatedPasswordChangeTests(TestCase):
         resp = self.client.get(reverse("verify_otp"))
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("profile"))
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class AdminPasswordChangeRedirectTests(TestCase):
+    """CodeRabbit #2 regression: both admin password-change surfaces
+    route through the OTP gate.
+
+    Two distinct entry points, both covered here:
+
+    1. /admin/password_change/ (AdminSite.password_change)
+       - self-service entry. Django's default handler is a pure
+         redirect to the per-user route below. Our override swaps
+         that redirect for accounts:password_change (the OTP-gated
+         accounts view) — canonical branded form, one hop.
+
+    2. /admin/auth/user/<id>/password/ (UserAdmin.user_change_password)
+       - the actual form. Handles self-change AND other-user reset.
+         Reachable directly (typed URL, bookmark) so the
+         password_change redirect alone is insufficient. Our override
+         swaps the URL for a wrapper that checks `otp_verified_at`
+         before delegating to `user_change_password`.
+
+    The two OTP gates work the same way: without a fresh
+    `otp_verified_at` session flag, redirect to `verify_otp?next=...`.
+    After OTP, the user lands back here, the flag is present, the
+    wrapper delegates, and Django's normal form rendering runs.
+    """
+
+    def setUp(self):
+        self.user = make_superuser("adminpwtest")
+        self.client.force_login(self.user)
+
+    # ----- /admin/password_change/ (self-service entry point) -----
+
+    def test_get_redirects_to_accounts_password_change(self):
+        resp = self.client.get(reverse("admin:password_change"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("password_change"))
+
+    def test_post_redirects_to_accounts_password_change(self):
+        # The old-password form is never processed — the redirect
+        # fires before PasswordChangeView.form_valid runs.
+        resp = self.client.post(
+            reverse("admin:password_change"),
+            {
+                "old_password": "pass",
+                "new_password1": "x",
+                "new_password2": "x",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("password_change"))
+
+    def test_redirect_target_is_otp_gated(self):
+        # Follow the redirect and confirm the OTP gate fires (session
+        # has no otp_verified_at, so OTPGatedPasswordChangeView.dispatch
+        # redirects to verify_otp).
+        resp = self.client.get(reverse("admin:password_change"), follow=False)
+        follow = self.client.get(resp.url, follow=False)
+        self.assertEqual(follow.status_code, 302)
+        self.assertIn(reverse("verify_otp"), follow.url)
+
+    # ----- /admin/auth/user/<id>/password/ (per-user form) -----
+
+    def test_user_admin_password_change_redirects_to_otp(self):
+        """UserAdmin's per-user route redirects to the OTP gate.
+
+        Distinct from /admin/password_change/ — this is the actual
+        form URL, reachable directly. Before the fix, hitting it with
+        no OTP rendered the form; now it short-circuits to verify_otp.
+        """
+        target = make_staff_user("targetpw")
+        url = reverse("admin:auth_user_password_change", args=[target.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("verify_otp"), resp.url)
+        # next preserves the target so the post-OTP redirect lands back here
+        self.assertIn(url, resp.url)
+
+    def test_user_admin_password_change_post_redirects_to_otp(self):
+        # POST also short-circuits before AdminPasswordChangeForm runs.
+        target = make_staff_user("targetpw2")
+        url = reverse("admin:auth_user_password_change", args=[target.pk])
+        resp = self.client.post(url, {"password1": "x", "password2": "x"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("verify_otp"), resp.url)
+
+    def test_user_admin_password_change_renders_after_otp(self):
+        """After OTP, UserAdmin's form renders normally.
+
+        Proves the wrapper delegates correctly to user_change_password
+        once the session flag is set. Superuser passes
+        has_change_permission, so no 403 — the delegation is what's
+        being tested, not the authz (that's existing Django behavior,
+        unchanged by the override).
+        """
+        target = make_staff_user("targetpw3")
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        url = reverse("admin:auth_user_password_change", args=[target.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_user_admin_password_change_self_redirects_to_otp(self):
+        """Self-change via the per-user URL is also gated.
+
+        The admin typing their own per-user URL should not bypass OTP
+        just because it's the same person. Distinct from
+        admin:password_change, which only covers the self-service
+        entry point.
+        """
+        url = reverse(
+            "admin:auth_user_password_change", args=[self.user.pk]
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("verify_otp"), resp.url)
+
+    # ----- OTP stamp clearing on successful save -----
+
+    def test_user_admin_password_change_clears_otp_after_success(self):
+        """Successful POST clears the stamp — one OTP per change.
+
+        Mirrors OTPGatedPasswordChangeView.form_valid's behavior.
+        Otherwise an admin could reset N passwords within the 5-minute
+        window after one OTP while the accounts flow enforces
+        one-OTP-per-change.
+
+        UserAdmin's user_change_password uses AdminPasswordChangeForm
+        (fields: password1/password2, no old_password) — different from
+        the accounts flow's PasswordChangeForm. Post the field names
+        that form actually declares.
+        """
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        url = reverse("admin:auth_user_password_change", args=[self.user.pk])
+        resp = self.client.post(
+            url,
+            {
+                "password1": "newcomplexpass456!",
+                "password2": "newcomplexpass456!",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn("otp_verified_at", self.client.session)
+
+    def test_user_admin_password_change_get_preserves_otp(self):
+        """GET renders the form; the stamp survives for the eventual POST."""
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        target = make_staff_user("targetpw_get")
+        url = reverse("admin:auth_user_password_change", args=[target.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("otp_verified_at", self.client.session)
+
+    def test_user_admin_password_change_invalid_post_preserves_otp(self):
+        """Invalid POST renders the form with errors; the stamp survives
+        so the user can correct and resubmit without re-verifying.
+
+        Mismatched password1/password2 triggers AdminPasswordChangeForm's
+        validation error (password_mismatch) — a real validation failure,
+        not a missing-required-field failure.
+        """
+        session = self.client.session
+        session["otp_verified_at"] = timezone.now().isoformat()
+        session.save()
+
+        url = reverse("admin:auth_user_password_change", args=[self.user.pk])
+        resp = self.client.post(
+            url,
+            {
+                "password1": "newcomplexpass456!",
+                "password2": "differentpass789!",  # mismatch → form invalid
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("otp_verified_at", self.client.session)
