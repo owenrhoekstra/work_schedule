@@ -529,6 +529,45 @@ Client-side validation never blocks submission from the user's point of
 view; it disables the Save button as a hint. The server is always the
 final authority.
 
+## API conventions (Django Ninja)
+
+The app is migrating from server-rendered HTML to a Vue SPA backed
+by a Django Ninja API, eventually replaced by a Go backend. Every
+feature ships **both** an HTML surface (today) and an `/api/v1/`
+endpoint (the future). HTML-only is not permitted going forward;
+API-only is fine for features with no HTML surface.
+
+- **Namespace:** `/api/v1/`. Version locked at v1 until API-only
+  ships. Bump only when a breaking change is unavoidable and the
+  SPA/Go consumers need a staged migration.
+- **Auth:** session-based, via `work_schedule.api.auth.session_auth`.
+  CSRF comes from Django's `CsrfViewMiddleware` + the `X-CSRFToken`
+  header (same header HTMX already sends). Token auth is a later
+  branch, timed with Go.
+- **Permissions:** Ninja permission classes in
+  `work_schedule/api/permissions.py`. Class names mirror the view
+  decorators (`company_admin_required` → `CompanyAdmin`). Every
+  endpoint that gates on a decorator on the HTML side uses the
+  matching permission class on the API side.
+- **Response schemas:** Pydantic v2 `Schema` per app in
+  `schemas.py`. Every endpoint declares `response=Schema` —
+  untyped responses are not permitted.
+- **Docs:** `/api/v1/docs` and `/api/v1/openapi.json` are gated to
+  `is_staff`. They enumerate the full API surface and are not
+  tenant-facing.
+- **Shared logic:** business logic lives in `schedule/services.py`
+  (writes) and `schedule/selectors.py` (reads), called by both the
+  HTML view and the API endpoint. Selectors take `company` (and
+  `team` where relevant) as their first argument. Rejected pattern:
+  HTML views calling the API over HTTP — overhead with no benefit
+  before the Go split.
+- **Tests:** `self.client` + `force_login` for API tests — exercises
+  the full stack (middleware, CSRF, session auth). Same factories
+  as HTML tests; no separate API-only factories.
+- **Router registration:** `work_schedule/api/urls.py::register_routers`.
+  Called once from `work_schedule/urls.py` before `urlpatterns` is
+  built. Feature branches add their router registration there.
+
 ## Auth and admin gating
 
 Two auth surfaces have custom gating the app relies on. Read this before
