@@ -396,6 +396,19 @@ wheels = [
 ]
 
 [[package]]
+name = "django-ninja"
+version = "1.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/53/3453836e6246b5d4b0e55c36d2dfab4cad6091d08483bdc4505906a1197c/django_ninja-1.8.0.tar.gz", hash = "sha256:0f043a1aebd2c45e2a124a83e5bd0961491b18cdf81ea57c6abd80607b2c6ef8", size = 2347023, upload-time = "2026-11-08T10:52:03.703Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/d5/fbfdae4ab7a81f4980cec09ef17f86d4ac2d96058787bd6282d775be91bc/django_ninja-1.8.0-py3-none-any.whl", hash = "sha256:132f37a36ac5ec9569fdc141da6984c1806bdd08af36f855980fab6cdcb10038", size = 2382930, upload-time = "2026-11-08T10:52:01.541Z" },
+]
+
+[[package]]
 name = "django-tailwind"
 version = "4.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -783,6 +796,7 @@ dependencies = [
     { name = "django" },
     { name = "django-anymail", extra = ["resend"] },
     { name = "django-axes" },
+    { name = "django-ninja" },
     { name = "django-tailwind" },
     { name = "gunicorn" },
     { name = "psycopg", extra = ["binary"] },
@@ -800,10 +814,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
-    { name = "certifi", specifier = ">=2026.7.22" },
+    { name = "certifi", specifier = ">=2026.10.23" },
     { name = "django", specifier = ">=6.1.1" },
     { name = "django-anymail", extras = ["resend"], specifier = ">=15.2" },
     { name = "django-axes", specifier = ">=8.3.1" },
+    { name = "django-ninja", specifier = ">=1.8.0" },
     { name = "django-tailwind", specifier = ">=4.5.0" },
     { name = "gunicorn", specifier = ">=26.2.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },

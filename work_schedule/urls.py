@@ -21,7 +21,8 @@ from django.views.generic import RedirectView
 from accounts.forms import StyledLoginForm
 from accounts.views import OTPGatedPasswordChangeView
 from work_schedule import views as project_views
-
+from work_schedule.api.api import api
+from work_schedule.api.urls import register_routers
 
 # ---------------------------------------------------------------------------
 # Admin password-change gating
@@ -63,7 +64,7 @@ def _recently_verified(request, ttl=timedelta(minutes=5)):
         return False
     try:
         ts = datetime.fromisoformat(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     if timezone.is_naive(ts):
         ts = timezone.make_aware(ts)
@@ -147,7 +148,11 @@ class _OTPGatedUserAdmin(_BaseUserAdmin):
         # TemplateResponse otherwise — the status check distinguishes
         # the two without re-inspecting the form.
         if request.method == "POST" and response.status_code in (
-            301, 302, 303, 307, 308
+            301,
+            302,
+            303,
+            307,
+            308,
         ):
             request.session.pop("otp_verified_at", None)
 
@@ -160,9 +165,11 @@ except NotRegistered:
     pass
 admin.site.register(_AuthUser, _OTPGatedUserAdmin)
 
+register_routers()
 
 urlpatterns = [
     path("healthz/", project_views.healthz, name="healthz"),
+    path("api/v1/", api.urls),
     path("", RedirectView.as_view(url="/schedule/home/")),
     path("back-panel01294/", admin.site.urls),
     # Auth
