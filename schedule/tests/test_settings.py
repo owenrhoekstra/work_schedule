@@ -8,7 +8,13 @@ from django.utils import timezone
 
 from schedule.models import Employee, EmploymentPeriod, Role, Title
 
-from .factories import make_employee, make_management_user, make_role, make_staff_user
+from .factories import (
+    make_company,
+    make_employee,
+    make_management_user,
+    make_role,
+    make_staff_user,
+)
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -143,9 +149,7 @@ class DeactivationPermissionTests(TestCase):
             username="dtest_" + "_".join(codenames), password="p"
         )
         for codename in codenames:
-            user.user_permissions.add(
-                Permission.objects.get(codename=codename)
-            )
+            user.user_permissions.add(Permission.objects.get(codename=codename))
         mgmt, _ = Group.objects.get_or_create(name="Management")
         user.groups.add(mgmt)
         return user
@@ -287,40 +291,54 @@ class ReactivationViewTests(TestCase):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class RoleManagementTests(TestCase):
     def setUp(self):
+        self.company = make_company()
         self.client.force_login(make_manager())
 
     def test_add_role(self):
         self.client.post(reverse("settings_add_role"), {"name": "New Role"})
-        self.assertTrue(Role.objects.filter(name="New Role").exists())
+        self.assertTrue(
+            Role.objects.filter(name="New Role", company=self.company).exists()
+        )
 
     def test_move_role_up(self):
-        Role.objects.create(name="A", display_order=10)
-        b = Role.objects.create(name="B", display_order=20)
+        Role.objects.create(name="A", display_order=10, company=self.company)
+        b = Role.objects.create(name="B", display_order=20, company=self.company)
         self.client.post(reverse("settings_move_role", args=[b.pk, "up"]))
-        roles = list(Role.objects.values_list("name", flat=True))
+        roles = list(
+            Role.objects.filter(company=self.company).values_list("name", flat=True)
+        )
         self.assertEqual(roles, ["B", "A"])
 
     def test_move_role_down(self):
-        a = Role.objects.create(name="A", display_order=10)
-        Role.objects.create(name="B", display_order=20)
+        a = Role.objects.create(name="A", display_order=10, company=self.company)
+        Role.objects.create(name="B", display_order=20, company=self.company)
         self.client.post(reverse("settings_move_role", args=[a.pk, "down"]))
-        roles = list(Role.objects.values_list("name", flat=True))
+        roles = list(
+            Role.objects.filter(company=self.company).values_list("name", flat=True)
+        )
         self.assertEqual(roles, ["B", "A"])
 
     def test_move_first_up_is_noop(self):
-        a = Role.objects.create(name="A", display_order=10)
-        Role.objects.create(name="B", display_order=20)
+        a = Role.objects.create(name="A", display_order=10, company=self.company)
+        Role.objects.create(name="B", display_order=20, company=self.company)
         self.client.post(reverse("settings_move_role", args=[a.pk, "up"]))
-        self.assertEqual(list(Role.objects.values_list("name", flat=True)), ["A", "B"])
+        self.assertEqual(
+            list(
+                Role.objects.filter(company=self.company).values_list("name", flat=True)
+            ),
+            ["A", "B"],
+        )
 
     def test_delete_role_in_use_blocked(self):
-        role = make_role("In Use")
-        make_employee(email="emp@x.com", role=role)
+        role = make_role("In Use", company=self.company)
+        make_employee(email="emp@x.com", role=role, company=self.company)
         self.client.post(reverse("settings_delete_role", args=[role.pk]))
         self.assertTrue(Role.objects.filter(pk=role.pk).exists())
 
     def test_delete_empty_role(self):
-        role = Role.objects.create(name="Unused", display_order=99)
+        role = Role.objects.create(
+            name="Unused", display_order=99, company=self.company
+        )
         self.client.post(reverse("settings_delete_role", args=[role.pk]))
         self.assertFalse(Role.objects.filter(pk=role.pk).exists())
 
@@ -328,13 +346,14 @@ class RoleManagementTests(TestCase):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class TitleManagementTests(TestCase):
     def setUp(self):
+        self.company = make_company()
         self.client.force_login(make_manager())
 
     def test_add_title(self):
         self.client.post(reverse("settings_add_title"), {"name": "Dr."})
-        self.assertTrue(Title.objects.filter(name="Dr.").exists())
+        self.assertTrue(Title.objects.filter(name="Dr.", company=self.company).exists())
 
     def test_delete_title(self):
-        title = Title.objects.create(name="ToDelete")
+        title = Title.objects.create(name="ToDelete", company=self.company)
         self.client.post(reverse("settings_delete_title", args=[title.pk]))
         self.assertFalse(Title.objects.filter(pk=title.pk).exists())

@@ -46,8 +46,9 @@ def _email_identifier(email):
 
 def user_email(user):
     """Prefer the Employee's email (management-controlled). Fall back to User."""
-    if hasattr(user, "employee") and user.employee and user.employee.email:
-        return user.employee.email
+    emp = user.employees.first()
+    if emp and emp.email:
+        return emp.email
     return user.email or None
 
 

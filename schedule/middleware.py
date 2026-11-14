@@ -11,6 +11,13 @@ class EmployeeDeactivationMiddleware:
     An employee is current through the end of their last_day. The day
     after, they're off. If an authenticated user is past that point and
     their User is still active, flip it off, log them out, and redirect.
+
+    Branch 1: `Employee.user` is a plain ForeignKey (was OneToOne), so
+    the reverse accessor is `user.employees` (plural). A user can in
+    principle have multiple Employee rows — one per company — so we
+    take the first. Under single-tenant (the current reality) this is
+    the only row; once `request.company` lands in Branch 2, this check
+    scopes to the current session company.
     """
 
     def __init__(self, get_response):
@@ -20,7 +27,7 @@ class EmployeeDeactivationMiddleware:
         user = request.user
 
         if user.is_authenticated:
-            employee = getattr(user, "employee", None)
+            employee = user.employees.first()
             if (
                 employee
                 and employee.last_day

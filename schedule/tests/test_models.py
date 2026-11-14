@@ -12,7 +12,7 @@ from schedule.models import (
     Title,
 )
 
-from .factories import make_employee, make_role, make_title
+from .factories import make_company, make_employee, make_role, make_title
 
 
 class EmployeeStrTests(TestCase):
@@ -22,8 +22,11 @@ class EmployeeStrTests(TestCase):
         self.assertEqual(str(emp), "Dr. Jane Doe")
 
     def test_with_title_hidden(self):
-        title = Title.objects.create(name="Prof.", show_in_name=False)
-        emp = make_employee(title=title, first_name="Jane", last_name="Doe")
+        company = make_company()
+        title = Title.objects.create(name="Prof.", show_in_name=False, company=company)
+        emp = make_employee(
+            title=title, first_name="Jane", last_name="Doe", company=company
+        )
         self.assertEqual(str(emp), "Jane Doe")
 
     def test_without_title(self):
@@ -33,16 +36,18 @@ class EmployeeStrTests(TestCase):
 
 class UniqueConstraintsTests(TestCase):
     def test_two_active_employees_cannot_share_email(self):
-        make_employee(email="x@example.com")
+        company = make_company()
+        make_employee(email="x@example.com", company=company)
         with self.assertRaises(IntegrityError):
-            make_employee(email="x@example.com")
+            make_employee(email="x@example.com", company=company)
 
     def test_inactive_employee_can_share_email_with_active(self):
-        first = make_employee(email="x@example.com")
+        company = make_company()
+        first = make_employee(email="x@example.com", company=company)
         first.is_active = False
         first.save()
         # Should succeed
-        make_employee(email="x@example.com")
+        make_employee(email="x@example.com", company=company)
 
     def test_shift_unique_per_week_offset_and_day(self):
         emp = make_employee(with_pattern=True)
@@ -73,16 +78,18 @@ class UniqueConstraintsTests(TestCase):
 
 class OrderingTests(TestCase):
     def test_roles_ordered_by_display_then_name(self):
-        Role.objects.create(name="B", display_order=20)
-        Role.objects.create(name="A", display_order=10)
-        Role.objects.create(name="C", display_order=10)
+        company = make_company()
+        Role.objects.create(name="B", display_order=20, company=company)
+        Role.objects.create(name="A", display_order=10, company=company)
+        Role.objects.create(name="C", display_order=10, company=company)
         names = list(Role.objects.values_list("name", flat=True))
         self.assertEqual(names, ["A", "C", "B"])
 
     def test_titles_ordered_by_display_then_name(self):
-        Title.objects.create(name="Z", display_order=10)
-        Title.objects.create(name="A", display_order=10)
-        Title.objects.create(name="M", display_order=5)
+        company = make_company()
+        Title.objects.create(name="Z", display_order=10, company=company)
+        Title.objects.create(name="A", display_order=10, company=company)
+        Title.objects.create(name="M", display_order=5, company=company)
         names = list(Title.objects.values_list("name", flat=True))
         self.assertEqual(names, ["M", "A", "Z"])
 
@@ -105,5 +112,7 @@ class DayOverrideTests(TestCase):
     def test_str(self):
         from schedule.models import DayOverride
 
-        d = DayOverride.objects.create(date=date(2026, 12, 25), status="holiday")
+        d = DayOverride.objects.create(
+            date=date(2026, 12, 25), status="holiday", company=make_company()
+        )
         self.assertIn("Holiday", str(d))

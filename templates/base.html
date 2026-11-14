@@ -132,7 +132,7 @@
                 title="Profile"
                 class="font-sans text-xs sm:text-sm text-brand-offwhite/80 hover:text-brand-yellow ml-auto sm:mr-1 transition-colors"
             >
-                Hello, {% if request.user.employee %}{{ request.user.employee }}{% else %}{{ request.user.username }}{% endif %}!
+                Hello, {% if request.user.employees.first %}{{ request.user.employees.first }}{% else %}{{ request.user.username }}{% endif %}!
             </a>
             <div
                 class="flex items-center gap-2 sm:gap-3 w-full justify-end sm:w-auto sm:justify-start"

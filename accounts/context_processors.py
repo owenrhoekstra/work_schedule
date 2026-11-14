@@ -7,7 +7,11 @@ def pending_accounts(request):
     ):
         return {}
     try:
-        count = User.objects.filter(is_active=False, employee__is_active=True).count()
+        count = (
+            User.objects.filter(is_active=False, employees__is_active=True)
+            .distinct()
+            .count()
+        )
     except Exception:
         return {}
     return {"pending_accounts_count": count}

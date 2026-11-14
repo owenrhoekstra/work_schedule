@@ -4,9 +4,14 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from schedule.models import DayOverride, ShiftOverride
+from schedule.models import Company, DayOverride, ShiftOverride
 
-from .factories import make_employee, make_management_user, make_staff_user
+from .factories import (
+    make_company,
+    make_employee,
+    make_management_user,
+    make_staff_user,
+)
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -119,7 +124,8 @@ class SetOverrideTests(TestCase):
 @override_settings(CACHES=_LOCMEM_CACHES)
 class SetDayOverrideTests(TestCase):
     def setUp(self):
-        self.client.force_login(make_manager())
+        self.company = make_company()
+        self.client.force_login(make_management_user())
 
     def test_closed(self):
         d = date(2026, 6, 1)
@@ -139,7 +145,11 @@ class SetDayOverrideTests(TestCase):
 
     def test_clear(self):
         d = date(2026, 6, 1)
-        DayOverride.objects.create(date=d, status="closed")
+        DayOverride.objects.create(
+            date=d,
+            status="closed",
+            company=Company.objects.order_by("created_at").first(),
+        )
         self.client.post(
             reverse("set_day_override", args=[d.isoformat()]),
             {"action": "clear"},
@@ -148,7 +158,11 @@ class SetDayOverrideTests(TestCase):
 
     def test_change_status_overwrites(self):
         d = date(2026, 6, 1)
-        DayOverride.objects.create(date=d, status="closed")
+        DayOverride.objects.create(
+            date=d,
+            status="closed",
+            company=Company.objects.order_by("created_at").first(),
+        )
         self.client.post(
             reverse("set_day_override", args=[d.isoformat()]),
             {"action": "holiday"},

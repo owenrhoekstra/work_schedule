@@ -1,21 +1,34 @@
+"""Test factories for the accounts app.
+
+Branch 1: employee creation routes through
+`schedule.tests.factories` so the multi-tenancy `company=` requirement
+is handled in one place. No module-level state — each call defaults to
+a fresh Company unless `company=` is passed.
+"""
+
 from datetime import date
 
 from django.contrib.auth.models import User
 
-from schedule.models import Employee, Role
-
-
-def make_role(name="Staff", order=10):
-    role, _ = Role.objects.get_or_create(name=name, defaults={"display_order": order})
-    return role
+from schedule.models import Employee
+from schedule.tests.factories import make_company, make_role
 
 
 def make_employee(email="emp@example.com", **kwargs):
+    """Create an Employee with a company and role.
+
+    `company` defaults to a fresh one; pass `company=` to share a
+    company with another employee. `role` defaults to a fresh
+    company-scoped "Staff" role for the resolved company.
+    """
+    company = kwargs.pop("company", None) or make_company()
+    role = kwargs.pop("role", None) or make_role(company=company)
     return Employee.objects.create(
         first_name=kwargs.pop("first_name", "Test"),
         last_name=kwargs.pop("last_name", "User"),
         email=email,
-        role=make_role(),
+        role=role,
+        company=company,
         start_date=kwargs.pop("start_date", date.today()),
         **kwargs,
     )

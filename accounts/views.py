@@ -212,7 +212,9 @@ def verify_signup_otp(request):
 
 
 def _pending_users():
-    return User.objects.filter(is_active=False, employee__is_active=True)
+    return User.objects.filter(
+        is_active=False, employees__is_active=True
+    ).distinct()
 
 
 @login_required
@@ -235,7 +237,7 @@ def approve_account(request, user_id):
         user.groups.add(staff_group)
 
         if request.POST.get("notify"):
-            employee = getattr(user, "employee", None)
+            employee = user.employees.first()
             ok, error = notifications.send_account_approved_email(user, employee)
             if ok:
                 messages.success(request, f"Approved and notified {user.username}.")
@@ -248,7 +250,7 @@ def approve_account(request, user_id):
 
 @login_required
 def profile(request):
-    employee = getattr(request.user, "employee", None)
+    employee = request.user.employees.first()
 
     if request.method == "POST":
         form = ProfileForm(request.POST, user=request.user, employee=employee)
