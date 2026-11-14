@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Employee, Role, Shift, ShiftOverride, ShiftPattern, Title
+from .models import (
+    Employee,
+    EmploymentPeriod,
+    Role,
+    Shift,
+    ShiftOverride,
+    ShiftPattern,
+    Title,
+)
 
 
 @admin.register(Title)
@@ -46,3 +54,18 @@ class ShiftOverrideAdmin(admin.ModelAdmin):
     list_display = ("employee", "date", "is_off", "start_time", "end_time")
     list_filter = ("is_off", "date")
     autocomplete_fields = ("employee",)
+
+
+@admin.register(EmploymentPeriod)
+class EmploymentPeriodAdmin(admin.ModelAdmin):
+    list_display = ("employee", "start_date", "end_date")
+    list_filter = ("end_date",)
+    search_fields = (
+        "employee__first_name",
+        "employee__last_name",
+        "employee__email",
+    )
+    raw_id_fields = ("employee",)
+    list_select_related = ("employee",)
+    date_hierarchy = "start_date"
+    ordering = ("-start_date",)
