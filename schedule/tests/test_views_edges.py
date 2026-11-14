@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, Role, Shift, ShiftOverride, ShiftPattern, Title
+from schedule.models import Employee, Role, ShiftOverride, ShiftPattern, Title
 
 from .factories import (
     make_company,
@@ -70,6 +70,19 @@ class AddEmployeeViewTests(TestCase):
         )
         new_emp = Employee.objects.get(email="taken@example.com")
         self.assertIsNone(new_emp.user_id)
+
+        def test_role_queryset_scoped_to_company(self):
+            """A role from another company can't be selected via the form."""
+            other_company = make_company(name="Other Co")
+            other_role = make_role(name="Other Role", company=other_company)
+            resp = self.client.post(
+                reverse("add_employee"),
+                self.form_data(role=str(other_role.pk)),
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.assertFalse(
+                Employee.objects.filter(email="newhire@example.com").exists()
+            )
 
     @patch("schedule.notifications.send_email")
     def test_post_with_notify_sends_welcome(self, mock_send):

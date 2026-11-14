@@ -131,13 +131,22 @@ class ProfileForm(forms.Form):
         return username
 
     def save(self):
-        if self.employee:
-            self.employee.first_name = self.cleaned_data["first_name"]
-            self.employee.last_name = self.cleaned_data["last_name"]
-            self.employee.save(update_fields=["first_name", "last_name"])
-            # Signal mirrors the name to User automatically
+        first_name = self.cleaned_data["first_name"]
+        last_name = self.cleaned_data["last_name"]
+
+        # Under the split-membership model (Branch 1), User is the source
+        # of truth for identity. Write the name to both rows explicitly.
+        # The old Employee → User post_save signal was removed because it
+        # clobbered names for users employed at multiple companies.
+        self.user.first_name = first_name
+        self.user.last_name = last_name
         self.user.username = self.cleaned_data["username"]
-        self.user.save(update_fields=["username"])
+        self.user.save(update_fields=["first_name", "last_name", "username"])
+
+        if self.employee:
+            self.employee.first_name = first_name
+            self.employee.last_name = last_name
+            self.employee.save(update_fields=["first_name", "last_name"])
 
 
 class StyledPasswordChangeForm(PasswordChangeForm):

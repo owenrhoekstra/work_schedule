@@ -713,7 +713,7 @@ def home(request):
     week_start = _parse_week_param(request) or _week_start(timezone.localdate())
     context = _home_context(week_start, company)
     if is_management(request) and request.user.has_perm("schedule.add_employee"):
-        context["employee_form"] = EmployeeForm()
+        context["employee_form"] = EmployeeForm(company=company)
     return render(request, "schedule/home.html", context)
 
 
@@ -759,7 +759,7 @@ def add_employee(request):
         viewed_week = _week_start(timezone.localdate())
 
     if request.method == "POST":
-        form = EmployeeForm(request.POST)
+        form = EmployeeForm(request.POST, company=company)
         if form.is_valid():
             with transaction.atomic():
                 employee = form.save(commit=False)
@@ -831,7 +831,7 @@ def add_employee(request):
             response["HX-Reswap"] = "innerHTML"
             return response
     else:
-        form = EmployeeForm()
+        form = EmployeeForm(company=company)
 
     context = _home_context(viewed_week, company)
     context["employee_form"] = form
