@@ -2,8 +2,8 @@
 
 Login + CSRF cookie seeding are plain Django views (login is pre-auth,
 so Ninja's cookie-based auth/CSRF layer can't run). Companies listing
-and selection are Ninja routes with django_auth — post-auth endpoints
-where Ninja's session/CSRF model is exactly right.
+and selection are Ninja routes with the shared session_auth — post-auth
+endpoints where Ninja's session/CSRF model is exactly right.
 """
 
 import json
@@ -16,8 +16,15 @@ from django.shortcuts import resolve_url
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
-from ninja import Router, Schema
-from ninja.security import django_auth
+from ninja import Router
+
+from work_schedule.api.auth import session_auth
+
+from .schemas import (
+    CompaniesResponse,
+    SelectCompanyRequest,
+    SelectCompanyResponse,
+)
 
 router = Router(tags=["accounts"])
 
@@ -106,19 +113,7 @@ def csrf_token_view(request):
 # ---------------------------------------------------------------------------
 
 
-class CompanySchema(Schema):
-    id: str
-    name: str
-    slug: str
-    role: str
-
-
-class CompaniesResponse(Schema):
-    current_company_id: str | None
-    companies: list[CompanySchema]
-
-
-@router.get("/", auth=django_auth, response=CompaniesResponse)
+@router.get("/", auth=session_auth, response=CompaniesResponse)
 def list_companies(request):
     """List the current user's viable company memberships.
 
@@ -144,16 +139,7 @@ def list_companies(request):
     }
 
 
-class SelectCompanyRequest(Schema):
-    company_id: str
-
-
-class SelectCompanyResponse(Schema):
-    ok: bool
-    error: str = ""
-
-
-@router.post("/select/", auth=django_auth, response=SelectCompanyResponse)
+@router.post("/select/", auth=session_auth, response=SelectCompanyResponse)
 def select_company(request, payload: SelectCompanyRequest):
     """Set the session company after validating membership.
 
