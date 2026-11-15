@@ -68,7 +68,7 @@ class DocketOIDCBackend(OIDCAuthenticationBackend):
             user = User.objects.create_user(
                 username=self._unique_username(email),
                 email=email,
-                is_active=False,
+                is_active=True,
             )
             user.first_name = claims.get("given_name", "") or ""
             user.last_name = claims.get("family_name", "") or ""
@@ -91,6 +91,14 @@ class DocketOIDCBackend(OIDCAuthenticationBackend):
         return user
 
     def update_user(self, user, claims):
+        """Sync name from claims and ensure the OIDCIdentity exists.
+
+        Called by the library after either an identity match or an
+        email-claim match. On the first email-claim login, no
+        OIDCIdentity row exists yet — create it here so subsequent
+        logins take the fast path through `filter_users_by_claims`.
+        On identity-match logins, only refresh `last_login_at`.
+        """
         from django.utils import timezone
 
         from accounts.models import OIDCIdentity
@@ -99,9 +107,30 @@ class DocketOIDCBackend(OIDCAuthenticationBackend):
         user.last_name = claims.get("family_name", "") or user.last_name
         user.save(update_fields=["first_name", "last_name"])
 
-        OIDCIdentity.objects.filter(
-            user=user, issuer=claims.get("iss"), subject=claims.get("sub")
-        ).update(last_login_at=timezone.now())
+        issuer = claims.get("iss")
+        subject = claims.get("sub")
+        if issuer and subject:
+            identity, created = OIDCIdentity.objects.get_or_create(
+                issuer=issuer,
+                subject=subject,
+                defaults={"user": user},
+            )
+            if not created and identity.user_id != user.pk:
+                # Unreachable in practice (filter_users_by_claims would
+                # have returned the identity's owner), but if the
+                # (issuer, subject) tuple is somehow attached to
+                # another user, refuse to silently rebind it.
+                logger.warning(
+                    "OIDC identity collision: %s#%s is attached to %s "
+                    "but login resolved to %s",
+                    issuer,
+                    subject,
+                    identity.user_id,
+                    user.pk,
+                )
+                return user
+            identity.last_login_at = timezone.now()
+            identity.save(update_fields=["last_login_at"])
 
         return user
 

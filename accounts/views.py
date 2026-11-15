@@ -228,11 +228,23 @@ from schedule import notifications
 @permission_required("auth.change_user", raise_exception=True)
 def approve_account(request, user_id):
     if request.method == "POST":
+        from django.db import transaction
+
+        from schedule.models import CompanyMembership
+
         user = get_object_or_404(User, id=user_id)
-        user.is_active = True
-        user.save()
-        staff_group, _ = Group.objects.get_or_create(name="Staff")
-        user.groups.add(staff_group)
+        with transaction.atomic():
+            user.is_active = True
+            user.save()
+            staff_group, _ = Group.objects.get_or_create(name="Staff")
+            user.groups.add(staff_group)
+
+            # OIDC first-login creates a pending CompanyMembership.
+            # Approval is where it activates. Password-signup users
+            # may have no membership yet; that's fine, nothing to flip.
+            CompanyMembership.objects.filter(user=user, status="pending").update(
+                status="active"
+            )
 
         if request.POST.get("notify"):
             employee = user.employees.first()

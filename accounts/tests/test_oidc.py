@@ -73,7 +73,7 @@ class OIDCBackendTests(TestCase):
         user = self.backend.create_user(_claims("new@x.com", sub="sub-new"))
 
         self.assertIsNotNone(user)
-        self.assertFalse(user.is_active)
+        self.assertTrue(user.is_active)
 
         emp.refresh_from_db()
         self.assertEqual(emp.user_id, user.id)
