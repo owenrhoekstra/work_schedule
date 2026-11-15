@@ -45,9 +45,38 @@ def signup(request):
         form = SignUpForm(request.POST)
         if form.is_valid():
             email = form.cleaned_data["email"]
-            employee = Employee.objects.get(
-                email__iexact=email, is_active=True, user__isnull=True
+
+            # A user can be invited to sign up at more than one company
+            # with the same email. `Employee.objects.get(...)` used to
+            # raise MultipleObjectsReturned here. `.filter().first()`
+            # attaches the signup to the earliest-hired matching
+            # Employee (Meta.ordering is start_date). Log so ops can
+            # see it; if multi-company signup becomes common, add a
+            # "which company?" picker before OTP issuance.
+            candidates = list(
+                Employee.objects.filter(
+                    email__iexact=email, is_active=True, user__isnull=True
+                ).order_by("start_date")
             )
+            if not candidates:
+                # clean_email guaranteed one existed; this is defense
+                # against a mid-flight deletion between validation and
+                # this block.
+                form.add_error(None, "No active invitation found.")
+                return render(
+                    request,
+                    "registration/signup.html",
+                    {"form": form},
+                )
+            if len(candidates) > 1:
+                logger.warning(
+                    "Signup ambiguity: %d active unlinked employees for "
+                    "%s; attaching to employee %s",
+                    len(candidates),
+                    email,
+                    candidates[0].pk,
+                )
+            employee = candidates[0]
 
             # Stash pending signup in the session — nothing is created until
             # the OTP is verified.
@@ -329,7 +358,16 @@ def approve_account(request, user_id):
 
 @login_required
 def profile(request):
-    employee = request.user.employees.first()
+    # Scope to the current company. A user employed at two companies
+    # has one Employee per company; editing their profile while working
+    # at Company B must not touch Company A's Employee record.
+    #
+    # request.company is set by TenantMiddleware for every authed
+    # request (including exempt paths like /accounts/profile/). It's
+    # None if the user has 0 or 2+ viable companies with no session
+    # choice — in that case `employee` is None and profile edits touch
+    # the shared User only, which is the correct fallback.
+    employee = request.user.employees.filter(company=request.company).first()
 
     if request.method == "POST":
         form = ProfileForm(request.POST, user=request.user, employee=employee)

@@ -45,10 +45,21 @@ def _email_identifier(email):
 
 
 def user_email(user):
-    """Prefer the Employee's email (management-controlled). Fall back to User."""
-    emp = user.employees.first()
-    if emp and emp.email:
-        return emp.email
+    """The canonical account email for OTP delivery.
+
+    Returns User.email, not Employee.email. OTP is account-level
+    security (password change, verification) — it needs to reach the
+    account owner at their verified address, regardless of which
+    company's Employee row sorts first in a multi-company setup.
+
+    Employee.email remains the right address for company-scoped
+    notifications (welcome, shift changes, deactivation) because those
+    come from the manager's perspective within a specific workplace.
+    The two addresses can differ; that's intentional.
+
+    Returns None if User.email is empty (defensive — login and signup
+    both populate it).
+    """
     return user.email or None
 
 
