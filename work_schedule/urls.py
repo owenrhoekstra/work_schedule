@@ -9,7 +9,6 @@ from django.contrib.admin.exceptions import NotRegistered
 from django.contrib.auth.admin import UserAdmin as _BaseUserAdmin
 from django.contrib.auth.models import User as _AuthUser
 from django.contrib.auth.views import (
-    LoginView,
     LogoutView,
     PasswordChangeDoneView,
 )
@@ -20,7 +19,6 @@ from django.views.generic import RedirectView
 
 from accounts.api import csrf_token_view as accounts_csrf_view
 from accounts.api import login_view as accounts_login_view
-from accounts.forms import StyledLoginForm
 from accounts.views import OTPGatedPasswordChangeView, login_spa
 from work_schedule import views as project_views
 from work_schedule.api.api import api
@@ -174,14 +172,7 @@ urlpatterns = [
     path("", RedirectView.as_view(url="/schedule/home/")),
     path("back-panel01294/", admin.site.urls),
     # Auth
-    path(
-        "accounts/login/",
-        LoginView.as_view(
-            authentication_form=StyledLoginForm,
-            redirect_authenticated_user=True,
-        ),
-        name="login",
-    ),
+    path("accounts/login/", login_spa, name="login"),
     path(
         "accounts/logout/",
         LogoutView.as_view(),

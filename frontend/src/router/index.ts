@@ -8,19 +8,30 @@ declare module "vue-router" {
   }
 }
 
-// Prod: shell served at /accounts/login-vue/ by Django. Dev: Vite
-// serves at /. The router base must match the URL the shell is
-// mounted at, or history navigation breaks.
-const base = import.meta.env.DEV ? "/" : "/accounts/login-vue/";
+// The shell is served at /accounts/login/ in prod (and /accounts/
+// login-vue/ as a dev alias). The router base must exactly match the
+// URL Django rendered, or history-based navigation and router.resolve
+// append relative paths (producing URLs like
+// /accounts/login-vue/accounts/login/).
+const getBase = (): string => {
+  if (import.meta.env.DEV) return "/";
+  const pathname = window.location.pathname;
+  const candidates = ["/accounts/login-vue/", "/accounts/login/"];
+  return candidates.find((b) => pathname.startsWith(b)) ?? "/";
+};
 
 const router = createRouter({
-  history: createWebHistory(base),
+  history: createWebHistory(getBase()),
   routes: [
     {
       path: "/",
       name: "login",
       component: () => import("@/views/Login.vue"),
       meta: { title: "Log in", public: true },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      redirect: { name: "login" },
     },
   ],
 });

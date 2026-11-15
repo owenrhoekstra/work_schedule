@@ -6,32 +6,28 @@ import MenuBar from "./components/MenuBar.vue";
 import PageSkeleton from "./components/PageSkeleton.vue";
 import "vue-sonner/style.css";
 
-const router = useRouter();
 const route = useRoute();
+const router = useRouter();
 
-// Resolves when the first navigation finishes: the guard has loaded the user
-// and the route's lazy-loaded view has downloaded.
+// Resolves when the first navigation finishes. Before that, `route`
+// is empty and any attempt to infer the current route from the URL
+// is unreliable — the shell just renders a skeleton until ready.
 const ready = ref(false);
 router.isReady().finally(() => (ready.value = true));
 
-// Public pages (login) get no menu bar or page container. Before the first
-// navigation finishes `route` is empty, so work it out from the URL instead.
-const isPublic = computed(() => {
-  const current = route.matched.length ? route : router.resolve(window.location.pathname);
-  return Boolean(current.meta.public);
-});
+// MenuBar + page container only on non-public, ready routes. On the
+// login shell: ready + public => no chrome.
+const showChrome = computed(() => ready.value && !route.meta.public);
 </script>
 
 <template>
-  <MenuBar v-if="!isPublic" />
+  <MenuBar v-if="showChrome" />
 
-  <div :class="[!isPublic && 'w-full mx-auto px-4 xl:px-8 max-w-7xl']">
-    <main id="main-content" tabindex="-1" :class="['outline-none', !isPublic && 'w-full p-6']">
-      <PageSkeleton v-if="!ready && !isPublic" />
-      <RouterView />
+  <div :class="[showChrome && 'w-full mx-auto px-4 xl:px-8 max-w-7xl']">
+    <main id="main-content" tabindex="-1" :class="['outline-none', showChrome && 'w-full p-6']">
+      <PageSkeleton v-if="!ready" />
+      <RouterView v-else />
       <Toaster rich-colors position="bottom-right" />
     </main>
   </div>
 </template>
-
-<style scoped></style>

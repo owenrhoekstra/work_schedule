@@ -8,7 +8,7 @@ export interface CurrentUser {
 }
 
 // Flip to false once /api/v1/me/ exists
-const USE_STUB = true;
+const USE_STUB = false;
 const stubUser: CurrentUser = { firstName: "Jane", lastName: "Doe" };
 
 export const useUserStore = defineStore("user", () => {

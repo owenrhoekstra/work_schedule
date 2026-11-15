@@ -21,6 +21,13 @@ const skipToContent = () => {
   main?.focus();
   main?.scrollIntoView();
 };
+
+// Django's LogoutView is POST-only + CSRF-protected. Read the token
+// from the cookie (set by CsrfViewMiddleware / the shell template).
+const csrfToken = (() => {
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m && m[1] ? decodeURIComponent(m[1]) : "";
+})();
 </script>
 
 <template>
@@ -68,12 +75,13 @@ const skipToContent = () => {
           </Button>
         </nav>
 
-        <Button as-child type="button" variant="outline" :class="[primaryHover, touchTarget]">
-          <RouterLink :to="{ name: 'login' }">
+        <form method="post" action="/accounts/logout/" class="inline-flex">
+          <input type="hidden" name="csrfmiddlewaretoken" :value="csrfToken" />
+          <Button type="submit" variant="outline" :class="[primaryHover, touchTarget]">
             <PhSignOut :class="iconSize" aria-hidden="true" />
             <span class="sr-only sm:not-sr-only">Log Out</span>
-          </RouterLink>
-        </Button>
+          </Button>
+        </form>
       </div>
     </div>
   </header>

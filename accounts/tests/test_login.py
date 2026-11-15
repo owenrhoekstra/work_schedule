@@ -1,7 +1,15 @@
+"""Login page tests.
+
+The /accounts/login/ URL now serves the Vue shell (GET-only — POST
+re-renders the shell, no auth attempt). Actual password authentication
+is tested at /api/v1/accounts/login/ — see accounts/tests/
+test_login_api.py. This file covers the shell being served and Django's
+logout flow.
+"""
+
+from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
-
-from .factories import make_superuser
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -10,32 +18,14 @@ _LOCMEM_CACHES = {
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class LoginViewTests(TestCase):
-    def setUp(self):
-        self.user = make_superuser("admin")
-        # clear any axes state from prior tests
-        from axes.models import AccessAttempt
-
-        AccessAttempt.objects.all().delete()
-
     def test_login_page_renders(self):
-        self.assertEqual(self.client.get(reverse("login")).status_code, 200)
-
-    def test_valid_login_redirects(self):
-        resp = self.client.post(
-            reverse("login"),
-            {"username": "admin", "password": "pass"},
-        )
-        self.assertEqual(resp.status_code, 302)
-
-    def test_invalid_login_stays_on_page(self):
-        resp = self.client.post(
-            reverse("login"),
-            {"username": "admin", "password": "wrong"},
-        )
+        """Django serves the shell HTML; Vue renders the form client-side."""
+        resp = self.client.get(reverse("login"))
         self.assertEqual(resp.status_code, 200)
-        self.assertFalse(resp.wsgi_request.user.is_authenticated)
 
     def test_logout_redirects(self):
-        self.client.force_login(self.user)
+        user = User.objects.create_user(username="user", password="pass")
+        self.client.force_login(user)
         resp = self.client.post(reverse("logout"))
         self.assertEqual(resp.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)

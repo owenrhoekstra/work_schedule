@@ -2,7 +2,6 @@ import logging
 
 from django import forms
 from django.contrib.auth.forms import (
-    AuthenticationForm,
     PasswordChangeForm,
     UserCreationForm,
 )
@@ -11,23 +10,6 @@ from django.contrib.auth.models import User
 from schedule.models import Employee
 
 logger = logging.getLogger(__name__)
-
-
-class StyledLoginForm(AuthenticationForm):
-    username = forms.CharField(
-        widget=forms.TextInput(
-            attrs={
-                "class": "w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#FF5A5F]"
-            }
-        )
-    )
-    password = forms.CharField(
-        widget=forms.PasswordInput(
-            attrs={
-                "class": "w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#FF5A5F]"
-            }
-        )
-    )
 
 
 class SignUpForm(UserCreationForm):

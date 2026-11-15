@@ -332,11 +332,6 @@ def waiting(request):
 def login_spa(request):
     """Render the Vue login shell.
 
-    Served at /accounts/login-vue/ while Vue is in development.
-    When the Vue login is ready to ship, swap the /accounts/login/
-    route in work_schedule/urls.py to point here and delete the
-    Django LoginView entry.
-
     Config for the Vue app is injected via window.__LOGIN_CONFIG__
     in the template — no round-trip for oidc_enabled, no separate
     status endpoint.

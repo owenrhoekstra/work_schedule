@@ -38,7 +38,7 @@ ALLOWED_HOSTS = [
 ]
 
 LOGIN_REDIRECT_URL = "/schedule/home/"
-LOGOUT_REDIRECT_URL = "login"
+LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_AGE = 1800
@@ -74,11 +74,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "work_schedule.middleware.TenantMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "work_schedule.middleware.TenantMiddleware",  # ← new, above both
     "work_schedule.middleware.HTMXLoginRedirectMiddleware",
     "schedule.middleware.EmployeeDeactivationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
