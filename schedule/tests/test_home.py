@@ -8,6 +8,7 @@ from schedule.models import Company, DayOverride, Shift, ShiftOverride
 
 from .factories import (
     make_employee,
+    make_member_user,
     make_role,
     make_staff_user,
     make_superuser,
@@ -30,7 +31,7 @@ class HomePermissionTests(TestCase):
         self.assertEqual(self.client.get(reverse("home")).status_code, 200)
 
     def test_user_without_view_shift_gets_403(self):
-        user = User.objects.create_user(username="nope", password="p")
+        user = make_member_user()
         self.client.force_login(user)
         self.assertEqual(self.client.get(reverse("home")).status_code, 403)
 

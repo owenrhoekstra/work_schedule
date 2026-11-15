@@ -9,6 +9,7 @@ from schedule.views import _ordinal
 from .factories import (
     make_employee,
     make_management_user,
+    make_member_user,
     make_role,
     make_staff_user,
 )
@@ -172,9 +173,7 @@ class QRCodeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_user_without_view_shift_gets_403(self):
-        from django.contrib.auth.models import User
-
-        user = User.objects.create_user(username="qrnoperm", password="p")
+        user = make_member_user()
         self.client.force_login(user)
         resp = self.client.get(reverse("qr_code"))
         self.assertEqual(resp.status_code, 403)

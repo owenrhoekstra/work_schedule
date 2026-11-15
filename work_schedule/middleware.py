@@ -1,17 +1,17 @@
 from django.conf import settings
-from django.contrib import messages
-from django.contrib.auth import logout
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.utils import timezone
 
 # Paths that don't require a company context. Everything not listed is
 # tenant-scoped and gets redirected to the picker when enforcement is
 # on and the user has no company resolved.
+#
+# The admin URL is dynamically prepended to this list (see
+# TenantMiddleware.__init__) so the exempt list always matches whatever
+# URL the project configured, not a hardcoded "/admin/".
 _TENANT_EXEMPT_PREFIXES = (
     "/accounts/",
-    "/admin/",
     "/healthz/",
     "/oidc/",
     "/api/v1/",
@@ -36,6 +36,10 @@ class TenantMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
+        try:
+            self._admin_prefix = reverse("admin:index")
+        except Exception:
+            self._admin_prefix = None
 
     def __call__(self, request):
         request.company = None
@@ -93,6 +97,8 @@ class TenantMiddleware:
         return None
 
     def _is_exempt(self, path):
+        if self._admin_prefix and path.startswith(self._admin_prefix):
+            return True
         return any(path.startswith(prefix) for prefix in _TENANT_EXEMPT_PREFIXES)
 
 

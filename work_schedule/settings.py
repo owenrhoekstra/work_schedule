@@ -206,7 +206,7 @@ CACHES = {
 #   3. otherwise -> console backend (dev without keys)
 
 TENANT_ENFORCEMENT = (
-    os.environ.get("TENANT_ENFORCEMENT", "False").lower() in ("true", "1", "yes")
+    os.environ.get("TENANT_ENFORCEMENT", "True").lower() in ("true", "1", "yes")
 )
 
 if STAGING:

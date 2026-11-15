@@ -20,7 +20,14 @@ from datetime import date, timedelta
 
 from django.contrib.auth.models import Group, Permission, User
 
-from schedule.models import Company, Employee, Role, ShiftPattern, Title
+from schedule.models import (
+    Company,
+    CompanyMembership,
+    Employee,
+    Role,
+    ShiftPattern,
+    Title,
+)
 
 
 def make_company(name="Test Company", slug=None):
@@ -106,62 +113,84 @@ def make_employee(
     return employee
 
 
-def make_superuser(username="admin"):
-    """Create a superuser with a known password ("pass")."""
-    return User.objects.create_superuser(
+def make_superuser(username="admin", company=None):
+    """Superuser. Auto-joins the test's company (creating one if none)."""
+
+    user = User.objects.create_superuser(
         username=username, password="pass", email=f"{username}@example.com"
     )
+    company = company or Company.objects.order_by("id").first() or make_company()
+    CompanyMembership.objects.create(
+        user=user, company=company, role="admin", status="active"
+    )
+    return user
 
 
-def make_staff_user(username="staff"):
-    """A user with only schedule.view_shift — the minimum to view the schedule."""
+def make_staff_user(username="staff", company=None):
+    """view_shift only. Member role — NOT a company admin."""
+
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
     user.user_permissions.add(Permission.objects.get(codename="view_shift"))
+    company = company or Company.objects.order_by("id").first() or make_company()
+    CompanyMembership.objects.create(
+        user=user, company=company, role="member", status="active"
+    )
     return user
 
 
-def make_manager_user(username="manager"):
-    """A user with every schedule permission but no superuser flag.
+def make_member_user(username="member", company=None):
+    """A plain authed user with an active membership but NO schedule perms.
 
-    Grants all current schedule permissions via queryset, so new
-    permissions added to the app are automatically granted here.
-    This matters post-SEC-006: `settings_*` views are gated on both
-    `management_required` AND `permission_required("schedule.X")`,
-    so "manager" users need the underlying perms too.
-
-    Note: `management_required` checks group membership by name
-    ("Management"), not permissions. Tests that need to hit management
-    views must additionally add this user to a Management group — see
-    `make_management_user` below.
-
-    Branch 1: unchanged. Branch 2 migrates "is management" to a
-    CompanyMembership(role="admin", status="active") check; this
-    factory will then accept `company=` and create the membership.
+    Counterpart to `make_staff_user` (which grants view_shift). Use
+    this to test "logged in, has a company, lacks the permission" —
+    the case where a view's @permission_required must fire 403 rather
+    than the middleware redirecting to the picker.
     """
+    from schedule.models import CompanyMembership
+
+    user = User.objects.create_user(
+        username=username, password="pass", email=f"{username}@example.com"
+    )
+    company = company or Company.objects.order_by("id").first() or make_company()
+    CompanyMembership.objects.create(
+        user=user, company=company, role="member", status="active"
+    )
+    return user
+
+
+def make_manager_user(username="manager", company=None):
+    """All schedule perms, member role. Perm-only user — fails
+    company_admin_required. Use make_management_user for admin."""
+
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
     user.user_permissions.set(
         Permission.objects.filter(content_type__app_label="schedule")
     )
+    company = company or Company.objects.order_by("id").first() or make_company()
+    CompanyMembership.objects.create(
+        user=user, company=company, role="member", status="active"
+    )
     return user
 
 
-def make_management_user(username="management"):
-    """A user with every schedule permission AND Management group membership.
+def make_management_user(username="management", company=None):
+    """All schedule perms + admin membership + Platform Admin group."""
 
-    Required shape for views gated on both `management_required` and
-    `permission_required` (SEC-006). Most write views and all settings
-    views now require this combination. `make_manager_user` alone is
-    insufficient — it grants the perms but not the Management group.
-
-    Branch 1: unchanged. Branch 2 will add a CompanyMembership.
-    """
-
-    user = make_manager_user(username)
-    mgmt, _ = Group.objects.get_or_create(name="Management")
+    user = User.objects.create_user(
+        username=username, password="pass", email=f"{username}@example.com"
+    )
+    user.user_permissions.set(
+        Permission.objects.filter(content_type__app_label="schedule")
+    )
+    company = company or Company.objects.order_by("id").first() or make_company()
+    CompanyMembership.objects.create(
+        user=user, company=company, role="admin", status="active"
+    )
+    mgmt, _ = Group.objects.get_or_create(name="Platform Admin")
     user.groups.add(mgmt)
     return user
 
