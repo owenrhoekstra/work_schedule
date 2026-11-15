@@ -5,6 +5,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from accounts.views import get_client_ip
+from schedule.models import CompanyMembership
 
 from .factories import make_employee, make_staff_user, make_superuser
 
@@ -229,6 +230,16 @@ class ProfileViewEdgeTests(TestCase):
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class ApproveAccountEdgeTests(TestCase):
+    """Edge cases for approve_account that aren't covered in
+    test_approval.py.
+
+    Post-Batch-2b: approve_account requires a pending CompanyMembership
+    at the acting company. Every test here creates one in setUp so the
+    approval path is actually exercised. Without it, the view rejects
+    the request (see test_approval.py::test_approve_without_pending_
+    membership_at_company_errors for the rejection test).
+    """
+
     def setUp(self):
         self.admin = make_superuser("approver")
         self.client.force_login(self.admin)
@@ -241,6 +252,12 @@ class ApproveAccountEdgeTests(TestCase):
         )
         emp.user = self.user
         emp.save()
+        CompanyMembership.objects.create(
+            user=self.user,
+            company=emp.company,
+            role="member",
+            status="pending",
+        )
 
     def test_get_does_not_change_state(self):
         self.client.get(reverse("approve_account", args=[self.user.pk]))

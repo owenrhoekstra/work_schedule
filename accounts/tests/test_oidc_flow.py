@@ -291,11 +291,28 @@ class OIDCApprovalActivatesMembershipTests(TestCase):
         membership.refresh_from_db()
         self.assertEqual(membership.status, "active")
 
-    def test_approve_no_pending_membership_is_safe(self):
+    def test_approve_without_pending_membership_rejects(self):
+        """Under the current approval contract, a pending
+        CompanyMembership at the acting company is required. Approving
+        a user who has none at that company is refused — the account
+        stays inactive and no membership is created. This prevents
+        cross-company approval from leaking access.
+
+        Renamed from test_approve_no_pending_membership_is_safe: the
+        old contract activated the user regardless; the new one
+        rejects when there's nothing to approve.
+        """
         user = User.objects.create_user(
-            username="nopending", email="nopending@example.com", is_active=False
+            username="nopending",
+            email="nopending@example.com",
+            is_active=False,
         )
         resp = self.client.post(reverse("approve_account", args=[user.pk]))
         self.assertEqual(resp.status_code, 302)
         user.refresh_from_db()
-        self.assertTrue(user.is_active)
+        self.assertFalse(user.is_active)
+        self.assertFalse(
+            CompanyMembership.objects.filter(
+                user=user, company=self.company
+            ).exists()
+        )

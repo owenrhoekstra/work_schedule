@@ -13,7 +13,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from schedule.models import Employee
+from schedule.models import CompanyMembership, Employee
 
 from . import otp as otp_service
 from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
@@ -182,6 +182,18 @@ def verify_signup_otp(request):
                 employee.user = user
                 employee.save(update_fields=["user"])
 
+                # Password signup creates a pending membership just like
+                # OIDC first-login does. approve_account activates it.
+                # Without this, the user's account exists but no company
+                # access is ever granted — they'd land on /accounts/
+                # waiting/ after approval instead of their schedule.
+
+                CompanyMembership.objects.get_or_create(
+                    user=user,
+                    company=employee.company,
+                    defaults={"role": "member", "status": "pending"},
+                )
+
             otp_service.clear_signup_otp(email)
             request.session.pop("pending_signup", None)
             return render(request, "registration/signup_pending.html")
@@ -212,14 +224,39 @@ def verify_signup_otp(request):
     )
 
 
-def _pending_users():
-    return User.objects.filter(is_active=False, employees__is_active=True).distinct()
+def _pending_memberships(request):
+    """Pending CompanyMemberships at the current company, oldest first.
+
+    Filters by request.company so each company's managers see only
+    their own queue. Order by created_at ascending so new signups land
+    at the top of the list — the manager's oldest tasks are at the
+    bottom, newest at the top.
+
+    Returns CompanyMembership objects (not Users), so the template can
+    iterate and display both the user's identity and the pending-role
+    context. The User is accessible via `.user` on each membership.
+    """
+    from schedule.models import CompanyMembership
+
+    company = getattr(request, "company", None)
+    if company is None:
+        return CompanyMembership.objects.none()
+
+    return (
+        CompanyMembership.objects.filter(company=company, status="pending")
+        .select_related("user")
+        .order_by("-created_at")
+    )
 
 
 @login_required
 @permission_required("auth.change_user", raise_exception=True)
 def pending_accounts(request):
-    return render(request, "pending_accounts.html", {"pending": _pending_users()})
+    return render(
+        request,
+        "pending_accounts.html",
+        {"pending": _pending_memberships(request)},
+    )
 
 
 from schedule import notifications
@@ -228,34 +265,65 @@ from schedule import notifications
 @login_required
 @permission_required("auth.change_user", raise_exception=True)
 def approve_account(request, user_id):
-    if request.method == "POST":
-        from django.db import transaction
+    """Approve a pending account at the current company.
 
-        from schedule.models import CompanyMembership
+    Activates the CompanyMembership(user_id, request.company, status=
+    "pending") if one exists. Also activates the User account if it's
+    still inactive — new password-signup users start inactive until a
+    manager approves, and OIDC signups start active but their
+    membership is pending. Both gates clear here.
 
-        user = get_object_or_404(User, id=user_id)
-        with transaction.atomic():
+    Approves at the current company only. A user with pending
+    memberships at two companies needs each company's manager to
+    approve independently — that's the intended semantics: employment
+    at one workplace doesn't grant access at another.
+    """
+    if request.method != "POST":
+        return redirect("pending_accounts")
+
+    from django.db import transaction
+
+    from schedule.models import CompanyMembership
+
+    company = getattr(request, "company", None)
+    if company is None:
+        messages.error(request, "No company context for this approval.")
+        return redirect("pending_accounts")
+
+    user = get_object_or_404(User, id=user_id)
+    membership = CompanyMembership.objects.filter(
+        user=user, company=company, status="pending"
+    ).first()
+    if membership is None:
+        messages.error(
+            request,
+            f"No pending membership for {user.username} at this company.",
+        )
+        return redirect("pending_accounts")
+
+    with transaction.atomic():
+        membership.status = CompanyMembership.STATUS_ACTIVE
+        membership.save(update_fields=["status"])
+
+        # Activate the User account if it's still inactive (password
+        # signup path). OIDC users already start active, so this is a
+        # no-op for them.
+        if not user.is_active:
             user.is_active = True
-            user.save()
-            staff_group, _ = Group.objects.get_or_create(name="Staff")
-            user.groups.add(staff_group)
+            user.save(update_fields=["is_active"])
 
-            # OIDC first-login creates a pending CompanyMembership.
-            # Approval is where it activates. Password-signup users
-            # may have no membership yet; that's fine, nothing to flip.
-            CompanyMembership.objects.filter(user=user, status="pending").update(
-                status="active"
-            )
+        staff_group, _ = Group.objects.get_or_create(name="Staff")
+        user.groups.add(staff_group)
 
-        if request.POST.get("notify"):
-            employee = user.employees.first()
-            ok, error = notifications.send_account_approved_email(user, employee)
-            if ok:
-                messages.success(request, f"Approved and notified {user.username}.")
-            else:
-                messages.warning(request, f"Approved, but email failed: {error}")
+    if request.POST.get("notify"):
+        employee = user.employees.filter(company=company).first()
+        ok, error = notifications.send_account_approved_email(user, employee)
+        if ok:
+            messages.success(request, f"Approved and notified {user.username}.")
         else:
-            messages.success(request, f"Approved {user.username}.")
+            messages.warning(request, f"Approved, but email failed: {error}")
+    else:
+        messages.success(request, f"Approved {user.username}.")
     return redirect("pending_accounts")
 
 
@@ -469,7 +537,7 @@ class OTPGatedPasswordChangeView(PasswordChangeView):
             return False
         try:
             ts = datetime.fromisoformat(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         if timezone.is_naive(ts):
             ts = timezone.make_aware(ts)

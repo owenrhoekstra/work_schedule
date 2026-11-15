@@ -6,40 +6,55 @@ render.
 
 Falls back to computing the flags directly when the request didn't
 come through TenantMiddleware — tests using RequestFactory, error
-pages, and any future code path that bypasses the middleware. The
-fallback is one extra query only in those cases; production requests
-still read the pre-computed flags.
+pages, and any future code path that bypasses the middleware.
 """
 
-from django.contrib.auth.models import User
+from django.conf import settings
 
 _MISSING = object()
 
 
 def pending_accounts(request):
-    if not request.user.is_authenticated or not request.user.has_perm(
-        "schedule.add_employee"
-    ):
+    """Pending membership count for the current company.
+
+    Uses request.company (set by TenantMiddleware). Returns {} if the
+    user lacks the underlying permission, is anonymous, or has no
+    company context. The count drives the "N Pending" badge in the
+    navigation bar — it should reflect the manager's own queue, not
+    a global count.
+    """
+    if not request.user.is_authenticated:
         return {}
+    if not request.user.has_perm("schedule.add_employee"):
+        return {}
+
+    company = getattr(request, "company", None)
+    if company is None:
+        return {}
+
     try:
-        count = (
-            User.objects.filter(is_active=False, employees__is_active=True)
-            .distinct()
-            .count()
-        )
+        from schedule.models import CompanyMembership
+
+        count = CompanyMembership.objects.filter(
+            company=company, status="pending"
+        ).count()
     except Exception:
         return {}
+
     return {"pending_accounts_count": count}
 
 
-def _flag(request, name):
-    """Return request.<name> if set, else compute it via the auth helpers.
+def oidc_enabled(request):
+    """True when Zitadel OIDC credentials are configured.
 
-    Set by TenantMiddleware on every real request. Missing means the
-    request bypassed the middleware (RequestFactory in tests, error
-    pages, etc.) — compute on the spot so templates still get a
-    correct answer.
+    Read by the login shell template to decide whether to show the
+    "Sign in with Zitadel" button. Cheap — just settings lookup, no DB.
     """
+    return {"oidc_enabled": getattr(settings, "OIDC_ENABLED", False)}
+
+
+def _flag(request, name):
+    """Return request.<name> if set, else compute it via the auth helpers."""
     value = getattr(request, name, _MISSING)
     if value is not _MISSING:
         return value
@@ -74,9 +89,3 @@ def user_is_management(request):
         "is_company_admin": _flag(request, "is_company_admin"),
         "is_team_admin": _flag(request, "is_team_admin"),
     }
-
-
-def oidc_enabled(request):
-    from django.conf import settings
-
-    return {"oidc_enabled": getattr(settings, "OIDC_ENABLED", False)}
