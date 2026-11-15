@@ -18,8 +18,9 @@ from django.urls import include, path, reverse
 from django.utils import timezone
 from django.views.generic import RedirectView
 
+from accounts.api import login_view as accounts_login_view
 from accounts.forms import StyledLoginForm
-from accounts.views import OTPGatedPasswordChangeView
+from accounts.views import OTPGatedPasswordChangeView, login_spa
 from work_schedule import views as project_views
 from work_schedule.api.api import api
 from work_schedule.api.urls import register_routers
@@ -169,7 +170,6 @@ register_routers()
 
 urlpatterns = [
     path("healthz/", project_views.healthz, name="healthz"),
-    path("api/v1/", api.urls),
     path("", RedirectView.as_view(url="/schedule/home/")),
     path("back-panel01294/", admin.site.urls),
     # Auth
@@ -200,4 +200,11 @@ urlpatterns = [
     path("accounts/", include("accounts.urls")),
     path("schedule/", include("schedule.urls")),
     path("oidc/", include("mozilla_django_oidc.urls")),
+    path("accounts/login-vue/", login_spa, name="login_vue"),
+    path(
+        "api/v1/accounts/login/",
+        accounts_login_view,
+        name="api_login",
+    ),
+    path("api/v1/", api.urls),
 ]

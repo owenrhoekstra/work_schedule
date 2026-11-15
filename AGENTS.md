@@ -130,6 +130,10 @@ below.
         _messages.html
       emails/                           # transactional emails (HTML + txt)
 
+    accounts/templates/registration/
+      login.html                        # Django login (default /accounts/login/)
+      login_spa.html                    # Vue shell (/accounts/login-vue/ until cutover)
+
     schedule/templates/schedule/        # schedule app pages and pieces
       home.html
       employee_defaults.html            # reading page (read-only)
@@ -204,6 +208,11 @@ week is in the past).
   `AUTHENTICATION_BACKENDS`; it just can't complete a login without
   credentials. PKCE public client — no client secret.
   `OIDC_RP_CLIENT_SECRET` is deliberately empty.
+- `settings.LOGIN_REDIRECT_URL` — `/schedule/home/`. After login,
+  Django's middleware chain routes based on the user's memberships
+  (0 → waiting, 1 → auto-select, 2+ → picker). The Vue login API
+  endpoint returns this as `redirect_url`; the client does a full
+  page navigation so the middleware runs.
 
 ### Django templates
 

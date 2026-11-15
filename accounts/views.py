@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.hashers import make_password
@@ -326,6 +327,28 @@ def waiting(request):
     user knows who to ask.
     """
     return render(request, "registration/waiting.html")
+
+
+def login_spa(request):
+    """Render the Vue login shell.
+
+    Served at /accounts/login-vue/ while Vue is in development.
+    When the Vue login is ready to ship, swap the /accounts/login/
+    route in work_schedule/urls.py to point here and delete the
+    Django LoginView entry.
+
+    Config for the Vue app is injected via window.__LOGIN_CONFIG__
+    in the template — no round-trip for oidc_enabled, no separate
+    status endpoint.
+    """
+    if request.user.is_authenticated:
+        return redirect(settings.LOGIN_REDIRECT_URL)
+
+    return render(
+        request,
+        "registration/login_spa.html",
+        {"oidc_enabled": settings.OIDC_ENABLED},
+    )
 
 
 def _safe_next(request):

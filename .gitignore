@@ -42,3 +42,4 @@ checklists.txt
 frontend/node_modules/
 frontend/dist/
 frontend/
+static/vue/
