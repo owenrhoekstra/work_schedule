@@ -130,7 +130,7 @@ cannot nest) that the cancel modal submits via JS.
     <div
         class="flex items-center justify-between gap-2 p-4 border-t border-gray-200"
     >
-        {% if is_management and last_day and perms.schedule.change_employee %}
+        {% if is_company_admin and last_day and perms.schedule.change_employee %}
             <button
                 type="button"
                 data-employee-name="{{ employee }}"
@@ -139,7 +139,7 @@ cannot nest) that the cancel modal submits via JS.
             >
                 Cancel deactivation
             </button>
-        {% elif is_management and not last_day and perms.schedule.delete_employee %}
+        {% elif is_company_admin and not last_day and perms.schedule.delete_employee %}
             <button
                 type="button"
                 data-employee-id="{{ employee.pk }}"
@@ -161,7 +161,7 @@ cannot nest) that the cancel modal submits via JS.
             >
                 Cancel
             </button>
-            {% if is_management and perms.schedule.change_employee %}
+            {% if is_company_admin and perms.schedule.change_employee %}
             <button
                 type="submit"
                 class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors"

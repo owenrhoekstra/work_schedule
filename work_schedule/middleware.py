@@ -1,21 +1,18 @@
-"""Project-level middleware. App-agnostic cross-cutting behavior."""
-
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import logout
 from django.http import HttpResponse
+from django.shortcuts import redirect
+from django.urls import reverse
+from django.utils import timezone
 
 
 class TenantMiddleware:
-    """Populate request.company and request.team from the session.
+    """Resolve request.company and populate the admin-ladder flags.
 
-    Session choice wins. Superusers default to the first company.
-    Regular users with exactly one active CompanyMembership are
-    auto-assigned (session written). Users with 2+ memberships stay
-    None for now — commit 3 adds the picker redirect.
-
-    Branch 2, commit 1: no redirects. Views fall back via
-    _current_company to the first company when request.company is
-    None, preserving single-tenant behavior for existing tests.
-    Commit 3 enforces redirects on non-whitelisted paths.
+    Commit 2 of Branch 2: adds is_platform_admin / is_company_admin /
+    is_team_admin to the request. Decorators and the accounts context
+    processor read these instead of re-querying per call.
     """
 
     def __init__(self, get_response):
@@ -24,12 +21,23 @@ class TenantMiddleware:
     def __call__(self, request):
         request.company = None
         request.team = None
+        request.is_platform_admin = False
+        request.is_company_admin = False
+        request.is_team_admin = False
 
-        if not request.user.is_authenticated:
-            return self.get_response(request)
+        if request.user.is_authenticated:
+            request.company = self._resolve_company(request)
+            from work_schedule.auth import (
+                is_company_admin,
+                is_platform_admin,
+                is_team_admin,
+            )
 
-        request.company = self._resolve_company(request)
-        # request.team stays None; team resolution lands in a later branch.
+            request.is_platform_admin = is_platform_admin(request.user)
+            request.is_company_admin = is_company_admin(request.user, request.company)
+            request.is_team_admin = is_team_admin(
+                request.user, request.team, request.company
+            )
 
         return self.get_response(request)
 
