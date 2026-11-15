@@ -91,15 +91,21 @@ class LoginSpaViewTests(TestCase):
         self.assertEqual(resp.url, "/schedule/home/")
 
     def test_renders_for_anonymous(self):
-        """The shell template references static/vue/index.js and
-        index.css, which don't exist until the Vue build runs. This
-        test asserts the URL resolves and reaches the view — the
-        render itself will 500 with a manifest-entry ValueError until
-        Vue is built. Setting raise_request_exception=False lets the
-        test see the 500 instead of the underlying ValueError bubbling
-        up. When Vue ships and collectstatic runs, flip this assertion
-        to 200.
-        """
-        self.client.raise_request_exception = False
+        """The shell renders once Vue is built and collectstatic has
+        populated the manifest. Prior to the Vue build this test
+        expected 500 (missing manifest entry); now that the app ships
+        the shell, 200 is the correct expectation."""
         resp = self.client.get(reverse("login_vue"))
-        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class CsrfViewTests(TestCase):
+    def test_get_sets_csrf_cookie(self):
+        resp = self.client.get("/api/v1/csrf/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("csrftoken", resp.cookies)
+
+    def test_post_rejected(self):
+        resp = self.client.post("/api/v1/csrf/")
+        self.assertEqual(resp.status_code, 405)

@@ -17,8 +17,8 @@ from django.contrib.auth import authenticate
 from django.contrib.auth import login as django_login
 from django.http import JsonResponse
 from django.shortcuts import resolve_url
-from django.views.decorators.csrf import csrf_protect
-from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
 
 
 @require_POST
@@ -73,3 +73,16 @@ def login_view(request):
         },
         status=200,
     )
+
+
+@require_GET
+@ensure_csrf_cookie
+def csrf_token_view(request):
+    """Set a fresh CSRF cookie. GET-only, idempotent.
+
+    Used by the Vue shell in dev — Vite serves the page directly, so
+    no Django render has happened yet and the csrftoken cookie isn't
+    present. In prod the login shell template's {{ csrf_token }} sets
+    the cookie during render, so this endpoint isn't called.
+    """
+    return JsonResponse({"ok": True})

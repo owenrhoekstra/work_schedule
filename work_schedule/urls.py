@@ -18,6 +18,7 @@ from django.urls import include, path, reverse
 from django.utils import timezone
 from django.views.generic import RedirectView
 
+from accounts.api import csrf_token_view as accounts_csrf_view
 from accounts.api import login_view as accounts_login_view
 from accounts.forms import StyledLoginForm
 from accounts.views import OTPGatedPasswordChangeView, login_spa
@@ -206,5 +207,6 @@ urlpatterns = [
         accounts_login_view,
         name="api_login",
     ),
+    path("api/v1/csrf/", accounts_csrf_view, name="api_csrf"),
     path("api/v1/", api.urls),
 ]
