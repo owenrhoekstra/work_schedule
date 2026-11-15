@@ -95,3 +95,85 @@ def csrf_token_view(request):
     during render, so this endpoint isn't called.
     """
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def list_companies_view(request):
+    """List the current user's active company memberships.
+
+    Response:
+      {
+        "current_company_id": "<uuid>" | null,
+        "companies": [
+          {"id": "<uuid>", "name": "...", "slug": "...", "role": "admin"|"member"}
+        ]
+      }
+
+    Scoped to viable memberships (active + still-employed, per
+    work_schedule.auth.viable_memberships). Pending memberships are
+    excluded — they surface via the acceptance flow, not this list.
+
+    401 for unauthenticated requests. Zero memberships is a valid
+    response (empty list); the client routes accordingly.
+    """
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication required"}, status=401)
+
+    from work_schedule.auth import viable_memberships
+
+    memberships = viable_memberships(request.user)
+    current_id = request.session.get("company_id")
+
+    return JsonResponse(
+        {
+            "current_company_id": current_id,
+            "companies": [
+                {
+                    "id": str(m.company.id),
+                    "name": m.company.name,
+                    "slug": m.company.slug,
+                    "role": m.role,
+                }
+                for m in memberships
+            ],
+        }
+    )
+
+
+@require_POST
+@csrf_protect
+def select_company_view(request):
+    """Set the session company after validating membership.
+
+    Body: {"company_id": "<uuid>"}
+
+    Response shapes:
+      {"ok": true} on success (200)
+      {"ok": false, "error": "..."} on missing/invalid company_id (422)
+      {"ok": false, "error": "..."} on no-access (200)
+      401 for unauthenticated requests
+
+    Validation mirrors the HTML company_picker view: the target must
+    be in viable_memberships(request.user). Session is set only on
+    success.
+    """
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication required"}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError, UnicodeDecodeError:
+        return JsonResponse({"ok": False, "error": "Malformed request."}, status=400)
+
+    company_id = payload.get("company_id") if isinstance(payload, dict) else None
+    if not isinstance(company_id, str) or not company_id:
+        return JsonResponse({"ok": False, "error": "company_id required."}, status=422)
+
+    from work_schedule.auth import viable_memberships
+
+    for m in viable_memberships(request.user):
+        if str(m.company_id) == company_id:
+            request.session["company_id"] = company_id
+            return JsonResponse({"ok": True})
+
+    return JsonResponse({"ok": False, "error": "No access to that company."})

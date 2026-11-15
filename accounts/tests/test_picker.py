@@ -1,3 +1,5 @@
+import json
+
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -159,3 +161,89 @@ class LoginAsHelperTests(TestCase):
         user = _make_user("las3")
         login_as(self.client, user)
         self.assertNotIn("company_id", self.client.session)
+
+
+@override_settings(CACHES=_LOCMEM_CACHES)
+class CompaniesAPITests(TestCase):
+    """Tests for /api/v1/companies/ and /api/v1/companies/select/.
+
+    Per AGENTS.md convention, the company_picker feature ships both an
+    HTML surface and API endpoints. The HTML picker is the only
+    current consumer; these endpoints are ready for the Vue shell to
+    use when it takes over the picker.
+    """
+
+    def setUp(self):
+        self.user = _make_user("apiuser")
+        self.company_a = make_company(name="Alpha")
+        self.company_b = make_company(name="Beta")
+
+    def test_list_requires_auth(self):
+        resp = self.client.get("/api/v1/companies/")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_list_returns_active_memberships(self):
+        _make_membership(self.user, self.company_a)
+        _make_membership(self.user, self.company_b)
+        login_as(self.client, self.user, self.company_a)
+        resp = self.client.get("/api/v1/companies/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["current_company_id"], str(self.company_a.id))
+        self.assertEqual(len(data["companies"]), 2)
+        names = {c["name"] for c in data["companies"]}
+        self.assertEqual(names, {"Alpha", "Beta"})
+
+    def test_list_excludes_pending(self):
+        _make_membership(self.user, self.company_a, status="pending")
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/v1/companies/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["companies"], [])
+
+    def test_select_requires_auth(self):
+        resp = self.client.post(
+            "/api/v1/companies/select/",
+            data=json.dumps({"company_id": str(self.company_a.id)}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_select_sets_session_company(self):
+        _make_membership(self.user, self.company_a)
+        _make_membership(self.user, self.company_b)
+        login_as(self.client, self.user, self.company_a)
+        resp = self.client.post(
+            "/api/v1/companies/select/",
+            data=json.dumps({"company_id": str(self.company_b.id)}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["ok"])
+        self.assertEqual(self.client.session["company_id"], str(self.company_b.id))
+
+    def test_select_rejects_unknown_company(self):
+        _make_membership(self.user, self.company_a)
+        login_as(self.client, self.user, self.company_a)
+        resp = self.client.post(
+            "/api/v1/companies/select/",
+            data=json.dumps({"company_id": "00000000-0000-0000-0000-000000000000"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["ok"])
+        # Session unchanged
+        self.assertEqual(self.client.session["company_id"], str(self.company_a.id))
+
+    def test_select_requires_csrf(self):
+        from django.test import Client as CsrfClient
+
+        _make_membership(self.user, self.company_a)
+        csrf_client = CsrfClient(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        resp = csrf_client.post(
+            "/api/v1/companies/select/",
+            data=json.dumps({"company_id": str(self.company_a.id)}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 403)
