@@ -5,17 +5,23 @@ import LoginOptionCard from "./LoginOptionCard.vue";
 
 const emit = defineEmits<{ select: [mode: "sso" | "password"] }>();
 
-// Read SSO availability from the shell template's injected config.
-// When OIDC isn't configured (no Zitadel credentials in the
-// environment), the SSO option is hidden — clicking it would
-// redirect to the placeholder provider at oidc.invalid.example.com
-// and never complete.
+// Prod: Django login shell template injects window.__LOGIN_CONFIG__
+// with oidcEnabled reflecting settings.OIDC_ENABLED.
+//
+// Dev: Vite serves frontend/index.html directly (no Django render),
+// so __LOGIN_CONFIG__ is absent. Read VITE_OIDC_ENABLED from the env
+// instead — set it to "true" in .env to mirror your backend's OIDC
+// state during local development. Prod ignores this env var; only
+// the shell injection is trusted there.
 const config = (
   window as unknown as {
     __LOGIN_CONFIG__?: { oidcEnabled?: boolean };
   }
 ).__LOGIN_CONFIG__;
-const oidcEnabled = config?.oidcEnabled === true;
+
+const oidcEnabled = import.meta.env.DEV
+  ? import.meta.env.VITE_OIDC_ENABLED === "true"
+  : config?.oidcEnabled === true;
 </script>
 
 <template>

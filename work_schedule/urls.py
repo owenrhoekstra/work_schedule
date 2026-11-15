@@ -18,9 +18,7 @@ from django.utils import timezone
 from django.views.generic import RedirectView
 
 from accounts.api import csrf_token_view as accounts_csrf_view
-from accounts.api import list_companies_view as accounts_list_companies_view
 from accounts.api import login_view as accounts_login_view
-from accounts.api import select_company_view as accounts_select_company_view
 from accounts.views import OTPGatedPasswordChangeView, login_spa
 from work_schedule import views as project_views
 from work_schedule.api.api import api
@@ -66,7 +64,7 @@ def _recently_verified(request, ttl=timedelta(minutes=5)):
         return False
     try:
         ts = datetime.fromisoformat(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
     if timezone.is_naive(ts):
         ts = timezone.make_aware(ts)
@@ -201,15 +199,5 @@ urlpatterns = [
         name="api_login",
     ),
     path("api/v1/csrf/", accounts_csrf_view, name="api_csrf"),
-    path(
-        "api/v1/companies/",
-        accounts_list_companies_view,
-        name="api_companies",
-    ),
-    path(
-        "api/v1/companies/select/",
-        accounts_select_company_view,
-        name="api_companies_select",
-    ),
     path("api/v1/", api.urls),
 ]

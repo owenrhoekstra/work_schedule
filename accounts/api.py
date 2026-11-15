@@ -1,12 +1,9 @@
 """Accounts API endpoints.
 
-JSON login endpoint for the Vue login shell, and a CSRF-cookie seeding
-view for dev mode.
-
-Why plain Django views and not Ninja? Login is pre-auth: the caller
-has no session cookie yet, so cookie-based auth classes (django-ninja's
-CSRF enforcement mechanism post-1.5) can't run. Plain Django views
-inherit CSRF protection from CsrfViewMiddleware without ceremony.
+Login + CSRF cookie seeding are plain Django views (login is pre-auth,
+so Ninja's cookie-based auth/CSRF layer can't run). Companies listing
+and selection are Ninja routes with django_auth — post-auth endpoints
+where Ninja's session/CSRF model is exactly right.
 """
 
 import json
@@ -19,6 +16,15 @@ from django.shortcuts import resolve_url
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
+from ninja import Router, Schema
+from ninja.security import django_auth
+
+router = Router(tags=["accounts"])
+
+
+# ---------------------------------------------------------------------------
+# Password login (plain Django view)
+# ---------------------------------------------------------------------------
 
 
 @require_POST
@@ -32,11 +38,9 @@ def login_view(request):
       {ok: false, error} on missing/invalid fields (422)
       {ok: false, error} on malformed JSON (400)
 
-    `next` param: if the payload carries a `next` string, validate it
-    against allowed hosts (same check Django's LoginView uses). Safe
-    local URL → honoured as redirect_url. Otherwise → fall back to
-    LOGIN_REDIRECT_URL. This lets a user who was bounced to login from
-    an expired session land back on the page they were on.
+    `next` param: if present in the payload, validate against allowed
+    hosts (same check Django's LoginView uses). Safe local URL →
+    honoured as redirect_url. Otherwise → LOGIN_REDIRECT_URL.
     """
     try:
         payload = json.loads(request.body)
@@ -97,83 +101,75 @@ def csrf_token_view(request):
     return JsonResponse({"ok": True})
 
 
-@require_GET
-def list_companies_view(request):
-    """List the current user's active company memberships.
+# ---------------------------------------------------------------------------
+# Companies (Ninja — post-auth)
+# ---------------------------------------------------------------------------
 
-    Response:
-      {
-        "current_company_id": "<uuid>" | null,
-        "companies": [
-          {"id": "<uuid>", "name": "...", "slug": "...", "role": "admin"|"member"}
-        ]
-      }
 
-    Scoped to viable memberships (active + still-employed, per
+class CompanySchema(Schema):
+    id: str
+    name: str
+    slug: str
+    role: str
+
+
+class CompaniesResponse(Schema):
+    current_company_id: str | None
+    companies: list[CompanySchema]
+
+
+@router.get("/", auth=django_auth, response=CompaniesResponse)
+def list_companies(request):
+    """List the current user's viable company memberships.
+
+    Scoped to active + still-employed memberships (see
     work_schedule.auth.viable_memberships). Pending memberships are
     excluded — they surface via the acceptance flow, not this list.
-
-    401 for unauthenticated requests. Zero memberships is a valid
-    response (empty list); the client routes accordingly.
+    current_company_id reflects the session's chosen company, or null.
     """
-    if not request.user.is_authenticated:
-        return JsonResponse({"detail": "Authentication required"}, status=401)
-
     from work_schedule.auth import viable_memberships
 
     memberships = viable_memberships(request.user)
-    current_id = request.session.get("company_id")
-
-    return JsonResponse(
-        {
-            "current_company_id": current_id,
-            "companies": [
-                {
-                    "id": str(m.company.id),
-                    "name": m.company.name,
-                    "slug": m.company.slug,
-                    "role": m.role,
-                }
-                for m in memberships
-            ],
-        }
-    )
+    return {
+        "current_company_id": request.session.get("company_id"),
+        "companies": [
+            {
+                "id": str(m.company.id),
+                "name": m.company.name,
+                "slug": m.company.slug,
+                "role": m.role,
+            }
+            for m in memberships
+        ],
+    }
 
 
-@require_POST
-@csrf_protect
-def select_company_view(request):
+class SelectCompanyRequest(Schema):
+    company_id: str
+
+
+class SelectCompanyResponse(Schema):
+    ok: bool
+    error: str = ""
+
+
+@router.post("/select/", auth=django_auth, response=SelectCompanyResponse)
+def select_company(request, payload: SelectCompanyRequest):
     """Set the session company after validating membership.
 
-    Body: {"company_id": "<uuid>"}
-
-    Response shapes:
-      {"ok": true} on success (200)
-      {"ok": false, "error": "..."} on missing/invalid company_id (422)
-      {"ok": false, "error": "..."} on no-access (200)
-      401 for unauthenticated requests
-
-    Validation mirrors the HTML company_picker view: the target must
-    be in viable_memberships(request.user). Session is set only on
-    success.
+    Uses viable_memberships so a user cannot switch to a company
+    they've been removed from or that has ended employment. Session
+    is written only on success.
     """
-    if not request.user.is_authenticated:
-        return JsonResponse({"detail": "Authentication required"}, status=401)
-
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError, UnicodeDecodeError:
-        return JsonResponse({"ok": False, "error": "Malformed request."}, status=400)
-
-    company_id = payload.get("company_id") if isinstance(payload, dict) else None
-    if not isinstance(company_id, str) or not company_id:
-        return JsonResponse({"ok": False, "error": "company_id required."}, status=422)
-
     from work_schedule.auth import viable_memberships
+
+    company_id = payload.company_id.strip()
+    if not company_id:
+        return {"ok": False, "error": "company_id required."}
 
     for m in viable_memberships(request.user):
         if str(m.company_id) == company_id:
             request.session["company_id"] = company_id
-            return JsonResponse({"ok": True})
+            return {"ok": True}
 
-    return JsonResponse({"ok": False, "error": "No access to that company."})
+    return {"ok": False, "error": "No access to that company."}
