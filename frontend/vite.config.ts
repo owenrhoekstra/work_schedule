@@ -8,13 +8,10 @@ export default defineConfig({
   envDir: "..",
   plugins: [vue(), vueDevTools(), tailwindcss()],
   server: {
-    allowedHosts: ["localhost: 5173", "owens-macbook-pro.tailac3f56.ts.net"],
+    allowedHosts: ["owens-macbook-pro.tailac3f56.ts.net"],
     proxy: {
       // Dev-only. Routes Django endpoints through Vite so the login
       // form's POST and the SSO redirect both reach Django at :8000.
-      // Full post-login flow (redirect to /schedule/home/) is tested
-      // against Django directly at localhost:8000 after building —
-      // Vite dev server doesn't proxy app pages, only APIs.
       "/api": "http://localhost:8000",
       "/oidc": "http://localhost:8000",
     },
@@ -24,23 +21,17 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  base: "/static/vue/",
   build: {
-    // Django serves the shell from templates/registration/login_spa.html,
-    // which references {% static 'vue/index.js' %} and 'vue/index.css'.
-    // collectstatic rehashes these into the manifest — no cache-busting
-    // concern here.
+    // Django serves the shell (login_spa.html) and django-vite reads
+    // manifest.json to emit the hashed entry + CSS tags. Vite's default
+    // content hashing handles cache-busting; Django must NOT rehash
+    // vue/ files (see ViteAwareStorage).
     outDir: "../static/vue",
     emptyOutDir: true,
+    manifest: "manifest.json",
     rollupOptions: {
-      output: {
-        entryFileNames: "index.js",
-        chunkFileNames: "[name]-[hash].js",
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name?.endsWith(".css")) return "index.css";
-          return "[name]-[hash][extname]";
-        },
-      },
+      input: "src/main.ts",
     },
   },
-  base: "/static/vue/",
 });

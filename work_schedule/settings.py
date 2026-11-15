@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "axes",
     "accounts",
     "schedule",
+    "django_vite"
 ]
 
 MIDDLEWARE = [
@@ -180,6 +181,13 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "path.to.ViteAwareStorage"},
+}
+
+DJANGO_VITE = {
+    "default": {
+        "dev_mode": False,
+        "static_url_prefix": "vue",
+    }
 }
 
 STORAGES = {

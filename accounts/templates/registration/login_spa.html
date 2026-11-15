@@ -1,4 +1,4 @@
-{% load static %}
+{% load static django_vite %}
 <!doctype html>
 <html lang="en">
     <head>
@@ -6,7 +6,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}" />
         <title>Log in — {{ app_name }}</title>
-        <link rel="stylesheet" href="{% static 'vue/index.css' %}" />
+        <script>
+            const t = localStorage.getItem("theme");
+            if (t === "light" || t === "dark")
+                document.documentElement.classList.add(t);
+        </script>
+        {% vite_asset 'src/main.ts' %}
     </head>
     <body class="min-h-screen bg-brand-offwhite font-sans">
         <div id="app"></div>
@@ -18,6 +23,5 @@
                 csrfToken: "{{ csrf_token }}"
             };
         </script>
-        <script type="module" src="{% static 'vue/index.js' %}"></script>
     </body>
 </html>
