@@ -38,7 +38,7 @@ ALLOWED_HOSTS = [
 ]
 
 LOGIN_REDIRECT_URL = "/schedule/home/"
-LOGOUT_REDIRECT_URL = "login"
+LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_AGE = 1800
@@ -53,6 +53,7 @@ TAILWIND_APP_NAME = "theme"
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
+    "mozilla_django_oidc",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -75,6 +76,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "work_schedule.middleware.HTMXLoginRedirectMiddleware",
+    "work_schedule.middleware.TenantMiddleware",
     "schedule.middleware.EmployeeDeactivationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -94,6 +96,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context_processors.pending_accounts",
                 "accounts.context_processors.user_is_management",
+                "accounts.context_processors.oidc_enabled",
                 "work_schedule.context_processors.app_name",
             ],
         },
@@ -148,6 +151,7 @@ PASSWORD_HASHERS = [
 
 AUTHENTICATION_BACKENDS = [
     "axes.backends.AxesStandaloneBackend",
+    "accounts.backends.DocketOIDCBackend",
     "django.contrib.auth.backends.ModelBackend",
 ]
 
@@ -204,6 +208,12 @@ CACHES = {
 #   2. RESEND_API_KEY present -> Resend (prod, or a dev with a real key)
 #   3. otherwise -> console backend (dev without keys)
 
+TENANT_ENFORCEMENT = os.environ.get("TENANT_ENFORCEMENT", "True").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
 if STAGING:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ.get("MAILPIT_HOST", "mailpit")
@@ -219,6 +229,16 @@ DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL", "Work Schedule <noreply@work-schedule.principiasystems.ca>"
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Dev sends plaintext only; staging and prod send HTML + text. The
+# console backend dumps raw MIME to the terminal — HTML parts there
+# are unreadable noise. Derived from DEBUG by default; override with
+# EMAIL_HTML_ENABLED in the environment if you need HTML output in
+# dev (e.g. to check rendering before pushing to staging).
+EMAIL_HTML_ENABLED = os.environ.get(
+    "EMAIL_HTML_ENABLED",
+    "False" if DEBUG else "True",
+).lower() in ("true", "1", "yes")
 
 # django-axes — rate limiting. Applies in every environment.
 AXES_FAILURE_LIMIT = 5
@@ -268,3 +288,41 @@ if SECURE:
             },
         },
     }
+
+# ---------------------------------------------------------------------------
+# OIDC (Zitadel) — PKCE public client
+#
+# Optional login path. Password auth remains available. The OIDC
+# button is hidden when OIDC_ENABLED is False (no Zitadel
+# credentials in the environment).
+#
+# Endpoints are ALWAYS defined, even when OIDC is unconfigured. The
+# mozilla-django-oidc backend reads OIDC_OP_TOKEN_ENDPOINT in __init__
+# (which runs on every AUTHENTICATION_BACKENDS load, including every
+# force_login() in tests). Leaving the attribute unset crashes the
+# backend and takes down every authed test. `oidc.invalid.example.com`
+# is an RFC 2606 reserved hostname that can never resolve, so any
+# accidental use without credentials fails loudly — no silent hits to
+# a real provider.
+# ---------------------------------------------------------------------------
+
+OIDC_OP_BASE_URL = os.environ.get("OIDC_OP_BASE_URL", "").rstrip("/")
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "")
+OIDC_RP_CLIENT_SECRET = ""
+OIDC_USE_PKCE = True
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_RP_SCOPES = "openid email profile"
+OIDC_STORE_ID_TOKEN = True
+OIDC_CREATE_USER = True
+OIDC_USERNAME_CLAIM = "sub"
+OIDC_VERIFY_SSL = True
+
+_oidc_base = OIDC_OP_BASE_URL or "https://oidc.invalid.example.com"
+OIDC_OP_DISCOVERY_ENDPOINT = f"{_oidc_base}/.well-known/openid-configuration"
+OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_base}/oauth/v2/authorize"
+OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_base}/oauth/v2/token"
+OIDC_OP_USER_ENDPOINT = f"{_oidc_base}/oidc/v1/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{_oidc_base}/oauth/v2/keys"
+OIDC_OP_LOGOUT_ENDPOINT = f"{_oidc_base}/oidc/v1/end_session"
+
+OIDC_ENABLED = bool(OIDC_OP_BASE_URL and OIDC_RP_CLIENT_ID)

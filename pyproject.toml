@@ -17,6 +17,8 @@ dependencies = [
     "redis[hiredis]>=8.1.0",
     "django-anymail[resend]>=15.2",
     "qrcode>=8.2",
+    "django-ninja>=1.8.0",
+    "mozilla-django-oidc>=5.0.2",
 ]
 
 [tool.uv]

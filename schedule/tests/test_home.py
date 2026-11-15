@@ -4,10 +4,11 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from schedule.models import DayOverride, Shift, ShiftOverride
+from schedule.models import Company, DayOverride, Shift, ShiftOverride
 
 from .factories import (
     make_employee,
+    make_member_user,
     make_role,
     make_staff_user,
     make_superuser,
@@ -30,7 +31,7 @@ class HomePermissionTests(TestCase):
         self.assertEqual(self.client.get(reverse("home")).status_code, 200)
 
     def test_user_without_view_shift_gets_403(self):
-        user = User.objects.create_user(username="nope", password="p")
+        user = make_member_user()
         self.client.force_login(user)
         self.assertEqual(self.client.get(reverse("home")).status_code, 403)
 
@@ -158,14 +159,22 @@ class HomeScheduleRenderingTests(TestCase):
 
     def test_day_override_shows_status(self):
         make_employee(start_date=self.early_start)
-        DayOverride.objects.create(date=self.mon, status="holiday")
+        DayOverride.objects.create(
+            date=self.mon,
+            status="holiday",
+            company=Company.objects.order_by("id").first(),
+        )
         resp = self.client.get(reverse("home"), {"week": self.mon.isoformat()})
         row = resp.context["rows"][0]
         self.assertEqual(row["cells"][0]["display"], "Holiday")
 
     def test_day_override_ignores_employee_override(self):
         emp = make_employee(start_date=self.early_start)
-        DayOverride.objects.create(date=self.mon, status="closed")
+        DayOverride.objects.create(
+            date=self.mon,
+            status="closed",
+            company=Company.objects.order_by("id").first(),
+        )
         ShiftOverride.objects.create(
             employee=emp,
             date=self.mon,

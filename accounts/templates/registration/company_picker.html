@@ -1,0 +1,53 @@
+{% extends "registration/auth_base.html" %}
+{% block title %}Choose a company{% endblock %}
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-6 py-12">
+    <div class="w-full max-w-md">
+        <h1 class="font-display text-2xl font-bold text-brand-indigo mb-2">
+            Choose a company
+        </h1>
+        <p class="text-sm text-gray-500 mb-8">
+            You belong to more than one company. Pick one to continue.
+        </p>
+
+        {% if messages %}
+        <div
+            class="mb-6 rounded-lg bg-brand-coral/10 border border-brand-coral/30 px-4 py-3"
+        >
+            {% for m in messages %}
+            <p class="text-sm text-brand-coral font-medium">{{ m }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" class="space-y-3">
+            {% csrf_token %}
+            {% for m in memberships %}
+            <button
+                type="submit"
+                name="company_id"
+                value="{{ m.company_id }}"
+                class="w-full text-left bg-white border border-gray-200 rounded-xl px-5 py-4 hover:border-brand-coral hover:shadow-sm transition-all"
+            >
+                <div class="font-display font-medium text-brand-indigo">
+                    {{ m.company.name }}
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5">
+                    {{ m.company.slug }}
+                </div>
+            </button>
+            {% endfor %}
+        </form>
+
+        <form method="post" action="{% url 'logout' %}" class="mt-8">
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="text-sm font-medium text-gray-500 hover:text-brand-coral"
+            >
+                Log out
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

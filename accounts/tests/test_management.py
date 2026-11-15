@@ -1,3 +1,4 @@
+import json
 from io import StringIO
 
 from axes.models import AccessAttempt, AccessLog
@@ -18,8 +19,9 @@ class ClearLockoutsCommandTests(TestCase):
         User.objects.create_user(username="target", password="pass")
         # Trigger a failed login so axes creates an attempt row
         self.client.post(
-            "/accounts/login/",
-            {"username": "target", "password": "wrong"},
+            "/api/v1/accounts/login/",
+            data=json.dumps({"username": "target", "password": "wrong"}),
+            content_type="application/json",
         )
 
     def test_clears_all_attempts(self):

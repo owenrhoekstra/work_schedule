@@ -13,6 +13,15 @@ Living documents for the work_schedule project.
   `ISSUES.md` before clearing. Git commit log is the permanent
   archive.
 
+### Branch records (permanent; not cleared at merge)
+
+- `SECURITY_SWEEP.md` — Session 10 (security sweep) branch record.
+  Permanent; not cleared at merge.
+- `MULTI-TENANCY.md` — multi-tenancy branch record. Permanent;
+  cleared only when every branch in the multi-tenancy effort has
+  shipped, then either deleted or moved to
+  `design/MULTI_TENANCY.md` (see the file's own lifecycle note).
+
 ### Design (persistent across branches)
 
 - `design/SESSIONS.md` — chronological design decisions from each

@@ -4,7 +4,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from schedule.tests._helpers import login_as
+
 from .factories import (
+    make_company,
     make_employee,
     make_management_user,
     make_role,
@@ -28,14 +31,33 @@ class EmployeeDeactivationMiddlewareTests(TestCase):
         user.save(update_fields=["is_active"])
         return user, emp
 
-    def test_past_last_day_kicks_user_out(self):
-        user, _ = self._make_emp_with_user(timezone.localdate() - timedelta(days=1))
-        self.client.force_login(user)
+    def test_past_last_day_redirects_to_picker_not_login(self):
+        """A user past their last_day at the current company no longer
+        reaches the schedule — but their shared User account stays active,
+        because they may work at another company. TenantMiddleware filters
+        deactivated companies out of viable_memberships, so the request
+        never reaches EmployeeDeactivationMiddleware.
+
+        Renamed from test_past_last_day_kicks_user_out: the old name
+        implied global account lockout, which is no longer the behavior.
+        """
+        company = make_company()
+        user = make_staff_user(company=company)
+        employee = make_employee(
+            company=company, last_day=timezone.localdate() - timedelta(days=1)
+        )
+        employee.user = user
+        employee.save()
+
+        login_as(self.client, user, company)
         resp = self.client.get(reverse("home"))
+
         self.assertEqual(resp.status_code, 302)
-        self.assertIn("/accounts/login/", resp.url)
+        self.assertEqual(resp.url, reverse("company_picker"))
+
+        # Account itself is not disabled — employment status ≠ account status.
         user.refresh_from_db()
-        self.assertFalse(user.is_active)
+        self.assertTrue(user.is_active)
 
     def test_today_is_still_allowed(self):
         user, _ = self._make_emp_with_user(timezone.localdate())
@@ -136,22 +158,29 @@ class HTMXLoginRedirectMiddlewareTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn("HX-Redirect", resp)
 
-    def test_htmx_request_during_deactivation_redirects_via_login(self):
-        """CodeRabbit finding: the deactivation middleware returns 302
-        on expired accounts. HTMX must not follow that and swap the
-        login page into a fragment. The middleware order in settings.py
-        puts HTMXLoginRedirectMiddleware above EmployeeDeactivationMiddleware
-        so its response phase wraps the deactivation 302.
-        """
-        user = make_staff_user("deacthtmx")
-        emp = make_employee(email=user.email)
-        emp.user = user
-        emp.last_day = timezone.localdate() - timedelta(days=1)
-        emp.save()
-        user.is_active = True
-        user.save(update_fields=["is_active"])
+    def test_htmx_request_during_deactivation_redirects_via_hx(self):
+        """HTMX request from a user whose current-company employment has
+        ended: HTMXLoginRedirectMiddleware rewrites the tenant-enforcement
+        302 into 204 + HX-Redirect to the company picker.
 
-        self.client.force_login(user)
+        Without the rewrite, HTMX would follow the 302, receive the
+        picker's HTML, and swap it into the fragment target — the user
+        would see a full picker page rendered inside a schedule cell.
+
+        Renamed from ...redirects_via_login: the redirect target is now
+        the picker, not login (the account is still active, they just
+        need to pick a different company).
+        """
+        company = make_company()
+        user = make_staff_user(company=company)
+        employee = make_employee(
+            company=company, last_day=timezone.localdate() - timedelta(days=1)
+        )
+        employee.user = user
+        employee.save()
+
+        login_as(self.client, user, company)
         resp = self.client.get(reverse("home"), HTTP_HX_REQUEST="true")
+
         self.assertEqual(resp.status_code, 204)
-        self.assertIn("/accounts/login/", resp["HX-Redirect"])
+        self.assertEqual(resp["HX-Redirect"], reverse("company_picker"))

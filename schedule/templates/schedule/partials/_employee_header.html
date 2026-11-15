@@ -5,7 +5,7 @@
         </h1>
         <p class="text-sm text-gray-500">
             {{ employee.role }} · Started {{ employee.start_date|date:"F j, Y" }}
-            {% if is_management and last_day %}
+            {% if is_company_admin and last_day %}
             ·
             <span class="text-brand-coral font-medium"
                 >Last day {{ last_day|date:"F j, Y" }}</span

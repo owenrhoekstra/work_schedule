@@ -2,7 +2,6 @@ import logging
 
 from django import forms
 from django.contrib.auth.forms import (
-    AuthenticationForm,
     PasswordChangeForm,
     UserCreationForm,
 )
@@ -11,23 +10,6 @@ from django.contrib.auth.models import User
 from schedule.models import Employee
 
 logger = logging.getLogger(__name__)
-
-
-class StyledLoginForm(AuthenticationForm):
-    username = forms.CharField(
-        widget=forms.TextInput(
-            attrs={
-                "class": "w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#FF5A5F]"
-            }
-        )
-    )
-    password = forms.CharField(
-        widget=forms.PasswordInput(
-            attrs={
-                "class": "w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#FF5A5F]"
-            }
-        )
-    )
 
 
 class SignUpForm(UserCreationForm):
@@ -131,13 +113,22 @@ class ProfileForm(forms.Form):
         return username
 
     def save(self):
-        if self.employee:
-            self.employee.first_name = self.cleaned_data["first_name"]
-            self.employee.last_name = self.cleaned_data["last_name"]
-            self.employee.save(update_fields=["first_name", "last_name"])
-            # Signal mirrors the name to User automatically
+        first_name = self.cleaned_data["first_name"]
+        last_name = self.cleaned_data["last_name"]
+
+        # Under the split-membership model (Branch 1), User is the source
+        # of truth for identity. Write the name to both rows explicitly.
+        # The old Employee → User post_save signal was removed because it
+        # clobbered names for users employed at multiple companies.
+        self.user.first_name = first_name
+        self.user.last_name = last_name
         self.user.username = self.cleaned_data["username"]
-        self.user.save(update_fields=["username"])
+        self.user.save(update_fields=["first_name", "last_name", "username"])
+
+        if self.employee:
+            self.employee.first_name = first_name
+            self.employee.last_name = last_name
+            self.employee.save(update_fields=["first_name", "last_name"])
 
 
 class StyledPasswordChangeForm(PasswordChangeForm):

@@ -8,7 +8,7 @@
             </h1>
             <p class="text-sm text-gray-500">
                 {{ employee.role }} · Started {{ employee.start_date|date:"F j, Y" }}
-                {% if is_management and last_day %}
+                {% if is_company_admin and last_day %}
                 ·
                 <span class="text-brand-coral font-medium"
                     >Last day {{ last_day|date:"F j, Y" }}</span
@@ -57,7 +57,7 @@
                             >{{ employee.start_date|date:"F j, Y" }}</span
                         >
                     </div>
-                    {% if is_management and last_day %}
+                    {% if is_company_admin and last_day %}
                     <div>
                         <span class="font-medium text-brand-indigo">Last day</span>
                         <span class="text-brand-coral ml-2"
@@ -67,7 +67,7 @@
                     {% endif %}
                 </div>
             </div>
-            {% if is_management %}
+            {% if is_company_admin %}
             <div class="mt-4 pt-4 border-t border-gray-200 space-y-3">
                 <div class="flex items-center gap-2 {% if last_day %}lg:flex-col lg:items-stretch{% endif %}">
                     {% if last_day and perms.schedule.change_employee %}
@@ -249,10 +249,10 @@
     {% endif %}
 </div>
 
-{% if is_management and perms.schedule.delete_employee %}
+{% if is_company_admin and perms.schedule.delete_employee %}
     {% include "schedule/modals/_deactivate.html" %}
 {% endif %}
-{% if is_management and perms.schedule.change_employee %}
+{% if is_company_admin and perms.schedule.change_employee %}
     {% include "schedule/modals/_cancel_deactivation_confirm.html" %}
     <form
         method="post"
@@ -264,7 +264,7 @@
         <input type="hidden" name="next" value="employee_defaults" />
     </form>
 {% endif %}
-{% if is_management and perms.schedule.add_employee and not last_day %}
+{% if is_company_admin and perms.schedule.add_employee and not last_day %}
     {% include "schedule/modals/_confirm_send_welcome.html" %}
 {% endif %}
 {% endblock %}

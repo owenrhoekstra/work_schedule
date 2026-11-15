@@ -1,52 +1,146 @@
-"""Project-level middleware. App-agnostic cross-cutting behavior."""
-
 from django.conf import settings
 from django.http import HttpResponse
+from django.shortcuts import redirect
+from django.urls import reverse
+
+# Paths that don't require a company context. Everything not listed is
+# tenant-scoped and gets redirected to the picker when enforcement is
+# on and the user has no company resolved.
+_TENANT_EXEMPT_PREFIXES = (
+    "/accounts/",
+    "/healthz/",
+    "/oidc/",
+    "/api/v1/",
+    "/static/",
+)
+
+# Auth-flow redirects that HTMX requests must not follow internally.
+_HX_AUTH_REDIRECT_PREFIXES = (
+    "/accounts/login/",
+    "/accounts/company-picker/",
+    "/accounts/waiting/",
+)
 
 
-class HTMXLoginRedirectMiddleware:
-    """Convert login-redirects for HTMX requests into HX-Redirect.
+class TenantMiddleware:
+    """Resolve request.company and populate the admin-ladder flags.
 
-    HTMX follows 3xx via browser fetch automatically. When a session
-    expires and an HTMX form POST hits an `@login_required` view,
-    Django returns 302 → /accounts/login/. HTMX follows it, gets the
-    login page HTML (200), and swaps it into the fragment's hx-target
-    — usually #schedule-table or a modal body. The user sees the login
-    form embedded in a broken page, and loses their typed input.
-
-    Detect that case (HX-Request header set + 3xx to LOGIN_URL) and
-    rewrite: 204 with `HX-Redirect` header set to the login URL. HTMX
-    performs a full-page navigation on HX-Redirect regardless of the
-    target. The `?next=` query string is preserved, so the login view
-    bounces the user back to the form after re-auth.
-
-    Also catches the deactivation middleware's 302-to-login — same
-    failure mode, same fix.
-
-    Scoped to LOGIN_URL on purpose: an HTMX-facing view that returns a
-    non-login 3xx (e.g. a future POST-redirect-GET) would be left
-    alone. Extend the check if that assumption ever changes.
+    Company resolution order:
+      1. session["company_id"] (user's explicit choice) — re-validated
+         against current membership/employment on every request. A
+         stale session is cleared and NOT auto-substituted with another
+         company: an open form for the old company must not silently
+         write against the new one. Enforcement redirects to the picker.
+      2. platform admin → first company
+      3. single viable membership AND no session choice yet → that
+         company (session auto-set). This branch only fires when the
+         user has never explicitly picked a company.
+      4. otherwise → None.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.login_prefix = settings.LOGIN_URL
+        try:
+            self._admin_prefix = reverse("admin:index")
+        except Exception:
+            self._admin_prefix = None
+
+    def __call__(self, request):
+        request.company = None
+        request.team = None
+        request.is_platform_admin = False
+        request.is_company_admin = False
+        request.is_team_admin = False
+
+        if request.user.is_authenticated:
+            request.company = self._resolve_company(request)
+            from work_schedule.auth import (
+                is_company_admin,
+                is_platform_admin,
+                is_team_admin,
+            )
+
+            request.is_platform_admin = is_platform_admin(request.user)
+            request.is_company_admin = is_company_admin(request.user, request.company)
+            request.is_team_admin = is_team_admin(
+                request.user, request.team, request.company
+            )
+
+            if (
+                settings.TENANT_ENFORCEMENT
+                and request.company is None
+                and not self._is_exempt(request.path)
+            ):
+                return redirect(reverse("company_picker"))
+
+        return self.get_response(request)
+
+    def _resolve_company(self, request):
+        from schedule.models import Company
+        from work_schedule.auth import is_platform_admin, viable_memberships
+
+        if is_platform_admin(request.user):
+            session_id = request.session.get("company_id")
+            if session_id:
+                try:
+                    return Company.objects.get(pk=session_id)
+                except Company.DoesNotExist, ValueError:
+                    request.session.pop("company_id", None)
+            return Company.objects.order_by("id").first()
+
+        viable = viable_memberships(request.user)
+        viable_ids = {str(m.company_id) for m in viable}
+
+        session_id = request.session.get("company_id")
+        if session_id:
+            if session_id in viable_ids:
+                for m in viable:
+                    if str(m.company_id) == session_id:
+                        return m.company
+            # Session named a company the user can no longer access.
+            # Clear and refuse to auto-substitute — the user must
+            # explicitly re-pick from the picker.
+            request.session.pop("company_id", None)
+            return None
+
+        # Session never set. Auto-select when exactly one viable
+        # company — the common fresh-login case.
+        if len(viable) == 1:
+            company = viable[0].company
+            request.session["company_id"] = str(company.id)
+            return company
+
+        return None
+
+    def _is_exempt(self, path):
+        if self._admin_prefix and path.startswith(self._admin_prefix):
+            return True
+        return any(path.startswith(prefix) for prefix in _TENANT_EXEMPT_PREFIXES)
+
+
+class HTMXLoginRedirectMiddleware:
+    """Rewrite HTMX auth-flow redirects to 204 + HX-Redirect.
+
+    Must appear ABOVE TenantMiddleware and EmployeeDeactivationMiddleware
+    in MIDDLEWARE — both can short-circuit with a 302 on the request
+    phase; if this middleware is below them, its response phase never
+    runs and the 302 escapes to HTMX.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
 
-        if request.headers.get("HX-Request") != "true":
-            return response
+        if (
+            request.headers.get("HX-Request") == "true"
+            and response.status_code in (301, 302)
+            and response.url
+            and any(response.url.startswith(p) for p in _HX_AUTH_REDIRECT_PREFIXES)
+        ):
+            redirect_response = HttpResponse(status=204)
+            redirect_response["HX-Redirect"] = response.url
+            return redirect_response
 
-        if response.status_code not in (301, 302, 303, 307, 308):
-            return response
-
-        location = response.get("Location", "")
-        if not location.startswith(self.login_prefix):
-            return response
-
-        # 204 = no swap, no error. HX-Redirect triggers a full-page
-        # navigation to the location, including any ?next= param.
-        redirect_response = HttpResponse(status=204)
-        redirect_response["HX-Redirect"] = location
-        return redirect_response
+        return response

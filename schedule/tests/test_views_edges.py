@@ -6,9 +6,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, Role, Shift, ShiftOverride, ShiftPattern, Title
+from schedule.models import Employee, Role, ShiftOverride, ShiftPattern, Title
 
 from .factories import (
+    make_company,
     make_employee,
     make_management_user,
     make_manager_user,
@@ -69,6 +70,17 @@ class AddEmployeeViewTests(TestCase):
         )
         new_emp = Employee.objects.get(email="taken@example.com")
         self.assertIsNone(new_emp.user_id)
+
+    def test_role_queryset_scoped_to_company(self):
+        """A role from another company can't be selected via the form."""
+        other_company = make_company(name="Other Co")
+        other_role = make_role(name="Other Role", company=other_company)
+        resp = self.client.post(
+            reverse("add_employee"),
+            self.form_data(role=str(other_role.pk)),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Employee.objects.filter(email="newhire@example.com").exists())
 
     @patch("schedule.notifications.send_email")
     def test_post_with_notify_sends_welcome(self, mock_send):
@@ -390,14 +402,14 @@ class Sec006AccessMatrixTests(TestCase):
         self._check(reverse("settings_add_title"), "post", data={"name": "Mr."})
 
     def test_settings_delete_title(self):
-        t = Title.objects.create(name="Temp")
+        t = Title.objects.create(name="Temp", company=make_company())
         self._check(reverse("settings_delete_title", args=[t.pk]), "post")
 
     def test_settings_add_role(self):
         self._check(reverse("settings_add_role"), "post", data={"name": "Temp"})
 
     def test_settings_delete_role(self):
-        r = Role.objects.create(name="Unused", display_order=99)
+        r = Role.objects.create(name="Unused", display_order=99, company=make_company())
         self._check(reverse("settings_delete_role", args=[r.pk]), "post")
 
     def test_settings_move_role(self):

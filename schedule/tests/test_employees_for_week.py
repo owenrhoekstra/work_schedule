@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from django.test import TestCase, override_settings
 
-from schedule.models import EmploymentPeriod
+from schedule.models import Company, EmploymentPeriod
 from schedule.views import _employees_for_week
 
 from .factories import make_employee
@@ -47,7 +47,11 @@ class EmployeesForWeekPeriodOverlapTests(TestCase):
         )
 
     def _ids(self, week_start):
-        return set(_employees_for_week(week_start).values_list("pk", flat=True))
+        return set(
+            _employees_for_week(week_start, Company.objects.first()).values_list(
+                "pk", flat=True
+            )
+        )
 
     # ----- present when the week overlaps a real period -----
 

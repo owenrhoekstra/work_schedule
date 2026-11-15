@@ -5,6 +5,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from accounts.views import get_client_ip
+from schedule.models import CompanyMembership
 
 from .factories import make_employee, make_staff_user, make_superuser
 
@@ -229,23 +230,49 @@ class ProfileViewEdgeTests(TestCase):
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class ApproveAccountEdgeTests(TestCase):
+    """Edge cases for approve_account that aren't covered in
+    test_approval.py.
+
+    Post-Batch-2b: approve_account requires a pending CompanyMembership
+    at the acting company. Every test here creates one in setUp so the
+    approval path is actually exercised. Without it, the view rejects
+    the request (see test_approval.py::test_approve_without_pending_
+    membership_at_company_errors for the rejection test).
+    """
+
     def setUp(self):
         self.admin = make_superuser("approver")
         self.client.force_login(self.admin)
         emp = make_employee(email="newbie@example.com")
+        self.emp = emp  # test_get_does_not_change_state needs the company
         self.user = User.objects.create_user(
             username="newbie",
             password="p",
             email=emp.email,
-            is_active=False,
+            is_active=True,
         )
         emp.user = self.user
         emp.save()
+        CompanyMembership.objects.create(
+            user=self.user,
+            company=emp.company,
+            role="member",
+            status="pending",
+        )
 
     def test_get_does_not_change_state(self):
+        """GET doesn't mutate — the pending membership stays pending.
+
+        Asserts membership status, not User.is_active: the account is
+        active from signup under the multi-tenancy contract;
+        CompanyMembership.status is the access gate.
+        """
+        membership = CompanyMembership.objects.get(
+            user=self.user, company=self.emp.company
+        )
         self.client.get(reverse("approve_account", args=[self.user.pk]))
-        self.user.refresh_from_db()
-        self.assertFalse(self.user.is_active)
+        membership.refresh_from_db()
+        self.assertEqual(membership.status, "pending")
 
     @patch("schedule.notifications.send_account_approved_email")
     def test_notify_success(self, mock_send):

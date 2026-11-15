@@ -1,0 +1,198 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/inter";
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* dark: utilities follow the OS unless .light is forced, or apply with .dark */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+/* Theme switching: follows the OS; add .light or .dark to <html> to force one */
+:root { color-scheme: light dark; }
+:root.light { color-scheme: light; }
+:root.dark { color-scheme: dark; }
+
+/* Every token is light-dark(light, dark). Edit colours here only. */
+@theme static {
+  /* Only the colours and fonts defined here exist */
+  --color-*: initial;
+  --font-*: initial;
+
+  /* Brand palette */
+  --color-brand-indigo: #1e1b4b;
+  --color-brand-coral: #ff5a5f;
+  --color-brand-yellow: #ffc145;
+  --color-brand-offwhite: #f4f4f9;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Surfaces */
+  --color-background: light-dark(var(--color-brand-offwhite), #121118);
+  --color-card: light-dark(#ffffff, var(--color-brand-indigo));
+  --color-popover: var(--color-card);
+  --color-muted: light-dark(#e9e9f2, #0c0a1f);
+  --color-overlay: light-dark(rgb(30 27 75 / 0.4), rgb(0 0 0 / 0.6));
+
+  /* Text */
+  --color-foreground: light-dark(var(--color-brand-indigo), var(--color-brand-offwhite));
+  --color-card-foreground: var(--color-foreground);
+  --color-popover-foreground: var(--color-foreground);
+  --color-muted-foreground: light-dark(#4b4a72, #b4b3d1);
+  --color-subtle-foreground: light-dark(#6b6a8f, #8e8db3);
+  --color-link: light-dark(#c42a30, var(--color-brand-coral));
+
+  /* Actions */
+  --color-primary: var(--color-brand-coral);
+  --color-primary-foreground: var(--color-brand-indigo);
+  --color-secondary: light-dark(#e9e9f2, #2c2960);
+  --color-secondary-foreground: var(--color-foreground);
+  --color-accent: light-dark(#e9e9f2, #2c2960);
+  --color-accent-foreground: var(--color-foreground);
+  --color-destructive: light-dark(#b91c1c, #dc2626);
+  --color-destructive-foreground: var(--color-white);
+  --color-highlight: var(--color-brand-yellow);
+  --color-highlight-foreground: var(--color-brand-indigo);
+
+  /* Borders and focus */
+  --color-border: light-dark(#d9d9e8, #2c2960);
+  --color-input: light-dark(#b9b8d3, #45428a);
+  --color-ring-coral: light-dark(#c42a30, var(--color-brand-coral));
+  --color-ring: light-dark(var(--color-brand-yellow), var(--color-brand-yellow));
+
+  /* Status */
+  --color-success: light-dark(#15803d, #4ade80);
+  --color-success-subtle: light-dark(#dcfce7, #052e16);
+  --color-warning: light-dark(#b45309, #fbbf24);
+  --color-warning-subtle: light-dark(#fef3c7, #3b2504);
+  --color-danger: light-dark(#b91c1c, #f87171);
+  --color-danger-subtle: light-dark(#fee2e2, #3f0d0d);
+  --color-info: light-dark(#4338ca, #a5b4fc);
+  --color-info-subtle: light-dark(#e0e7ff, #1e1b4b);
+
+  /* Fonts */
+  --font-display: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-display);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Radius (everything else uses Tailwind defaults) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-highlight);
+    color: var(--color-highlight-foreground);
+  }
+}
+
+@theme inline { --font-heading: var(--font-sans);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ---------- Print ---------- */
+
+@media print {
+  /* Isolate the schedule table on the page */
+  body * {
+    visibility: hidden;
+  }
+  #schedule-table,
+  #schedule-table * {
+    visibility: visible;
+  }
+  #schedule-table {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    overflow: visible !important;
+    border: 1px solid #ccc;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  #schedule-table table {
+    width: 100%;
+    min-width: 0;
+  }
+  #schedule-table th,
+  #schedule-table td {
+    color: #000 !important;
+    border-color: #ccc !important;
+    page-break-inside: avoid;
+  }
+  #schedule-table thead tr {
+    background: #1e1b4b !important;
+    color: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #schedule-table thead th {
+    color: #fff !important;
+  }
+  #schedule-table thead th * {
+    color: inherit !important;
+  }
+
+  /* Buttons render as plain text on paper */
+  #schedule-table button {
+    all: unset;
+    display: block;
+    width: 100%;
+    padding: inherit;
+    cursor: auto;
+  }
+
+  /* Hide elements per the modal's "Include" options */
+  #schedule-table[data-print-roles="off"] .print-roles,
+  #schedule-table[data-print-badges="off"] .print-badges,
+  #schedule-table[data-print-lastday="off"] .print-lastday,
+  #schedule-table[data-print-daystatus="off"] .print-daystatus {
+    display: none !important;
+  }
+
+  /* Set page margins */
+  @page {
+    margin: 1cm;
+  }
+}
+
+/* Orientation override, injected by usePrintModal */
+#print-page-orientation + * { /* placeholder, rules live in the \3c style> tag */ }

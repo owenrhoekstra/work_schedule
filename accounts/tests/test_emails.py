@@ -6,8 +6,14 @@ from django.test import SimpleTestCase, override_settings
 
 from accounts.emails import _html_to_text, send_email
 
-_LOCMEM_EMAIL = override_settings(
-    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"
+_LOCMEM_EMAIL_HTML = override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_HTML_ENABLED=True,
+)
+
+_LOCMEM_EMAIL_PLAIN = override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_HTML_ENABLED=False,
 )
 
 
@@ -42,8 +48,12 @@ class HtmlToTextTests(SimpleTestCase):
         self.assertIn("It's here", _html_to_text(html))
 
 
-@_LOCMEM_EMAIL
+@_LOCMEM_EMAIL_HTML
 class SendEmailTests(SimpleTestCase):
+    """EMAIL_HTML_ENABLED=True (staging/prod behavior, and forced here
+    because the test runner freezes DEBUG at import time before this
+    setting's derived value resolves)."""
+
     def test_sends_html_and_plain(self):
         send_email(
             template="emails/otp.html",
@@ -68,7 +78,7 @@ class SendEmailTests(SimpleTestCase):
             text_only=True,
         )
         self.assertEqual(len(mail.outbox), 1)
-        # A text-only send uses EmailMessage, which has no .alternatives
+        # text_only=True forces EmailMessage even when the setting is True
         self.assertEqual(getattr(mail.outbox[0], "alternatives", []), [])
 
     def test_uses_txt_sibling_when_present(self):
@@ -88,10 +98,9 @@ class SendEmailTests(SimpleTestCase):
             context={"code": "111111", "expiry_minutes": 5},
             to="test@example.com",
         )
-        # The txt sibling ends with "site_url" and "@site_domain #code"
         body = mail.outbox[0].body
-        self.assertIn("http", body)  # site_url present
-        self.assertIn("@", body)  # site_domain present
+        self.assertIn("http", body)
+        self.assertIn("@", body)
 
     def test_string_recipient_coerced_to_list(self):
         send_email(
@@ -101,3 +110,38 @@ class SendEmailTests(SimpleTestCase):
             to="solo@example.com",
         )
         self.assertEqual(mail.outbox[0].to, ["solo@example.com"])
+
+
+@_LOCMEM_EMAIL_PLAIN
+class SendEmailTextOnlySettingTests(SimpleTestCase):
+    """EMAIL_HTML_ENABLED=False (dev behavior). Verifies the plaintext-
+    only path so nothing leaks HTML into a developer's terminal."""
+
+    def test_html_disabled_sends_plain_message(self):
+        send_email(
+            template="emails/otp.html",
+            subject="Test",
+            context={"code": "555555", "expiry_minutes": 10},
+            to="test@example.com",
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        msg = mail.outbox[0]
+        # EmailMessage has no alternatives; only the text body is present
+        self.assertEqual(getattr(msg, "alternatives", []), [])
+        # Body still carries the OTP from the .txt sibling
+        self.assertIn("555555", msg.body)
+        # Body must not contain any HTML tags
+        self.assertNotIn("<p>", msg.body)
+        self.assertNotIn("<html", msg.body.lower())
+
+    def test_text_only_flag_with_html_disabled_still_plain(self):
+        send_email(
+            template="emails/otp.html",
+            subject="Test",
+            context={"code": "666666", "expiry_minutes": 10},
+            to="test@example.com",
+            text_only=True,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(getattr(mail.outbox[0], "alternatives", []), [])
+        self.assertIn("666666", mail.outbox[0].body)

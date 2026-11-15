@@ -1,5 +1,4 @@
-
----
+***
 
 ## `AGENTS.md` — full rewrite
 
@@ -131,6 +130,10 @@ below.
         _messages.html
       emails/                           # transactional emails (HTML + txt)
 
+    accounts/templates/registration/
+      login.html                        # Django login (default /accounts/login/)
+      login_spa.html                    # Vue shell (/accounts/login-vue/ until cutover)
+
     schedule/templates/schedule/        # schedule app pages and pieces
       home.html
       employee_defaults.html            # reading page (read-only)
@@ -198,6 +201,18 @@ week is in the past).
 - `settings.CYCLE_EPOCH` — anchor Monday for computing which week of a
   multi-week cycle a given date falls on. The cycle-offset arithmetic
   (`_cycle_offset`, `_week_offset_for`) is anchored to this date.
+- `settings.OIDC_ENABLED` — True when `OIDC_OP_BASE_URL` and
+  `OIDC_RP_CLIENT_ID` are set in the environment. Controls whether
+  the login UI renders the "Sign in with Zitadel" button. The OIDC
+  backend (`accounts.backends.DocketOIDCBackend`) is always in
+  `AUTHENTICATION_BACKENDS`; it just can't complete a login without
+  credentials. PKCE public client — no client secret.
+  `OIDC_RP_CLIENT_SECRET` is deliberately empty.
+- `settings.LOGIN_REDIRECT_URL` — `/schedule/home/`. After login,
+  Django's middleware chain routes based on the user's memberships
+  (0 → waiting, 1 → auto-select, 2+ → picker). The Vue login API
+  endpoint returns this as `redirect_url`; the client does a full
+  page navigation so the middleware runs.
 
 ### Django templates
 
@@ -215,7 +230,7 @@ week is in the past).
   - `make_employee(with_pattern=True)` — one open-ended pattern anchored
     to the Monday of `start_date`.
   - `make_employee(cycle_weeks=N)` — implies `with_pattern=True`. Passing
-    `cycle_weeks=1` explicitly *does* create a pattern; only omitting the
+    `cycle_weeks=1` explicitly _does_ create a pattern; only omitting the
     arg entirely gives you no pattern.
   - This is the #1 surprise for new agents writing tests. If your test
     touches `employee.patterns` or expects a schedule to render, it needs
@@ -270,7 +285,7 @@ codebase — read this before touching it.
   This prevents writing offsets the pattern will never display.
   **Exception:** the edit-in-place handler allows unchanged or reduced
   cycles on a truncated pattern (`cycle_weeks > span_weeks AND
-  cycle_weeks > pattern.cycle_weeks`). Change/add has no such exception.
+cycle_weeks > pattern.cycle_weeks`). Change/add has no such exception.
 - Cycles-shrinking deletes orphan offsets (`week_offset >= cycle_weeks`)
   on save. Growth leaves them alone.
 
@@ -295,7 +310,7 @@ codebase — read this before touching it.
 
 - Every save routes through a confirmation modal.
 - Non-retroactive: `_confirm_save_pattern.html`.
-- Retroactive: `_retroactive_confirm.html` (dual-duty — it *is* the
+- Retroactive: `_retroactive_confirm.html` (dual-duty — it _is_ the
   warning AND the save confirmation, one click).
 - Cancel routes through `_confirm_discard.html` (unsaved-changes
   warning).
@@ -319,7 +334,7 @@ These are the sharp edges. Read carefully.
   attributes, or the request goes to the wrong URL.
 - For fragment responses that need context processors (`perms`,
   `is_management`, `app_name`), use `render_to_string(template, context,
-  request=request)`. Without `request=`, `RequestContext` isn't
+request=request)`. Without `request=`, `RequestContext` isn't
   populated and template conditionals silently evaluate to false.
 - For out-of-band swaps, return multiple fragments concatenated in one
   `HttpResponse`. HTMX takes the first non-oob element as the primary
@@ -342,7 +357,7 @@ embedded in a schedule slot. Same middleware catches the deactivation
 middleware's kick-out redirect.
 
 **Middleware ordering is load-bearing.** `HTMXLoginRedirectMiddleware`
-must appear *before* `EmployeeDeactivationMiddleware` in `MIDDLEWARE`.
+must appear _before_ `EmployeeDeactivationMiddleware` in `MIDDLEWARE`.
 The deactivation middleware's 302 short-circuits the stack; if the
 HTMX redirect middleware is below it, its response phase never sees
 the 302 and the fragment swap happens anyway.
@@ -361,7 +376,7 @@ the 302 and the fragment swap happens anyway.
 - **For server-rendered forms, mirror one-way:**
   - State is declared as `addEmployeeFirstName: "",` etc.
   - `init()` reads the DOM into state: `this.addEmployeeFirstName =
-    read("first_name");`
+read("first_name");`
   - Each input gets `@input="addEmployeeFirstName = $event.target.value"`.
   - State is never written back to the DOM except when explicitly
     clearing the form after a successful save.
@@ -378,6 +393,7 @@ the 302 and the fragment swap happens anyway.
       });
 
   Route by `e.detail.elt.id` so one handler can serve multiple forms.
+
 - **Alpine scope can be lost across HTMX swaps.** When a modal's submit
   button calls an Alpine method (`@click="handleSave"`), and the modal
   lives inside a form whose parent gets swapped mid-dispatch, the
@@ -499,15 +515,15 @@ Used by `_retroactive_confirm.html`, `_confirm_discard.html`,
 
 A common sub-class. All use Pattern B and follow the same shape:
 
-| Modal | Trigger | Confirm behavior |
-|---|---|---|
-| `_confirm_discard.html` | Any Cancel button that would abandon unsaved edits | Navigates to `href` |
-| `_confirm_save_pattern.html` | Non-retroactive pattern Save | Sets `saveConfirmed`, resubmits |
-| `_retroactive_confirm.html` | Retroactive pattern Save | Sets `retroactive_confirmed` + `saveConfirmed`, resubmits |
-| `_confirm_save_details.html` | Details-page Save | Sets `confirmed`, resubmits |
-| `_cancel_deactivation_confirm.html` | Details-page "Cancel deactivation" | Submits hidden sibling form |
-| `_delete_pattern_confirm.html` | Any Delete-pattern button | Submits hidden form |
-| `_deactivate.html` | Any "Set Last Day" button | Whole modal is the form; submit posts last_day |
+| Modal                               | Trigger                                            | Confirm behavior                                          |
+| ----------------------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `_confirm_discard.html`             | Any Cancel button that would abandon unsaved edits | Navigates to `href`                                       |
+| `_confirm_save_pattern.html`        | Non-retroactive pattern Save                       | Sets `saveConfirmed`, resubmits                           |
+| `_retroactive_confirm.html`         | Retroactive pattern Save                           | Sets `retroactive_confirmed` + `saveConfirmed`, resubmits |
+| `_confirm_save_details.html`        | Details-page Save                                  | Sets `confirmed`, resubmits                               |
+| `_cancel_deactivation_confirm.html` | Details-page "Cancel deactivation"                 | Submits hidden sibling form                               |
+| `_delete_pattern_confirm.html`      | Any Delete-pattern button                          | Submits hidden form                                       |
+| `_deactivate.html`                  | Any "Set Last Day" button                          | Whole modal is the form; submit posts last_day            |
 
 Wired via `openConfirmDiscardModal(href)`, `window.__openConfirmSavePattern(name)`,
 `openDeactivateModal(button)` (data-attribute driven), etc. New
@@ -528,6 +544,45 @@ Two distinct visual languages:
 Client-side validation never blocks submission from the user's point of
 view; it disables the Save button as a hint. The server is always the
 final authority.
+
+## API conventions (Django Ninja)
+
+The app is migrating from server-rendered HTML to a Vue SPA backed
+by a Django Ninja API, eventually replaced by a Go backend. Every
+feature ships **both** an HTML surface (today) and an `/api/v1/`
+endpoint (the future). HTML-only is not permitted going forward;
+API-only is fine for features with no HTML surface.
+
+- **Namespace:** `/api/v1/`. Version locked at v1 until API-only
+  ships. Bump only when a breaking change is unavoidable and the
+  SPA/Go consumers need a staged migration.
+- **Auth:** session-based, via `work_schedule.api.auth.session_auth`.
+  CSRF comes from Django's `CsrfViewMiddleware` + the `X-CSRFToken`
+  header (same header HTMX already sends). Token auth is a later
+  branch, timed with Go.
+- **Permissions:** Ninja permission classes in
+  `work_schedule/api/permissions.py`. Class names mirror the view
+  decorators (`company_admin_required` → `CompanyAdmin`). Every
+  endpoint that gates on a decorator on the HTML side uses the
+  matching permission class on the API side.
+- **Response schemas:** Pydantic v2 `Schema` per app in
+  `schemas.py`. Every endpoint declares `response=Schema` —
+  untyped responses are not permitted.
+- **Docs:** `/api/v1/docs` and `/api/v1/openapi.json` are gated to
+  `is_staff`. They enumerate the full API surface and are not
+  tenant-facing.
+- **Shared logic:** business logic lives in `schedule/services.py`
+  (writes) and `schedule/selectors.py` (reads), called by both the
+  HTML view and the API endpoint. Selectors take `company` (and
+  `team` where relevant) as their first argument. Rejected pattern:
+  HTML views calling the API over HTTP — overhead with no benefit
+  before the Go split.
+- **Tests:** `self.client` + `force_login` for API tests — exercises
+  the full stack (middleware, CSRF, session auth). Same factories
+  as HTML tests; no separate API-only factories.
+- **Router registration:** `work_schedule/api/urls.py::register_routers`.
+  Called once from `work_schedule/urls.py` before `urlpatterns` is
+  built. Feature branches add their router registration there.
 
 ## Auth and admin gating
 
@@ -626,7 +681,7 @@ check too — the superuser gate is the whole point.
 - The HTMX branches of `set_override`, `set_day_override`, and
   `add_employee` currently have **no test coverage**. If you touch them,
   consider adding tests using `self.client.post(url, data,
-  HTTP_HX_REQUEST="true")`.
+HTTP_HX_REQUEST="true")`.
 - The pattern form's client-side JS (value cache, submit interceptor,
   week picker) has no Django-side coverage. Verify manual browser
   behavior when touching it.
@@ -656,7 +711,7 @@ check too — the superuser gate is the whole point.
   section. This is the #1 test-writing gotcha.
 - **Alpine `@click` on submit buttons inside HTMX-swappable forms can
   lose scope.** Symptom: the method runs but throws `this.X is not a
-  function`; Alpine swallows the error and the action silently no-ops.
+function`; Alpine swallows the error and the action silently no-ops.
   Use Pattern B modals (native `onclick` + `window.__xxx` helpers) for
   anything inside the pattern form. Diagnose by wrapping the method
   with `console.log(this)` and checking whether the expected properties
@@ -739,22 +794,23 @@ add it later:
 
 ## Quick reference: where things live
 
-| I want to... | Look at... |
-|---|---|
-| Add a helper to the schedule logic | `schedule/views.py`, appropriate section |
-| Add a field to Employee | `schedule/models.py`, `schedule/forms.py`, `schedule/views.py::_handle_identity_post` |
-| Add a new page under schedule | `schedule/templates/schedule/`, add route in `schedule/urls.py` |
-| Add a new modal | `schedule/templates/schedule/modals/`, follow Pattern B (see Modal patterns) |
-| Add a new confirmation modal | `schedule/templates/schedule/modals/_confirm_*.html`, follow the confirmation matrix above |
-| Add a new reusable partial | `schedule/templates/schedule/partials/`, use `{% include %}` |
-| Add a new test | `schedule/tests/test_*.py` or `accounts/tests/test_*.py`, use factories |
-| Change the pattern form (change/add/edit) | `_pattern_form_body.html`, `pattern_form.html`, `_week_picker.html` — see "Pattern form domain" |
-| Change auth gating (password change, admin) | `work_schedule/urls.py`, `accounts/views.py`, `accounts/admin.py` — see "Auth and admin gating" |
-| Change HTMX session behavior | `work_schedule/middleware.py` — see "HTMX session expiry" |
-| Deploy / redeploy / rollback | `docs/DEPLOYMENT.md` |
-| Set up staging | `docs/STAGING.md` |
-| Add a new transactional email | `templates/emails/` (HTML + txt), `schedule/notifications.py` sender, register in `accounts/management/commands/send_test_emails.py` |
-| Debug a template | `uv run python manage.py shell` then `render_to_string` the template manually |
-| Understand past design decisions | `docs/design/SESSIONS.md` |
-| Understand deferred CSP work | `docs/design/CSP_PLAN.md` |
-| Find stale template paths | `grep -rn '"schedule/_' schedule/views.py` |
+| I want to...                                | Look at...                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Add a helper to the schedule logic          | `schedule/views.py`, appropriate section                                                                                             |
+| Add a field to Employee                     | `schedule/models.py`, `schedule/forms.py`, `schedule/views.py::_handle_identity_post`                                                |
+| Add a new page under schedule               | `schedule/templates/schedule/`, add route in `schedule/urls.py`                                                                      |
+| Add a new modal                             | `schedule/templates/schedule/modals/`, follow Pattern B (see Modal patterns)                                                         |
+| Add a new confirmation modal                | `schedule/templates/schedule/modals/_confirm_*.html`, follow the confirmation matrix above                                           |
+| Add a new reusable partial                  | `schedule/templates/schedule/partials/`, use `{% include %}`                                                                         |
+| Add a new test                              | `schedule/tests/test_*.py` or `accounts/tests/test_*.py`, use factories                                                              |
+| Change the pattern form (change/add/edit)   | `_pattern_form_body.html`, `pattern_form.html`, `_week_picker.html` — see "Pattern form domain"                                      |
+| Change auth gating (password change, admin) | `work_schedule/urls.py`, `accounts/views.py`, `accounts/admin.py` — see "Auth and admin gating"                                      |
+| Change HTMX session behavior                | `work_schedule/middleware.py` — see "HTMX session expiry"                                                                            |
+| Deploy / redeploy / rollback                | `docs/DEPLOYMENT.md`                                                                                                                 |
+| Set up staging                              | `docs/STAGING.md`                                                                                                                    |
+| Add a new transactional email               | `templates/emails/` (HTML + txt), `schedule/notifications.py` sender, register in `accounts/management/commands/send_test_emails.py` |
+| Debug a template                            | `uv run python manage.py shell` then `render_to_string` the template manually                                                        |
+| Understand past design decisions            | `docs/design/SESSIONS.md`                                                                                                            |
+| Understand deferred CSP work                | `docs/design/CSP_PLAN.md`                                                                                                            |
+| Find stale template paths                   | `grep -rn '"schedule/_' schedule/views.py`                                                                                           |
+```

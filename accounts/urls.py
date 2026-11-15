@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 
+
 urlpatterns = [
     path("signup/", views.signup, name="signup"),
     path("verify-signup-otp/", views.verify_signup_otp, name="verify_signup_otp"),
@@ -13,4 +14,6 @@ urlpatterns = [
         views.approve_account,
         name="approve_account",
     ),
+    path("company-picker/", views.company_picker, name="company_picker"),
+    path("waiting/", views.waiting, name="waiting"),
 ]

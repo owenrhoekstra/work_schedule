@@ -18,6 +18,13 @@ File layout, top to bottom:
 
 Sections 3–8 are pure helpers: no request objects, no HTTP concerns.
 Sections 9–13 are the actual views.
+
+Branch 1 multi-tenancy: `_current_company(request)` is the single
+seam every read query and write path filters on. Today it returns
+the seed company; Branch 2 will replace its body with
+`request.company`. Every selector that touches a company-scoped
+model takes `company` as an argument. Every write sets `company` on
+new rows. See docs/MULTI-TENANCY.md for the plan.
 """
 
 import io
@@ -41,9 +48,18 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from work_schedule.auth import (
+    any_admin_required,
+    company_admin_required,
+    platform_admin_required,
+    team_admin_required,
+    viable_memberships,
+)
+
 from . import notifications
 from .forms import EmployeeForm
 from .models import (
+    Company,
     DayOverride,
     Employee,
     EmploymentPeriod,
@@ -87,31 +103,23 @@ _TIME_FORMATS = (
 
 
 # ---------------------------------------------------------------------------
-# 2. Decorators
+# 2. Decorators and tenant helpers
 # ---------------------------------------------------------------------------
 
 
-def is_management(request):
-    """True if the request's user is a superuser or Management member.
+def _current_company(request):
+    """The company for the current request.
 
-    Single source of truth for the "is this user Management?" question.
-    `management_required` uses it; views and context builders use it for
-    UI AND-gating so template and backend stay symmetric.
+    Branch 2, commit 2: prefers request.company (set by TenantMiddleware
+    from session/membership/superuser). Falls back to the first company
+    for cases where middleware left it None — preserves single-tenant
+    behavior for existing tests until commit 3 enforces session
+    resolution.
     """
-    user = request.user
-    return user.is_superuser or user.groups.filter(name="Management").exists()
-
-
-def management_required(view):
-    """Allow superusers and members of the Management group."""
-
-    @wraps(view)
-    def wrapper(request, *args, **kwargs):
-        if is_management(request):
-            return view(request, *args, **kwargs)
-        raise PermissionDenied
-
-    return wrapper
+    company = getattr(request, "company", None)
+    if company is not None:
+        return company
+    return Company.objects.order_by("id").first()
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +197,6 @@ def _week_range_label(weeks):
     if len(weeks) == 1:
         return first_title
     last_title = weeks[-1]["week_title"]
-    # Drop the "Week of " prefix from the last title so the range reads
-    # as a span rather than two back-to-back week titles.
     last_short = last_title.removeprefix("Week of ")
     return f"{first_title} – {last_short}"
 
@@ -207,9 +213,11 @@ def _parse_week_param(request):
     return _week_start(d)
 
 
-def _earliest_week():
+def _earliest_week(company):
     """Monday of the week containing the oldest employment period start."""
-    earliest = EmploymentPeriod.objects.aggregate(d=Min("start_date"))["d"]
+    earliest = EmploymentPeriod.objects.filter(company=company).aggregate(
+        d=Min("start_date")
+    )["d"]
     if earliest is None:
         return None
     return _week_start(earliest)
@@ -314,7 +322,7 @@ def _last_week_of(pattern):
 # ---------------------------------------------------------------------------
 
 
-def _employees_for_week(week_start):
+def _employees_for_week(week_start, company):
     """Employees with any employment period overlapping this week.
 
     Both halves of the overlap test are wrapped in a single filter() so
@@ -325,7 +333,8 @@ def _employees_for_week(week_start):
     """
     week_end = week_start + timedelta(days=5)
     return (
-        Employee.objects.filter(
+        Employee.objects.filter(company=company)
+        .filter(
             Q(periods__start_date__lte=week_end)
             & (Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
         )
@@ -477,7 +486,7 @@ def _pattern_summary(pattern):
 # ---------------------------------------------------------------------------
 
 
-def _build_schedule_rows(week_start, employee_pk=None):
+def _build_schedule_rows(week_start, company, employee_pk=None):
     """Build the render-ready rows and day headers for one week.
 
     Each cell carries a `kind` string used by the print view to style
@@ -498,18 +507,29 @@ def _build_schedule_rows(week_start, employee_pk=None):
     When `employee_pk` is given, only that employee's row is built.
     Used by the HTMX override path to render a single updated row
     without walking the whole roster.
+
+    `company` scopes both the employee fetch and the day-override
+    fetch. Employee-scoped ShiftOverride queries add a redundant
+    `employee__company` filter as defense-in-depth (pseudo-RLS).
     """
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
-    employees = list(_employees_for_week(week_start))
+    employees = list(_employees_for_week(week_start, company))
     if employee_pk is not None:
         employees = [e for e in employees if e.pk == employee_pk]
-    day_overrides = {o.date: o for o in DayOverride.objects.filter(date__in=week_dates)}
+    day_overrides = {
+        o.date: o
+        for o in DayOverride.objects.filter(date__in=week_dates, company=company)
+    }
 
     # One query for every override in this week, grouped by employee.
+    # Employees are already company-scoped above; the extra
+    # employee__company filter is defensive.
     overrides_by_employee = {}
     if employees:
         for override in ShiftOverride.objects.filter(
-            employee__in=employees, date__in=week_dates
+            employee__in=employees,
+            employee__company=company,
+            date__in=week_dates,
         ):
             overrides_by_employee.setdefault(override.employee_id, {})[
                 override.date
@@ -642,11 +662,11 @@ def _build_schedule_rows(week_start, employee_pk=None):
     return rows, day_headers
 
 
-def _home_context(week_start):
+def _home_context(week_start, company):
     """Build the shared context for the home page."""
     current_week = _week_start(timezone.localdate())
-    rows, day_headers = _build_schedule_rows(week_start)
-    min_week = _earliest_week()
+    rows, day_headers = _build_schedule_rows(week_start, company)
+    min_week = _earliest_week(company)
 
     return {
         "rows": rows,
@@ -674,23 +694,25 @@ def home(request):
     view itself stays permission-only — reading the schedule doesn't
     require Management.
     """
+    company = _current_company(request)
     week_start = _parse_week_param(request) or _week_start(timezone.localdate())
-    context = _home_context(week_start)
-    if is_management(request) and request.user.has_perm("schedule.add_employee"):
-        context["employee_form"] = EmployeeForm()
+    context = _home_context(week_start, company)
+    if request.is_company_admin and request.user.has_perm("schedule.add_employee"):
+        context["employee_form"] = EmployeeForm(company=company)
     return render(request, "schedule/home.html", context)
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.add_employee", raise_exception=True)
 @permission_required("schedule.view_shift", raise_exception=True)
 def add_employee(request):
     """Create a new employee from the modal form on the home page.
 
     If a matching User account already exists (by email) and isn't
-    linked to another Employee, link it automatically. Optionally send
-    a welcome email when `notify` is set.
+    linked to another Employee *in this company*, link it
+    automatically. Optionally send a welcome email when `notify` is
+    set.
 
     Responds two ways:
 
@@ -706,6 +728,7 @@ def add_employee(request):
     jumping to the current one.
     """
     is_htmx = request.headers.get("HX-Request") == "true"
+    company = _current_company(request)
 
     # Resolve the viewed week from the hidden form field, falling back
     # to the current week if missing or unparseable.
@@ -721,17 +744,20 @@ def add_employee(request):
         viewed_week = _week_start(timezone.localdate())
 
     if request.method == "POST":
-        form = EmployeeForm(request.POST)
+        form = EmployeeForm(request.POST, company=company)
         if form.is_valid():
             with transaction.atomic():
                 employee = form.save(commit=False)
+                employee.company = company
 
                 matching_user = User.objects.filter(
                     email__iexact=employee.email
                 ).first()
                 if (
                     matching_user
-                    and not Employee.objects.filter(user=matching_user).exists()
+                    and not Employee.objects.filter(
+                        user=matching_user, company=company
+                    ).exists()
                 ):
                     employee.user = matching_user
 
@@ -753,7 +779,7 @@ def add_employee(request):
                 messages.success(request, f"{employee} added.")
 
             if is_htmx:
-                rows, day_headers = _build_schedule_rows(viewed_week)
+                rows, day_headers = _build_schedule_rows(viewed_week, company)
 
                 # Render the table (primary swap target) and the
                 # messages container (out-of-band swap). HTMX takes
@@ -790,9 +816,9 @@ def add_employee(request):
             response["HX-Reswap"] = "innerHTML"
             return response
     else:
-        form = EmployeeForm()
+        form = EmployeeForm(company=company)
 
-    context = _home_context(viewed_week)
+    context = _home_context(viewed_week, company)
     context["employee_form"] = form
     context["show_add_employee_modal"] = True
     return render(request, "schedule/home.html", context)
@@ -864,9 +890,7 @@ def _employee_page_context(request, employee):
                 "weeks": _pattern_summary(p),
                 "is_earliest": p.pk == earliest_pk,
                 "last_week": last_week,
-                "last_week_end": (
-                    last_week + timedelta(days=6) if last_week else None
-                ),
+                "last_week_end": (last_week + timedelta(days=6) if last_week else None),
             }
         )
 
@@ -891,12 +915,10 @@ def _employee_page_context(request, employee):
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
         "can_change": (
-            is_management(request)
-            and request.user.has_perm("schedule.change_shift")
+            request.is_company_admin and request.user.has_perm("schedule.change_shift")
         ),
         "can_delete": (
-            is_management(request)
-            and request.user.has_perm("schedule.delete_shift")
+            request.is_company_admin and request.user.has_perm("schedule.delete_shift")
         ),
         "last_day": employee.last_day,
         # Needed by _deactivate.html's data-today prefill.
@@ -1033,9 +1055,7 @@ def _grid_weeks_for_form(employee, effective_from, cycle_weeks, pattern=None):
     if pattern is not None:
         # Direct mode — pull from the pattern's own cycle offsets.
         base_offset = _cycle_offset(effective_from, cycle_weeks)
-        shifts_by_key_all = {
-            (s.week_offset, s.day): s for s in pattern.shifts.all()
-        }
+        shifts_by_key_all = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
         weeks = []
         for cal_offset in range(cycle_weeks):
             target_offset = (base_offset + cal_offset) % cycle_weeks
@@ -1378,8 +1398,7 @@ def _handle_pattern_form_post(request, employee, mode):
             mode,
             effective_from=effective_from,
             cycle_weeks=cycle_weeks,
-            retroactive_confirmed=request.POST.get("retroactive_confirmed")
-            == "1",
+            retroactive_confirmed=request.POST.get("retroactive_confirmed") == "1",
             submitted_shifts=submitted_shifts,
             errors=errors,
         )
@@ -1577,14 +1596,22 @@ def _render_pattern_form(
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_shift", raise_exception=True)
 @permission_required("schedule.view_employee", raise_exception=True)
 def schedule_change(request, pk):
     """Change schedule from a week forward."""
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=pk,
     )
     if request.method == "POST":
@@ -1603,14 +1630,22 @@ def schedule_change(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_shift", raise_exception=True)
 @permission_required("schedule.view_employee", raise_exception=True)
 def schedule_add(request, pk):
     """Add a new pattern at a chosen week."""
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=pk,
     )
     if request.method == "POST":
@@ -1640,14 +1675,22 @@ def schedule_add(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_shift", raise_exception=True)
 @permission_required("schedule.view_employee", raise_exception=True)
 def pattern_form_preview(request, pk):
     """Return just the banner + grid body for HTMX live updates."""
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=pk,
     )
     mode = request.GET.get("mode", "change")
@@ -1847,22 +1890,17 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
             retroactive_confirmed=retroactive_confirmed,
             submitted_shifts=submitted_shifts,
             errors=[
-                "This pattern is in the past. Confirm the retroactive "
-                "edit to proceed."
+                "This pattern is in the past. Confirm the retroactive edit to proceed."
             ],
         )
 
     # Capture the notification baseline BEFORE mutating.
     old_cycle = pattern.cycle_weeks
-    old_shifts = _calendar_aligned_shifts(
-        employee, pattern.effective_from, cycle_weeks
-    )
+    old_shifts = _calendar_aligned_shifts(employee, pattern.effective_from, cycle_weeks)
 
     with transaction.atomic():
         if pattern.cycle_weeks != cycle_weeks:
-            Shift.objects.filter(
-                pattern=pattern, week_offset__gte=cycle_weeks
-            ).delete()
+            Shift.objects.filter(pattern=pattern, week_offset__gte=cycle_weeks).delete()
             pattern.cycle_weeks = cycle_weeks
             pattern.save(update_fields=["cycle_weeks"])
 
@@ -1913,7 +1951,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_shift", raise_exception=True)
 @permission_required("schedule.view_employee", raise_exception=True)
 def pattern_edit(request, employee_pk, pk):
@@ -1929,9 +1967,17 @@ def pattern_edit(request, employee_pk, pk):
     is in the past — editing a past pattern is destructive of written
     history.
     """
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=employee_pk,
     )
     pattern = get_object_or_404(ShiftPattern, pk=pk, employee=employee)
@@ -1946,7 +1992,7 @@ def pattern_edit(request, employee_pk, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_defaults(request, pk):
     """Render the employee reading page.
@@ -1954,16 +2000,24 @@ def employee_defaults(request, pk):
     Read-only. Identity edits and deactivation live at /details/.
     Write affordances are AND-gated inside _employee_page_context.
     """
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=pk,
     )
     return _render_employee_page(request, employee)
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def employee_details(request, pk):
     """Edit an employee's identity, or trigger deactivation.
@@ -1982,9 +2036,17 @@ def employee_details(request, pk):
     next=employee_defaults, so the manager lands back on the reading
     page after deactivation.
     """
+    company = _current_company(request)
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=pk,
     )
 
@@ -2004,7 +2066,7 @@ def employee_details(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.delete_shift", raise_exception=True)
 @require_POST
 def delete_pattern(request, pk):
@@ -2017,10 +2079,17 @@ def delete_pattern(request, pk):
     Shift overrides within the deleted pattern's window are left in
     place. They'll be evaluated against the newly-effective pattern.
     """
+    company = _current_company(request)
     today = timezone.localdate()
     pattern = get_object_or_404(
-        ShiftPattern.objects.filter(employee__last_day__isnull=True)
-        | ShiftPattern.objects.filter(employee__last_day__gte=today),
+        ShiftPattern.objects.filter(
+            employee__company=company,
+            employee__last_day__isnull=True,
+        )
+        | ShiftPattern.objects.filter(
+            employee__company=company,
+            employee__last_day__gte=today,
+        ),
         pk=pk,
     )
     employee = pattern.employee
@@ -2082,9 +2151,10 @@ def set_override(request, employee_pk, date_iso):
       response into the modal's `#override-error` element so the user
       sees the message without losing their input.
     """
-    if not is_management(request):
+    if not getattr(request, "is_company_admin", False):
         raise PermissionDenied
 
+    company = _current_company(request)
     action = request.POST.get("action")
     is_htmx = request.headers.get("HX-Request") == "true"
 
@@ -2097,7 +2167,14 @@ def set_override(request, employee_pk, date_iso):
 
     today = timezone.localdate()
     employee = get_object_or_404(
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today)),
+        Employee.objects.filter(
+            company=company,
+            last_day__isnull=True,
+        )
+        | Employee.objects.filter(
+            company=company,
+            last_day__gte=today,
+        ),
         pk=employee_pk,
     )
     try:
@@ -2134,13 +2211,13 @@ def set_override(request, employee_pk, date_iso):
         """
         if is_htmx:
             week_start = _week_start(override_date)
-            rows, _ = _build_schedule_rows(week_start, employee_pk=employee.pk)
+            rows, _ = _build_schedule_rows(week_start, company, employee_pk=employee.pk)
             if rows:
                 row_html = render_to_string(
                     "schedule/partials/_schedule_row.html",
                     {
                         "row": rows[0],
-                        "is_management": is_management(request),
+                        "is_company_admin": getattr(request, "is_company_admin", False),
                     },
                     request=request,
                 )
@@ -2204,12 +2281,13 @@ def set_override(request, employee_pk, date_iso):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_shift", raise_exception=True)
 @permission_required("schedule.view_shift", raise_exception=True)
 @require_POST
 def set_day_override(request, date_iso):
     """Mark a whole date as Closed or Holiday, or clear that status."""
+    company = _current_company(request)
     try:
         d = date.fromisoformat(date_iso)
     except ValueError:
@@ -2219,9 +2297,11 @@ def set_day_override(request, date_iso):
     back = _home_url_for(d)
 
     if action == "clear":
-        DayOverride.objects.filter(date=d).delete()
+        DayOverride.objects.filter(date=d, company=company).delete()
     elif action in ("closed", "holiday"):
-        DayOverride.objects.update_or_create(date=d, defaults={"status": action})
+        DayOverride.objects.update_or_create(
+            date=d, company=company, defaults={"status": action}
+        )
 
     # HTMX path: return the updated schedule table so the swap replaces
     # every affected cell for this date. A day override affects the
@@ -2230,7 +2310,7 @@ def set_day_override(request, date_iso):
     # band swaps.
     if request.headers.get("HX-Request") == "true":
         week_start = _week_start(d)
-        rows, day_headers = _build_schedule_rows(week_start)
+        rows, day_headers = _build_schedule_rows(week_start, company)
         return render(
             request,
             "schedule/partials/_schedule_table.html",
@@ -2249,21 +2329,23 @@ def set_day_override(request, date_iso):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.view_employee", raise_exception=True)
 def settings_home(request):
     """Management landing page: active employees, former employees,
     titles, and roles."""
+    company = _current_company(request)
     today = timezone.localdate()
 
     active_employees = (
-        Employee.objects.filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
+        Employee.objects.filter(company=company)
+        .filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
         .select_related("title", "role")
         .order_by("role__display_order", "role__name", "created_at")
     )
 
     former_employees = (
-        Employee.objects.filter(last_day__lt=today)
+        Employee.objects.filter(company=company, last_day__lt=today)
         .select_related("title", "role")
         .order_by("-last_day")
     )
@@ -2272,15 +2354,15 @@ def settings_home(request):
         "employees": active_employees,
         "former_employees": former_employees,
         "former_count": former_employees.count(),
-        "titles": Title.objects.all(),
-        "roles": Role.objects.all(),
+        "titles": Title.objects.filter(company=company),
+        "roles": Role.objects.filter(company=company),
         "today": today,
     }
     return render(request, "schedule/settings.html", context)
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.add_employee", raise_exception=True)
 @require_POST
 def send_welcome(request, pk):
@@ -2292,7 +2374,8 @@ def send_welcome(request, pk):
     (default) → settings_home (used when the button appears in the
     settings employee list).
     """
-    employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    company = _current_company(request)
+    employee = get_object_or_404(Employee, pk=pk, is_active=True, company=company)
     ok, error = notifications.send_welcome_email(employee)
     if ok:
         messages.success(request, f"Welcome email sent to {employee.email}.")
@@ -2305,7 +2388,7 @@ def send_welcome(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.delete_employee", raise_exception=True)
 @require_POST
 def settings_deactivate_employee(request, pk):
@@ -2315,9 +2398,10 @@ def settings_deactivate_employee(request, pk):
       for reuse.
     - The open EmploymentPeriod closes with `end_date = last_day + 1`
       (end_date is exclusive).
-    - The linked User is deactivated only if the last day has already
-      passed. Future departures are enforced by middleware when the
-      day arrives.
+    - The linked User is deactivated only if (a) the last day has
+      already passed AND (b) this was the user's last viable company.
+      Multi-company users stay active for their other companies.
+      Future departures are enforced by middleware when the day arrives.
 
     Sends a deactivation email if `notify` is set and the employee is
     still on the schedule.
@@ -2329,7 +2413,8 @@ def settings_deactivate_employee(request, pk):
     employees with last_day < today — so we fall back to settings_home
     regardless of `next` in that case.
     """
-    employee = get_object_or_404(Employee, pk=pk)
+    company = _current_company(request)
+    employee = get_object_or_404(Employee, pk=pk, company=company)
 
     next_target = request.POST.get("next", "settings_home")
 
@@ -2339,8 +2424,6 @@ def settings_deactivate_employee(request, pk):
             last_day = date.fromisoformat(raw)
         except ValueError:
             messages.error(request, "Please pick a valid date.")
-            # Nothing was touched — honour the caller's target so the
-            # user lands back where they came from with the error.
             fallback = (
                 reverse("employee_defaults", args=[employee.pk])
                 if next_target == "employee_defaults"
@@ -2353,10 +2436,6 @@ def settings_deactivate_employee(request, pk):
     today = timezone.localdate()
     is_immediate = last_day < today
 
-    # Compute the redirect target AFTER we know is_immediate. On
-    # immediate deactivation, employee_defaults would 404 (its
-    # filter excludes employees with last_day < today), so always
-    # land on settings_home in that case.
     if is_immediate:
         redirect_url = reverse("settings_home")
     elif next_target == "employee_defaults":
@@ -2374,9 +2453,16 @@ def settings_deactivate_employee(request, pk):
             current.end_date = last_day + timedelta(days=1)
             current.save(update_fields=["end_date"])
 
+        # Only deactivate the shared User account if this was their
+        # last viable company. `viable_memberships` reads current DB
+        # state — the just-saved last_day excludes this employee, so
+        # if the user has another company where they're still
+        # employed, that company appears in the result and we skip
+        # the account flip.
         if employee.user and is_immediate:
-            employee.user.is_active = False
-            employee.user.save(update_fields=["is_active"])
+            if not viable_memberships(employee.user):
+                employee.user.is_active = False
+                employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_deactivation_email(employee)
@@ -2390,20 +2476,26 @@ def settings_deactivate_employee(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_employee", raise_exception=True)
 @require_POST
 def settings_cancel_deactivation(request, pk):
     """Reverse a scheduled (or immediate) deactivation.
 
-    Reopens the most recently closed period and reactivates the User.
+    Reopens the most recently closed period. Restores the shared
+    User account only if it was deactivated as a consequence of this
+    employment ending (i.e., the account is inactive AND the user now
+    has a viable company again). A User deactivated for security or
+    admin reasons stays inactive — restoring employment is not the
+    same as restoring the account.
 
     Redirect target is controlled by the POST body's `next` field:
     "employee_details" → the employee's details page;
     "employee_defaults" → the employee's reading page;
     anything else (default) → settings_home.
     """
-    employee = get_object_or_404(Employee, pk=pk)
+    company = _current_company(request)
+    employee = get_object_or_404(Employee, pk=pk, company=company)
 
     next_target = request.POST.get("next", "settings_home")
     if next_target == "employee_details":
@@ -2427,16 +2519,20 @@ def settings_cancel_deactivation(request, pk):
         employee.last_day = None
         employee.save(update_fields=["is_active", "last_day"])
 
-        if employee.user:
-            employee.user.is_active = True
-            employee.user.save(update_fields=["is_active"])
+        # Symmetric to settings_deactivate_employee: only reactivate
+        # the User if they were deactivated because they had no other
+        # viable company. A manual admin deactivation stays manual.
+        if employee.user and not employee.user.is_active:
+            if viable_memberships(employee.user):
+                employee.user.is_active = True
+                employee.user.save(update_fields=["is_active"])
 
     messages.success(request, f"{employee}'s deactivation was cancelled.")
     return redirect(redirect_url)
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_employee", raise_exception=True)
 @require_POST
 def settings_reactivate_employee(request, pk):
@@ -2445,8 +2541,13 @@ def settings_reactivate_employee(request, pk):
     Opens a new EmploymentPeriod starting on that date. The employee's
     previous patterns are preserved; the schedule picks up the most
     recent pattern as of the reactivation week.
+
+    Restores the shared User account only if it was deactivated as a
+    consequence of employment ending (see settings_cancel_deactivation
+    for the reasoning).
     """
-    employee = get_object_or_404(Employee, pk=pk)
+    company = _current_company(request)
+    employee = get_object_or_404(Employee, pk=pk, company=company)
 
     raw = request.POST.get("reactivation_date", "").strip()
     if raw:
@@ -2469,9 +2570,10 @@ def settings_reactivate_employee(request, pk):
         employee.last_day = None
         employee.save(update_fields=["is_active", "last_day"])
 
-        if employee.user:
-            employee.user.is_active = True
-            employee.user.save(update_fields=["is_active"])
+        if employee.user and not employee.user.is_active:
+            if viable_memberships(employee.user):
+                employee.user.is_active = True
+                employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_welcome_email(employee)
@@ -2494,48 +2596,54 @@ def settings_reactivate_employee(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.add_title", raise_exception=True)
 @require_POST
 def settings_add_title(request):
     """Create a new title. Empty names are ignored."""
+    company = _current_company(request)
     name = request.POST.get("name", "").strip()
     if name:
-        Title.objects.get_or_create(name=name)
+        Title.objects.get_or_create(name=name, company=company)
     return redirect("settings_home")
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.delete_title", raise_exception=True)
 @require_POST
 def settings_delete_title(request, pk):
     """Delete a title by ID."""
-    Title.objects.filter(pk=pk).delete()
+    company = _current_company(request)
+    Title.objects.filter(pk=pk, company=company).delete()
     return redirect("settings_home")
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.add_role", raise_exception=True)
 @require_POST
 def settings_add_role(request):
     """Create a new role, placing it last in the display order."""
+    company = _current_company(request)
     name = request.POST.get("name", "").strip()
     if name:
-        last = Role.objects.order_by("-display_order").first()
+        last = Role.objects.filter(company=company).order_by("-display_order").first()
         next_order = (last.display_order + 10) if last else 10
-        Role.objects.get_or_create(name=name, defaults={"display_order": next_order})
+        Role.objects.get_or_create(
+            name=name, company=company, defaults={"display_order": next_order}
+        )
     return redirect("settings_home")
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.delete_role", raise_exception=True)
 @require_POST
 def settings_delete_role(request, pk):
     """Delete a role, unless any employees are still assigned to it."""
-    role = get_object_or_404(Role, pk=pk)
+    company = _current_company(request)
+    role = get_object_or_404(Role, pk=pk, company=company)
     if role.employees.exists():
         messages.error(
             request,
@@ -2547,13 +2655,14 @@ def settings_delete_role(request, pk):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.change_role", raise_exception=True)
 @require_POST
 def settings_move_role(request, pk, direction):
     """Swap a role's position with its neighbor and renumber everything."""
-    role = get_object_or_404(Role, pk=pk)
-    roles = list(Role.objects.order_by("display_order", "name"))
+    company = _current_company(request)
+    role = get_object_or_404(Role, pk=pk, company=company)
+    roles = list(Role.objects.filter(company=company).order_by("display_order", "name"))
     idx = roles.index(role)
     swap_idx = idx - 1 if direction == "up" else idx + 1
     if swap_idx < 0 or swap_idx >= len(roles):
@@ -2571,7 +2680,7 @@ def settings_move_role(request, pk, direction):
 
 
 @login_required
-@management_required
+@company_admin_required
 @permission_required("schedule.view_shift", raise_exception=True)
 def print_schedule(request):
     """Print-ready view of the schedule for one or more weeks.
@@ -2587,6 +2696,7 @@ def print_schedule(request):
     handles screen preview and print layout. The QR code points at
     the login page so a printed sheet can be scanned to sign in.
     """
+    company = _current_company(request)
     raw_week = request.GET.get("week", "").strip()
     if raw_week:
         try:
@@ -2609,7 +2719,7 @@ def print_schedule(request):
     weeks = []
     for i in range(weeks_count):
         ws = anchor + timedelta(weeks=i)
-        rows, day_headers = _build_schedule_rows(ws)
+        rows, day_headers = _build_schedule_rows(ws, company)
         weeks.append(
             {
                 "week_start": ws,

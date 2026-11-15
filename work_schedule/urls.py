@@ -9,7 +9,6 @@ from django.contrib.admin.exceptions import NotRegistered
 from django.contrib.auth.admin import UserAdmin as _BaseUserAdmin
 from django.contrib.auth.models import User as _AuthUser
 from django.contrib.auth.views import (
-    LoginView,
     LogoutView,
     PasswordChangeDoneView,
 )
@@ -18,10 +17,12 @@ from django.urls import include, path, reverse
 from django.utils import timezone
 from django.views.generic import RedirectView
 
-from accounts.forms import StyledLoginForm
-from accounts.views import OTPGatedPasswordChangeView
+from accounts.api import csrf_token_view as accounts_csrf_view
+from accounts.api import login_view as accounts_login_view
+from accounts.views import OTPGatedPasswordChangeView, login_spa
 from work_schedule import views as project_views
-
+from work_schedule.api.api import api
+from work_schedule.api.urls import register_routers
 
 # ---------------------------------------------------------------------------
 # Admin password-change gating
@@ -147,7 +148,11 @@ class _OTPGatedUserAdmin(_BaseUserAdmin):
         # TemplateResponse otherwise — the status check distinguishes
         # the two without re-inspecting the form.
         if request.method == "POST" and response.status_code in (
-            301, 302, 303, 307, 308
+            301,
+            302,
+            303,
+            307,
+            308,
         ):
             request.session.pop("otp_verified_at", None)
 
@@ -160,20 +165,14 @@ except NotRegistered:
     pass
 admin.site.register(_AuthUser, _OTPGatedUserAdmin)
 
+register_routers()
 
 urlpatterns = [
     path("healthz/", project_views.healthz, name="healthz"),
     path("", RedirectView.as_view(url="/schedule/home/")),
     path("back-panel01294/", admin.site.urls),
     # Auth
-    path(
-        "accounts/login/",
-        LoginView.as_view(
-            authentication_form=StyledLoginForm,
-            redirect_authenticated_user=True,
-        ),
-        name="login",
-    ),
+    path("accounts/login/", login_spa, name="login"),
     path(
         "accounts/logout/",
         LogoutView.as_view(),
@@ -192,4 +191,13 @@ urlpatterns = [
     # App URLs
     path("accounts/", include("accounts.urls")),
     path("schedule/", include("schedule.urls")),
+    path("oidc/", include("mozilla_django_oidc.urls")),
+    path("accounts/login-vue/", login_spa, name="login_vue"),
+    path(
+        "api/v1/accounts/login/",
+        accounts_login_view,
+        name="api_login",
+    ),
+    path("api/v1/csrf/", accounts_csrf_view, name="api_csrf"),
+    path("api/v1/", api.urls),
 ]

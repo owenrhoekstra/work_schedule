@@ -48,9 +48,15 @@ def send_email(
 ):
     """Render and send an email.
 
-    By default sends multipart/alternative with HTML + text/plain. When
-    `text_only=True`, sends plain text only — useful for reviewing the
-    fallback that recipients without HTML rendering will see.
+    Sends multipart/alternative with HTML + text/plain by default.
+    When `text_only=True` or `settings.EMAIL_HTML_ENABLED` is False,
+    sends plain text only.
+
+    EMAIL_HTML_ENABLED is derived from DEBUG in settings.py: dev sends
+    plaintext only (the console backend dumps raw MIME to the terminal
+    and HTML parts there are unreadable noise); staging and prod send
+    both parts. Override via the EMAIL_HTML_ENABLED env var if you need
+    HTML output in dev to check rendering before pushing.
 
     Every email gets three context values injected automatically:
 
@@ -72,17 +78,23 @@ def send_email(
         **context,
     }
 
-    html_body = render_to_string(template, context)
+    # Force text-only when HTML is disabled globally (dev). Explicit
+    # `text_only=True` also forces it, regardless of setting.
+    send_html = not text_only and getattr(settings, "EMAIL_HTML_ENABLED", True)
 
     text_template = template.rsplit(".", 1)[0] + ".txt"
+    html_body = None
     try:
         text_body = render_to_string(text_template, context)
     except TemplateDoesNotExist:
+        # No .txt sibling — derive text from the HTML. Renders HTML
+        # regardless of send_html because we need the content.
+        html_body = render_to_string(template, context)
         text_body = _html_to_text(html_body)
 
     from_addr = from_email or settings.DEFAULT_FROM_EMAIL
 
-    if text_only:
+    if not send_html:
         msg = EmailMessage(
             subject=subject,
             body=text_body,
@@ -90,6 +102,8 @@ def send_email(
             to=to,
         )
     else:
+        if html_body is None:
+            html_body = render_to_string(template, context)
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_body,

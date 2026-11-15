@@ -16,6 +16,8 @@ from django.utils import timezone
 
 from schedule.models import Employee, Role, ShiftPattern
 
+from .factories import make_company
+
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 }
@@ -33,11 +35,13 @@ class DeletePatternTests(TestCase):
         )
         self.client.force_login(self.user)
 
-        self.role = Role.objects.create(name="Test Role")
+        self.company = make_company()
+        self.role = Role.objects.create(name="Test Role", company=self.company)
         self.employee = Employee.objects.create(
             first_name="Test",
             last_name="Employee",
             role=self.role,
+            company=self.company,
             email="test@example.com",
             start_date=_monday(timezone.localdate()) - timedelta(weeks=8),
         )
@@ -73,9 +77,7 @@ class DeletePatternTests(TestCase):
         response = self.client.post(url)
         self.assertEqual(response.status_code, 302)
 
-        self.assertFalse(
-            ShiftPattern.objects.filter(pk=self.pattern_b.pk).exists()
-        )
+        self.assertFalse(ShiftPattern.objects.filter(pk=self.pattern_b.pk).exists())
         self.pattern_a.refresh_from_db()
         self.assertEqual(self.pattern_a.effective_to, self.wk2)
 
@@ -95,6 +97,4 @@ class DeletePatternTests(TestCase):
         url = reverse("delete_pattern", args=[self.pattern_a.pk])
         self.client.post(url)
 
-        self.assertTrue(
-            ShiftPattern.objects.filter(pk=self.pattern_a.pk).exists()
-        )
+        self.assertTrue(ShiftPattern.objects.filter(pk=self.pattern_a.pk).exists())

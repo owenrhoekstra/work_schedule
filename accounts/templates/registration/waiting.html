@@ -1,0 +1,25 @@
+{% extends "registration/auth_base.html" %}
+{% block title %}Waiting for approval{% endblock %}
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-6 py-12">
+    <div class="w-full max-w-md text-center">
+        <h1 class="font-display text-2xl font-bold text-brand-indigo mb-3">
+            Waiting for approval
+        </h1>
+        <p class="text-sm text-gray-500 mb-8">
+            Your account isn't connected to a company yet. If you think
+            this is a mistake, contact your manager to be added to the
+            roster.
+        </p>
+        <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="text-sm font-medium text-brand-coral hover:underline"
+            >
+                Log out
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

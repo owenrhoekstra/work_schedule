@@ -1,0 +1,23 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}" />
+        <title>Log in — {{ app_name }}</title>
+        <link rel="stylesheet" href="{% static 'vue/index.css' %}" />
+    </head>
+    <body class="min-h-screen bg-brand-offwhite font-sans">
+        <div id="app"></div>
+        <script>
+            window.__LOGIN_CONFIG__ = {
+                oidcEnabled: {{ oidc_enabled|yesno:"true,false" }},
+                oidcUrl: "{% url 'oidc_authentication_init' %}?next={% url 'company_picker' %}",
+                loginUrl: "/api/v1/accounts/login/",
+                csrfToken: "{{ csrf_token }}"
+            };
+        </script>
+        <script type="module" src="{% static 'vue/index.js' %}"></script>
+    </body>
+</html>

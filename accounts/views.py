@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.hashers import make_password
@@ -12,7 +13,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from schedule.models import Employee
+from schedule.models import CompanyMembership, Employee
 
 from . import otp as otp_service
 from .forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
@@ -44,9 +45,38 @@ def signup(request):
         form = SignUpForm(request.POST)
         if form.is_valid():
             email = form.cleaned_data["email"]
-            employee = Employee.objects.get(
-                email__iexact=email, is_active=True, user__isnull=True
+
+            # A user can be invited to sign up at more than one company
+            # with the same email. `Employee.objects.get(...)` used to
+            # raise MultipleObjectsReturned here. `.filter().first()`
+            # attaches the signup to the earliest-hired matching
+            # Employee (Meta.ordering is start_date). Log so ops can
+            # see it; if multi-company signup becomes common, add a
+            # "which company?" picker before OTP issuance.
+            candidates = list(
+                Employee.objects.filter(
+                    email__iexact=email, is_active=True, user__isnull=True
+                ).order_by("start_date")
             )
+            if not candidates:
+                # clean_email guaranteed one existed; this is defense
+                # against a mid-flight deletion between validation and
+                # this block.
+                form.add_error(None, "No active invitation found.")
+                return render(
+                    request,
+                    "registration/signup.html",
+                    {"form": form},
+                )
+            if len(candidates) > 1:
+                logger.warning(
+                    "Signup ambiguity: %d active unlinked employees for "
+                    "%s; attaching to employee %s",
+                    len(candidates),
+                    email,
+                    candidates[0].pk,
+                )
+            employee = candidates[0]
 
             # Stash pending signup in the session — nothing is created until
             # the OTP is verified.
@@ -175,11 +205,23 @@ def verify_signup_otp(request):
                     password=pending["password_hash"],
                     first_name=employee.first_name,
                     last_name=employee.last_name,
-                    is_active=False,
+                    is_active=True,
                 )
                 user.save()
                 employee.user = user
                 employee.save(update_fields=["user"])
+
+                # Password signup creates a pending membership just like
+                # OIDC first-login does. approve_account activates it.
+                # Without this, the user's account exists but no company
+                # access is ever granted — they'd land on /accounts/
+                # waiting/ after approval instead of their schedule.
+
+                CompanyMembership.objects.get_or_create(
+                    user=user,
+                    company=employee.company,
+                    defaults={"role": "member", "status": "pending"},
+                )
 
             otp_service.clear_signup_otp(email)
             request.session.pop("pending_signup", None)
@@ -211,14 +253,39 @@ def verify_signup_otp(request):
     )
 
 
-def _pending_users():
-    return User.objects.filter(is_active=False, employee__is_active=True)
+def _pending_memberships(request):
+    """Pending CompanyMemberships at the current company, oldest first.
+
+    Filters by request.company so each company's managers see only
+    their own queue. Order by created_at ascending so new signups land
+    at the top of the list — the manager's oldest tasks are at the
+    bottom, newest at the top.
+
+    Returns CompanyMembership objects (not Users), so the template can
+    iterate and display both the user's identity and the pending-role
+    context. The User is accessible via `.user` on each membership.
+    """
+    from schedule.models import CompanyMembership
+
+    company = getattr(request, "company", None)
+    if company is None:
+        return CompanyMembership.objects.none()
+
+    return (
+        CompanyMembership.objects.filter(company=company, status="pending")
+        .select_related("user")
+        .order_by("-created_at")
+    )
 
 
 @login_required
 @permission_required("auth.change_user", raise_exception=True)
 def pending_accounts(request):
-    return render(request, "pending_accounts.html", {"pending": _pending_users()})
+    return render(
+        request,
+        "pending_accounts.html",
+        {"pending": _pending_memberships(request)},
+    )
 
 
 from schedule import notifications
@@ -227,28 +294,85 @@ from schedule import notifications
 @login_required
 @permission_required("auth.change_user", raise_exception=True)
 def approve_account(request, user_id):
-    if request.method == "POST":
-        user = get_object_or_404(User, id=user_id)
-        user.is_active = True
-        user.save()
+    """Approve a pending account at the current company.
+
+    Activates the CompanyMembership(user_id, request.company, status=
+    "pending") if one exists. Also activates the User account if it's
+    still inactive — new password-signup users start inactive until a
+    manager approves, and OIDC signups start active but their
+    membership is pending. Both gates clear here.
+
+    Approves at the current company only. A user with pending
+    memberships at two companies needs each company's manager to
+    approve independently — that's the intended semantics: employment
+    at one workplace doesn't grant access at another.
+    """
+    if request.method != "POST":
+        return redirect("pending_accounts")
+
+    from django.db import transaction
+
+    from schedule.models import CompanyMembership
+
+    company = getattr(request, "company", None)
+    if company is None:
+        messages.error(request, "No company context for this approval.")
+        return redirect("pending_accounts")
+
+    user = get_object_or_404(User, id=user_id)
+    membership = CompanyMembership.objects.filter(
+        user=user, company=company, status="pending"
+    ).first()
+    if membership is None:
+        messages.error(
+            request,
+            f"No pending membership for {user.username} at this company.",
+        )
+        return redirect("pending_accounts")
+
+    with transaction.atomic():
+        membership.status = CompanyMembership.STATUS_ACTIVE
+        membership.save(update_fields=["status"])
+
+        # Legacy path: pre-Batch-2b password signups were created with
+        # is_active=False. Migration 0007 backfills their pending
+        # membership correctly (status="pending"), but their User
+        # account stays inactive until this approval. Activate it here
+        # so login works after manager approval.
+        #
+        # Post-Batch-2b signups (both OIDC and password) create active
+        # Users immediately, so this is a no-op for them.
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+
         staff_group, _ = Group.objects.get_or_create(name="Staff")
         user.groups.add(staff_group)
 
-        if request.POST.get("notify"):
-            employee = getattr(user, "employee", None)
-            ok, error = notifications.send_account_approved_email(user, employee)
-            if ok:
-                messages.success(request, f"Approved and notified {user.username}.")
-            else:
-                messages.warning(request, f"Approved, but email failed: {error}")
+    if request.POST.get("notify"):
+        employee = user.employees.filter(company=company).first()
+        ok, error = notifications.send_account_approved_email(user, employee)
+        if ok:
+            messages.success(request, f"Approved and notified {user.username}.")
         else:
-            messages.success(request, f"Approved {user.username}.")
+            messages.warning(request, f"Approved, but email failed: {error}")
+    else:
+        messages.success(request, f"Approved {user.username}.")
     return redirect("pending_accounts")
 
 
 @login_required
 def profile(request):
-    employee = getattr(request.user, "employee", None)
+    # Scope to the current company. A user employed at two companies
+    # has one Employee per company; editing their profile while working
+    # at Company B must not touch Company A's Employee record.
+    #
+    # request.company is set by TenantMiddleware for every authed
+    # request (including exempt paths like /accounts/profile/). It's
+    # None if the user has 0 or 2+ viable companies with no session
+    # choice — in that case `employee` is None and profile edits touch
+    # the shared User only, which is the correct fallback.
+    employee = request.user.employees.filter(company=request.company).first()
 
     if request.method == "POST":
         form = ProfileForm(request.POST, user=request.user, employee=employee)
@@ -263,6 +387,72 @@ def profile(request):
         request,
         "registration/profile.html",
         {"form": form, "employee": employee},
+    )
+
+
+@login_required
+def company_picker(request):
+    """Pick a company to work in.
+
+    Shows active memberships only. Pending memberships stay hidden
+    (they go through the acceptance flow, not the picker). Users with
+    exactly one membership are auto-selected and redirected — that
+    path fires from TenantMiddleware's auto-resolution, but this view
+    keeps the same behavior as a safety net.
+    """
+    from work_schedule.auth import viable_memberships
+
+    memberships = sorted(
+        viable_memberships(request.user),
+        key=lambda m: m.company.name,
+    )
+
+    if not memberships:
+        return redirect("waiting")
+
+    if len(memberships) == 1:
+        request.session["company_id"] = str(memberships[0].company_id)
+        return redirect("home")
+
+    if request.method == "POST":
+        company_id = request.POST.get("company_id", "").strip()
+        if any(str(m.company_id) == company_id for m in memberships):
+            request.session["company_id"] = company_id
+            return redirect("home")
+        messages.error(request, "Please choose a company.")
+
+    return render(
+        request,
+        "registration/company_picker.html",
+        {"memberships": memberships},
+    )
+
+
+@login_required
+def waiting(request):
+    """Landing page for authed users with no active company membership.
+
+    Typically reached when a signup hasn't been approved yet, or when
+    a membership was revoked. Message points at the manager so the
+    user knows who to ask.
+    """
+    return render(request, "registration/waiting.html")
+
+
+def login_spa(request):
+    """Render the Vue login shell.
+
+    Config for the Vue app is injected via window.__LOGIN_CONFIG__
+    in the template — no round-trip for oidc_enabled, no separate
+    status endpoint.
+    """
+    if request.user.is_authenticated:
+        return redirect(settings.LOGIN_REDIRECT_URL)
+
+    return render(
+        request,
+        "registration/login_spa.html",
+        {"oidc_enabled": settings.OIDC_ENABLED},
     )
 
 
