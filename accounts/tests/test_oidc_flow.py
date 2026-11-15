@@ -217,6 +217,54 @@ class OIDCCallbackFlowTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertNotIn("_auth_user_id", self.client.session)
 
+    def test_userinfo_missing_iss_still_creates_identity(self):
+        """Zitadel's userinfo endpoint doesn't include `iss` — only the
+        id_token does. The backend must merge it from the payload or
+        no OIDCIdentity row is ever created.
+
+        Reproduces the real production shape that the earlier smoke
+        test exposed: user info comes back with sub/email/name but no
+        iss, and login succeeds while identity creation silently
+        fails.
+        """
+        email = "partial@example.com"
+        user = User.objects.create_user(username="partial", email=email, is_active=True)
+        CompanyMembership.objects.create(
+            user=user, company=self.company, role="member", status="active"
+        )
+
+        id_token_payload = _claims(email, sub="sub-partial")
+
+        # userinfo without `iss` (matches Zitadel's real response)
+        self.mock_userinfo.return_value = {
+            "sub": "sub-partial",
+            "email": email,
+            "email_verified": True,
+            "given_name": "A",
+            "family_name": "B",
+        }
+        self.mock_verify.return_value = id_token_payload
+        self.mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "id_token": "fake-id-token",
+                "access_token": "fake-access-token",
+                "token_type": "Bearer",
+            },
+        )
+
+        init_resp = self.client.get(reverse("oidc_authentication_init"))
+        state = parse_qs(urlparse(init_resp.url).query)["state"][0]
+        self.client.get(
+            reverse("oidc_authentication_callback"),
+            {"code": "fake-code", "state": state},
+        )
+
+        self.assertIn("_auth_user_id", self.client.session)
+        self.assertTrue(
+            OIDCIdentity.objects.filter(user=user, subject="sub-partial").exists()
+        )
+
 
 @override_settings(CACHES=_LOCMEM_CACHES, **_OIDC_SETTINGS)
 class OIDCApprovalActivatesMembershipTests(TestCase):

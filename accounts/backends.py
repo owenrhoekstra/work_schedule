@@ -142,3 +142,41 @@ class DocketOIDCBackend(OIDCAuthenticationBackend):
             suffix += 1
             candidate = f"{base}{suffix}"
         return candidate
+
+    def get_or_create_user(self, access_token, id_token, payload):
+        """Ensure `iss` and `sub` are on `user_info` before the rest of
+        the flow runs.
+
+        Zitadel's userinfo endpoint (OIDC_OP_USER_ENDPOINT) returns
+        `sub`, `email`, `given_name`, etc., but NOT `iss`. Per OIDC
+        spec `iss` is only required in the id_token, and Zitadel
+        omits it from userinfo.
+
+        `filter_users_by_claims` needs `iss` to look up an existing
+        OIDCIdentity, and `update_user` needs it to persist the
+        identity on first login. Without this merge, both fall
+        through to email-only matching every login and no identity
+        row is ever created — invisible to the test suite because
+        tests mock `get_userinfo` to return a full claim dict.
+        """
+        user_info = self.get_userinfo(access_token, id_token, payload)
+        if user_info is None:
+            return None
+
+        if isinstance(user_info, dict):
+            if "iss" not in user_info and "iss" in payload:
+                user_info["iss"] = payload["iss"]
+            if "sub" not in user_info and "sub" in payload:
+                user_info["sub"] = payload["sub"]
+
+        claims_verified = self.verify_claims(user_info)
+        if not claims_verified:
+            return None
+
+        users = self.filter_users_by_claims(user_info)
+        if len(users) == 1:
+            return self.update_user(users[0], user_info)
+        elif len(users) > 1:
+            return None
+
+        return self.create_user(user_info)
