@@ -1,11 +1,21 @@
 """Create the seed Company and backfill `company` FKs on existing rows.
 
-Run once between migration 0001 and 0002 on an existing DB, or once
-after `migrate` on a fresh DB. Idempotent — safe to re-run.
+Run once after `migrate` on a fresh DB. Idempotent — safe to re-run.
+
+Backfills three things:
+  1. `company` FK on every domain root that has NULL (Employee,
+     EmploymentPeriod, ShiftPattern, DayOverride, Role, Title)
+  2. Active member CompanyMemberships for every active Employee with
+     a linked User who doesn't already have a membership at this
+     company (mirrors migration 0007)
+  3. Optionally (via --migrate-management-admins), active admin
+     CompanyMemberships for every Management / Platform Admin group
+     member. Use for the seed company only — subsequent companies
+     shouldn't auto-grant platform admins as their admins.
 """
 
 from django.conf import settings
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -19,7 +29,6 @@ from schedule.models import (
     ShiftPattern,
     Title,
 )
-
 
 _BACKFILL_MODELS = (
     Employee,
@@ -51,9 +60,10 @@ class Command(BaseCommand):
             "--migrate-management-admins",
             action="store_true",
             help=(
-                "Convert every Management-group member to an active "
-                "company admin for this company. Use once for the seed "
-                "company; leave off for subsequent companies."
+                "Convert every Management / Platform Admin group member "
+                "to an active company admin for this company. Use once "
+                "for the seed company; leave off for subsequent "
+                "companies."
             ),
         )
 
@@ -83,16 +93,39 @@ class Command(BaseCommand):
                         f"  Backfilled {updated} {model.__name__} row(s)."
                     )
 
+            # Active member memberships for every linked, active Employee.
+            # Mirrors migration 0007's logic; safe to re-run because
+            # get_or_create won't downgrade an existing admin membership.
+            staff_created = 0
+            for emp in Employee.objects.filter(
+                company=company, is_active=True, user__isnull=False
+            ).iterator():
+                _, was_created = CompanyMembership.objects.get_or_create(
+                    user_id=emp.user_id,
+                    company_id=emp.company_id,
+                    defaults={"role": "member", "status": "active"},
+                )
+                if was_created:
+                    staff_created += 1
+            if staff_created:
+                self.stdout.write(f"  Backfilled {staff_created} Staff membership(s).")
+
             if options["migrate_management_admins"]:
-                try:
-                    mgmt = Group.objects.get(name="Management")
-                except Group.DoesNotExist:
+                # Accept both group names. Migration 0006 renamed
+                # Management → Platform Admin. A DB that has run 0006
+                # only has Platform Admin; a DB that hasn't (unlikely
+                # at this point) only has Management. Iterate both.
+                admin_users = User.objects.filter(
+                    groups__name__in=["Management", "Platform Admin"]
+                ).distinct()
+                if not admin_users.exists():
                     self.stdout.write(
-                        "No 'Management' group found; skipping admin migration."
+                        "No Management or Platform Admin group members found; "
+                        "skipping admin migration."
                     )
                 else:
                     count = 0
-                    for user in mgmt.user_set.all():
+                    for user in admin_users:
                         _, was_created = CompanyMembership.objects.get_or_create(
                             user=user,
                             company=company,
@@ -101,6 +134,5 @@ class Command(BaseCommand):
                         if was_created:
                             count += 1
                     self.stdout.write(
-                        f"  Converted {count} Management-group member(s) "
-                        f"to company admins."
+                        f"  Converted {count} admin(s) to company admins."
                     )
