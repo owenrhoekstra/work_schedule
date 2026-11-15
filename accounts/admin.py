@@ -2,6 +2,8 @@ from axes.models import AccessAttempt, AccessLog
 from django.contrib import admin
 from django.contrib.admin.exceptions import NotRegistered
 
+from .models import OIDCIdentity
+
 # Axes registers these itself in axes/admin.py. Unregister them first so we
 # can re-register with superuser-only permissions.
 try:
@@ -70,3 +72,12 @@ class AccessLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
+
+
+@admin.register(OIDCIdentity)
+class OIDCIdentityAdmin(admin.ModelAdmin):
+    list_display = ("user", "issuer", "subject", "created_at", "last_login_at")
+    list_filter = ("issuer",)
+    search_fields = ("user__username", "user__email", "subject")
+    raw_id_fields = ("user",)
+    date_hierarchy = "created_at"

@@ -18,6 +18,7 @@ dependencies = [
     "django-anymail[resend]>=15.2",
     "qrcode>=8.2",
     "django-ninja>=1.8.0",
+    "mozilla-django-oidc>=5.0.2",
 ]
 
 [tool.uv]

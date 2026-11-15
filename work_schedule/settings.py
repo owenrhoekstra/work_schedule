@@ -53,6 +53,7 @@ TAILWIND_APP_NAME = "theme"
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
+    "mozilla_django_oidc",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -73,6 +74,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "work_schedule.middleware.TenantMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "work_schedule.middleware.TenantMiddleware",  # ← new, above both
     "work_schedule.middleware.HTMXLoginRedirectMiddleware",
@@ -95,6 +99,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context_processors.pending_accounts",
                 "accounts.context_processors.user_is_management",
+                "accounts.context_processors.oidc_enabled",
                 "work_schedule.context_processors.app_name",
             ],
         },
@@ -149,6 +154,7 @@ PASSWORD_HASHERS = [
 
 AUTHENTICATION_BACKENDS = [
     "axes.backends.AxesStandaloneBackend",
+    "accounts.backends.DocketOIDCBackend",
     "django.contrib.auth.backends.ModelBackend",
 ]
 
@@ -205,8 +211,10 @@ CACHES = {
 #   2. RESEND_API_KEY present -> Resend (prod, or a dev with a real key)
 #   3. otherwise -> console backend (dev without keys)
 
-TENANT_ENFORCEMENT = (
-    os.environ.get("TENANT_ENFORCEMENT", "True").lower() in ("true", "1", "yes")
+TENANT_ENFORCEMENT = os.environ.get("TENANT_ENFORCEMENT", "True").lower() in (
+    "true",
+    "1",
+    "yes",
 )
 
 if STAGING:
@@ -273,3 +281,39 @@ if SECURE:
             },
         },
     }
+
+# ---------------------------------------------------------------------------
+# OIDC (Zitadel) — PKCE public client
+#
+# Optional login path. Password auth remains available. The OIDC
+# button is hidden when OIDC_ENABLED is False (no Zitadel
+# credentials in the environment).
+#
+# PKCE mode: Zitadel issues a client ID only (no client secret). The
+# library checks OIDC_USE_PKCE and uses the code_verifier flow
+# instead of client authentication at the token endpoint.
+# OIDC_RP_CLIENT_SECRET is set to an empty string so the setting
+# attribute exists for library version compatibility; the PKCE flag
+# takes precedence.
+# ---------------------------------------------------------------------------
+
+OIDC_OP_BASE_URL = os.environ.get("OIDC_OP_BASE_URL", "").rstrip("/")
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "")
+OIDC_RP_CLIENT_SECRET = ""
+OIDC_USE_PKCE = True
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_RP_SCOPES = "openid email profile"
+OIDC_STORE_ID_TOKEN = True
+OIDC_CREATE_USER = True
+OIDC_USERNAME_CLAIM = "sub"
+OIDC_VERIFY_SSL = True
+
+if OIDC_OP_BASE_URL:
+    OIDC_OP_DISCOVERY_ENDPOINT = f"{OIDC_OP_BASE_URL}/.well-known/openid-configuration"
+    OIDC_OP_AUTHORIZATION_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/authorize"
+    OIDC_OP_TOKEN_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/token"
+    OIDC_OP_USER_ENDPOINT = f"{OIDC_OP_BASE_URL}/oidc/v1/userinfo"
+    OIDC_OP_JWKS_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/keys"
+    OIDC_OP_LOGOUT_ENDPOINT = f"{OIDC_OP_BASE_URL}/oidc/v1/end_session"
+
+OIDC_ENABLED = bool(OIDC_OP_BASE_URL and OIDC_RP_CLIENT_ID)

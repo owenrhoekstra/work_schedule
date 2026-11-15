@@ -624,3 +624,6 @@ dictates.
   contributors and the Go rewrite team.
 - **`SECURITY_SWEEP.md`** — stays where it is; peer permanent
   record, not superseded by this file.
+
+
+Once password only auth is removed and oidc is relied on only, need to re add mozilla_django_oidc.middleware.SessionRefresh middleware

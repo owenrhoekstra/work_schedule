@@ -74,3 +74,9 @@ def user_is_management(request):
         "is_company_admin": _flag(request, "is_company_admin"),
         "is_team_admin": _flag(request, "is_team_admin"),
     }
+
+
+def oidc_enabled(request):
+    from django.conf import settings
+
+    return {"oidc_enabled": getattr(settings, "OIDC_ENABLED", False)}

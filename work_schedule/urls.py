@@ -199,4 +199,5 @@ urlpatterns = [
     # App URLs
     path("accounts/", include("accounts.urls")),
     path("schedule/", include("schedule.urls")),
+    path("oidc/", include("mozilla_django_oidc.urls")),
 ]
