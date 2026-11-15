@@ -50,7 +50,7 @@ router.beforeEach(async (to) => {
 });
 
 router.afterEach((to) => {
-  const app = import.meta.env.VITE_APP_NAME;
+  const app = import.meta.env.VITE_APP_NAME || "Docket";
   document.title = to.meta.title ? `${app} - ${to.meta.title}` : app;
 });
 

@@ -286,12 +286,14 @@ if SECURE:
 # button is hidden when OIDC_ENABLED is False (no Zitadel
 # credentials in the environment).
 #
-# PKCE mode: Zitadel issues a client ID only (no client secret). The
-# library checks OIDC_USE_PKCE and uses the code_verifier flow
-# instead of client authentication at the token endpoint.
-# OIDC_RP_CLIENT_SECRET is set to an empty string so the setting
-# attribute exists for library version compatibility; the PKCE flag
-# takes precedence.
+# Endpoints are ALWAYS defined, even when OIDC is unconfigured. The
+# mozilla-django-oidc backend reads OIDC_OP_TOKEN_ENDPOINT in __init__
+# (which runs on every AUTHENTICATION_BACKENDS load, including every
+# force_login() in tests). Leaving the attribute unset crashes the
+# backend and takes down every authed test. `oidc.invalid.example.com`
+# is an RFC 2606 reserved hostname that can never resolve, so any
+# accidental use without credentials fails loudly — no silent hits to
+# a real provider.
 # ---------------------------------------------------------------------------
 
 OIDC_OP_BASE_URL = os.environ.get("OIDC_OP_BASE_URL", "").rstrip("/")
@@ -305,12 +307,12 @@ OIDC_CREATE_USER = True
 OIDC_USERNAME_CLAIM = "sub"
 OIDC_VERIFY_SSL = True
 
-if OIDC_OP_BASE_URL:
-    OIDC_OP_DISCOVERY_ENDPOINT = f"{OIDC_OP_BASE_URL}/.well-known/openid-configuration"
-    OIDC_OP_AUTHORIZATION_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/authorize"
-    OIDC_OP_TOKEN_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/token"
-    OIDC_OP_USER_ENDPOINT = f"{OIDC_OP_BASE_URL}/oidc/v1/userinfo"
-    OIDC_OP_JWKS_ENDPOINT = f"{OIDC_OP_BASE_URL}/oauth/v2/keys"
-    OIDC_OP_LOGOUT_ENDPOINT = f"{OIDC_OP_BASE_URL}/oidc/v1/end_session"
+_oidc_base = OIDC_OP_BASE_URL or "https://oidc.invalid.example.com"
+OIDC_OP_DISCOVERY_ENDPOINT = f"{_oidc_base}/.well-known/openid-configuration"
+OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_base}/oauth/v2/authorize"
+OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_base}/oauth/v2/token"
+OIDC_OP_USER_ENDPOINT = f"{_oidc_base}/oidc/v1/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{_oidc_base}/oauth/v2/keys"
+OIDC_OP_LOGOUT_ENDPOINT = f"{_oidc_base}/oidc/v1/end_session"
 
 OIDC_ENABLED = bool(OIDC_OP_BASE_URL and OIDC_RP_CLIENT_ID)
