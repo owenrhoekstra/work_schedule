@@ -289,12 +289,11 @@ def company_picker(request):
     path fires from TenantMiddleware's auto-resolution, but this view
     keeps the same behavior as a safety net.
     """
-    from schedule.models import CompanyMembership
+    from work_schedule.auth import viable_memberships
 
-    memberships = list(
-        CompanyMembership.objects.filter(user=request.user, status="active")
-        .select_related("company")
-        .order_by("company__name")
+    memberships = sorted(
+        viable_memberships(request.user),
+        key=lambda m: m.company.name,
     )
 
     if not memberships:
@@ -470,7 +469,7 @@ class OTPGatedPasswordChangeView(PasswordChangeView):
             return False
         try:
             ts = datetime.fromisoformat(raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return False
         if timezone.is_naive(ts):
             ts = timezone.make_aware(ts)

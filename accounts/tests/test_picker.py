@@ -12,9 +12,7 @@ _LOCMEM_CACHES = {
 
 
 def _make_user(username, **kwargs):
-    return User.objects.create_user(
-        username=username, password="pw-not-used", **kwargs
-    )
+    return User.objects.create_user(username=username, password="pw-not-used", **kwargs)
 
 
 def _make_membership(user, company, role="member", status="active"):
@@ -40,9 +38,7 @@ class CompanyPickerTests(TestCase):
         resp = self.client.get(reverse("company_picker"))
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("home"))
-        self.assertEqual(
-            self.client.session["company_id"], str(company.id)
-        )
+        self.assertEqual(self.client.session["company_id"], str(company.id))
 
     def test_multiple_memberships_renders_picker(self):
         a = make_company(name="Alpha")
@@ -59,9 +55,7 @@ class CompanyPickerTests(TestCase):
         b = make_company(name="Beta")
         _make_membership(self.user, a)
         _make_membership(self.user, b)
-        resp = self.client.post(
-            reverse("company_picker"), {"company_id": str(b.id)}
-        )
+        resp = self.client.post(reverse("company_picker"), {"company_id": str(b.id)})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("home"))
         self.assertEqual(self.client.session["company_id"], str(b.id))
@@ -120,13 +114,18 @@ class TenantEnforcementTests(TestCase):
         self.assertEqual(resp.url, reverse("company_picker"))
 
     def test_tenanted_path_with_session_company_passes(self):
+        from schedule.models import CompanyMembership
+
         user = _make_user("enforced2")
         company = make_company()
+        CompanyMembership.objects.create(
+            user=user, company=company, role="member", status="active"
+        )
         login_as(self.client, user, company)
         resp = self.client.get(reverse("home"))
-        # home requires schedule.view_shift, which this user lacks.
-        # What matters: not redirected to picker.
-        self.assertNotEqual(resp.status_code, 302)
+        # home requires schedule.view_shift which this user lacks.
+        # What matters: not redirected to picker (has a viable company).
+        self.assertEqual(resp.status_code, 403)
 
     def test_exempt_path_no_company_passes(self):
         user = _make_user("enforced3")
@@ -148,17 +147,13 @@ class LoginAsHelperTests(TestCase):
         user = _make_user("las")
         company = make_company()
         login_as(self.client, user, company)
-        self.assertEqual(
-            self.client.session["company_id"], str(company.id)
-        )
+        self.assertEqual(self.client.session["company_id"], str(company.id))
 
     def test_accepts_pk_string(self):
         user = _make_user("las2")
         company = make_company()
         login_as(self.client, user, str(company.id))
-        self.assertEqual(
-            self.client.session["company_id"], str(company.id)
-        )
+        self.assertEqual(self.client.session["company_id"], str(company.id))
 
     def test_accepts_no_company(self):
         user = _make_user("las3")

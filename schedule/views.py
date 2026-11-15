@@ -53,6 +53,7 @@ from work_schedule.auth import (
     company_admin_required,
     platform_admin_required,
     team_admin_required,
+    viable_memberships,
 )
 
 from . import notifications
@@ -1312,7 +1313,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return _render_pattern_form(
             request,
             employee,
@@ -1335,7 +1336,7 @@ def _handle_pattern_form_post(request, employee, mode):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1703,7 +1704,7 @@ def pattern_form_preview(request, pk):
 
     try:
         cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1788,7 +1789,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -2216,9 +2217,7 @@ def set_override(request, employee_pk, date_iso):
                     "schedule/partials/_schedule_row.html",
                     {
                         "row": rows[0],
-                        "is_company_admin": getattr(
-                            request, "is_company_admin", False
-                        ),
+                        "is_company_admin": getattr(request, "is_company_admin", False),
                     },
                     request=request,
                 )
@@ -2399,9 +2398,10 @@ def settings_deactivate_employee(request, pk):
       for reuse.
     - The open EmploymentPeriod closes with `end_date = last_day + 1`
       (end_date is exclusive).
-    - The linked User is deactivated only if the last day has already
-      passed. Future departures are enforced by middleware when the
-      day arrives.
+    - The linked User is deactivated only if (a) the last day has
+      already passed AND (b) this was the user's last viable company.
+      Multi-company users stay active for their other companies.
+      Future departures are enforced by middleware when the day arrives.
 
     Sends a deactivation email if `notify` is set and the employee is
     still on the schedule.
@@ -2424,8 +2424,6 @@ def settings_deactivate_employee(request, pk):
             last_day = date.fromisoformat(raw)
         except ValueError:
             messages.error(request, "Please pick a valid date.")
-            # Nothing was touched — honour the caller's target so the
-            # user lands back where they came from with the error.
             fallback = (
                 reverse("employee_defaults", args=[employee.pk])
                 if next_target == "employee_defaults"
@@ -2438,10 +2436,6 @@ def settings_deactivate_employee(request, pk):
     today = timezone.localdate()
     is_immediate = last_day < today
 
-    # Compute the redirect target AFTER we know is_immediate. On
-    # immediate deactivation, employee_defaults would 404 (its
-    # filter excludes employees with last_day < today), so always
-    # land on settings_home in that case.
     if is_immediate:
         redirect_url = reverse("settings_home")
     elif next_target == "employee_defaults":
@@ -2459,9 +2453,16 @@ def settings_deactivate_employee(request, pk):
             current.end_date = last_day + timedelta(days=1)
             current.save(update_fields=["end_date"])
 
+        # Only deactivate the shared User account if this was their
+        # last viable company. `viable_memberships` reads current DB
+        # state — the just-saved last_day excludes this employee, so
+        # if the user has another company where they're still
+        # employed, that company appears in the result and we skip
+        # the account flip.
         if employee.user and is_immediate:
-            employee.user.is_active = False
-            employee.user.save(update_fields=["is_active"])
+            if not viable_memberships(employee.user):
+                employee.user.is_active = False
+                employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_deactivation_email(employee)
@@ -2481,7 +2482,12 @@ def settings_deactivate_employee(request, pk):
 def settings_cancel_deactivation(request, pk):
     """Reverse a scheduled (or immediate) deactivation.
 
-    Reopens the most recently closed period and reactivates the User.
+    Reopens the most recently closed period. Restores the shared
+    User account only if it was deactivated as a consequence of this
+    employment ending (i.e., the account is inactive AND the user now
+    has a viable company again). A User deactivated for security or
+    admin reasons stays inactive — restoring employment is not the
+    same as restoring the account.
 
     Redirect target is controlled by the POST body's `next` field:
     "employee_details" → the employee's details page;
@@ -2513,9 +2519,13 @@ def settings_cancel_deactivation(request, pk):
         employee.last_day = None
         employee.save(update_fields=["is_active", "last_day"])
 
-        if employee.user:
-            employee.user.is_active = True
-            employee.user.save(update_fields=["is_active"])
+        # Symmetric to settings_deactivate_employee: only reactivate
+        # the User if they were deactivated because they had no other
+        # viable company. A manual admin deactivation stays manual.
+        if employee.user and not employee.user.is_active:
+            if viable_memberships(employee.user):
+                employee.user.is_active = True
+                employee.user.save(update_fields=["is_active"])
 
     messages.success(request, f"{employee}'s deactivation was cancelled.")
     return redirect(redirect_url)
@@ -2531,6 +2541,10 @@ def settings_reactivate_employee(request, pk):
     Opens a new EmploymentPeriod starting on that date. The employee's
     previous patterns are preserved; the schedule picks up the most
     recent pattern as of the reactivation week.
+
+    Restores the shared User account only if it was deactivated as a
+    consequence of employment ending (see settings_cancel_deactivation
+    for the reasoning).
     """
     company = _current_company(request)
     employee = get_object_or_404(Employee, pk=pk, company=company)
@@ -2556,9 +2570,10 @@ def settings_reactivate_employee(request, pk):
         employee.last_day = None
         employee.save(update_fields=["is_active", "last_day"])
 
-        if employee.user:
-            employee.user.is_active = True
-            employee.user.save(update_fields=["is_active"])
+        if employee.user and not employee.user.is_active:
+            if viable_memberships(employee.user):
+                employee.user.is_active = True
+                employee.user.save(update_fields=["is_active"])
 
     if request.POST.get("notify"):
         ok, error = notifications.send_welcome_email(employee)
@@ -2693,7 +2708,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 

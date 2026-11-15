@@ -36,9 +36,7 @@ def is_platform_admin(user):
         return False
     if user.is_superuser or user.is_staff:
         return True
-    return user.groups.filter(
-        name__in=["Platform Admin", "Management"]
-    ).exists()
+    return user.groups.filter(name__in=["Platform Admin", "Management"]).exists()
 
 
 def is_company_admin(user, company):
@@ -141,3 +139,33 @@ def any_admin_required(view):
     level of admin acts, only that an admin does.
     """
     return team_admin_required(view)
+
+
+def viable_memberships(user):
+    """Active CompanyMemberships where the user is still employed.
+
+    A membership is "viable" when its status is "active" AND (if an
+    Employee row exists for this user at that company) the employee
+    hasn't passed their `last_day`. Member-only users — people granted
+    access without being on the schedule — are viable regardless.
+
+    Used by TenantMiddleware._resolve_company (session-path
+    revalidation and auto-select) and accounts.company_picker (the
+    picker list). Centralizing here keeps those two callers from
+    drifting apart as enforcement grows.
+    """
+    from django.utils import timezone
+
+    from schedule.models import CompanyMembership
+
+    today = timezone.localdate()
+    viable = []
+    for m in CompanyMembership.objects.filter(
+        user=user, status="active"
+    ).select_related("company"):
+        employee = user.employees.filter(company=m.company).first()
+        if employee is None:
+            viable.append(m)
+        elif employee.last_day is None or employee.last_day >= today:
+            viable.append(m)
+    return viable

@@ -19,19 +19,35 @@ _TENANT_EXEMPT_PREFIXES = (
 )
 
 
+# Auth-flow redirects that HTMX requests must not follow internally —
+# HTMX follows a 302, receives the destination HTML (200), and swaps
+# it into the fragment target, producing a nested-page rendering bug.
+# Any 302 to one of these becomes 204 + HX-Redirect instead, so the
+# browser does a full-page navigation.
+_HX_AUTH_REDIRECT_PREFIXES = (
+    "/accounts/login/",
+    "/accounts/company-picker/",
+    "/accounts/waiting/",
+)
+
+
 class TenantMiddleware:
     """Resolve request.company and populate the admin-ladder flags.
 
     Company resolution order:
-      1. session["company_id"] (user's explicit choice)
+      1. session["company_id"] (user's explicit choice) — re-validated
+         against current membership/employment on every request
       2. platform admin → first company (they see all companies)
-      3. single active membership → that company (session auto-set)
+      3. single viable membership → that company (session auto-set)
       4. otherwise → None
+
+    "Viable" means the membership's status is active AND (if an
+    Employee row exists for this user at that company) they haven't
+    passed their last_day. See work_schedule.auth.viable_memberships.
 
     When `settings.TENANT_ENFORCEMENT` is on and a user hits a
     non-exempt path with request.company = None, redirect them to the
-    company picker. Enforcement is gated so tests and pre-launch
-    deployments can run without company context.
+    company picker.
     """
 
     def __init__(self, get_response):
@@ -72,25 +88,31 @@ class TenantMiddleware:
         return self.get_response(request)
 
     def _resolve_company(self, request):
-        from schedule.models import Company, CompanyMembership
-        from work_schedule.auth import is_platform_admin
+        from schedule.models import Company
+        from work_schedule.auth import is_platform_admin, viable_memberships
+
+        if is_platform_admin(request.user):
+            session_id = request.session.get("company_id")
+            if session_id:
+                try:
+                    return Company.objects.get(pk=session_id)
+                except Company.DoesNotExist, ValueError:
+                    request.session.pop("company_id", None)
+            return Company.objects.order_by("id").first()
+
+        viable = viable_memberships(request.user)
+        viable_ids = {str(m.company_id) for m in viable}
 
         session_id = request.session.get("company_id")
         if session_id:
-            try:
-                return Company.objects.get(pk=session_id)
-            except Company.DoesNotExist, ValueError:
-                request.session.pop("company_id", None)
+            if session_id in viable_ids:
+                for m in viable:
+                    if str(m.company_id) == session_id:
+                        return m.company
+            request.session.pop("company_id", None)
 
-        if is_platform_admin(request.user):
-            return Company.objects.order_by("id").first()
-
-        memberships = CompanyMembership.objects.filter(
-            user=request.user, status="active"
-        ).select_related("company")
-
-        if memberships.count() == 1:
-            company = memberships.first().company
+        if len(viable) == 1:
+            company = viable[0].company
             request.session["company_id"] = str(company.id)
             return company
 
@@ -103,11 +125,23 @@ class TenantMiddleware:
 
 
 class HTMXLoginRedirectMiddleware:
-    """Rewrite HTMX requests' login redirects to 204 + HX-Redirect."""
+    """Rewrite HTMX auth-flow redirects to 204 + HX-Redirect.
+
+    HTMX follows 302s, receives the destination HTML with a 200, and
+    swaps it into the fragment target — the user ends up with a login
+    page (or company picker, or waiting page) rendered inside a
+    schedule cell. Catch any 302 to an auth-flow URL and convert it
+    to a 204 with HX-Redirect, which tells HTMX to do a full-page
+    navigation instead.
+
+    Must appear ABOVE TenantMiddleware and EmployeeDeactivationMiddleware
+    in MIDDLEWARE. Both can short-circuit with a 302 on the request
+    phase; if this middleware is below them, its response phase never
+    runs and the 302 escapes to HTMX.
+    """
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.login_prefix = settings.LOGIN_URL
 
     def __call__(self, request):
         response = self.get_response(request)
@@ -116,7 +150,7 @@ class HTMXLoginRedirectMiddleware:
             request.headers.get("HX-Request") == "true"
             and response.status_code in (301, 302)
             and response.url
-            and response.url.startswith(self.login_prefix)
+            and any(response.url.startswith(p) for p in _HX_AUTH_REDIRECT_PREFIXES)
         ):
             redirect_response = HttpResponse(status=204)
             redirect_response["HX-Redirect"] = response.url
