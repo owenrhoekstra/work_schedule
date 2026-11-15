@@ -74,6 +74,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "work_schedule.middleware.TenantMiddleware",  # ← new, above both
     "work_schedule.middleware.HTMXLoginRedirectMiddleware",
     "schedule.middleware.EmployeeDeactivationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",

@@ -125,15 +125,15 @@ def management_required(view):
 def _current_company(request):
     """The company for the current request.
 
-    Branch 1: single-tenant fallback — returns the seed company.
-    Branch 2: replaced with `request.company` from TenantMiddleware.
-
-    Every read query filters by this; every write sets it on new rows.
-    Returns None only if no company exists (fresh DB without
-    `bootstrap_company`). Read views handle that as "empty"; write
-    views that reach a NOT NULL company column will fail loudly —
-    correct, since there's nowhere to put the row.
+    Branch 2, commit 1: prefers request.company (set by TenantMiddleware
+    from session/membership/superuser). Falls back to the first company
+    for cases where middleware left it None — preserves single-tenant
+    behavior for existing tests until commit 3 enforces session
+    resolution.
     """
+    company = getattr(request, "company", None)
+    if company is not None:
+        return company
     return Company.objects.order_by("id").first()
 
 

@@ -4,6 +4,60 @@ from django.conf import settings
 from django.http import HttpResponse
 
 
+class TenantMiddleware:
+    """Populate request.company and request.team from the session.
+
+    Session choice wins. Superusers default to the first company.
+    Regular users with exactly one active CompanyMembership are
+    auto-assigned (session written). Users with 2+ memberships stay
+    None for now — commit 3 adds the picker redirect.
+
+    Branch 2, commit 1: no redirects. Views fall back via
+    _current_company to the first company when request.company is
+    None, preserving single-tenant behavior for existing tests.
+    Commit 3 enforces redirects on non-whitelisted paths.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request.company = None
+        request.team = None
+
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
+        request.company = self._resolve_company(request)
+        # request.team stays None; team resolution lands in a later branch.
+
+        return self.get_response(request)
+
+    def _resolve_company(self, request):
+        from schedule.models import Company, CompanyMembership
+
+        session_id = request.session.get("company_id")
+        if session_id:
+            try:
+                return Company.objects.get(pk=session_id)
+            except Company.DoesNotExist, ValueError:
+                request.session.pop("company_id", None)
+
+        if request.user.is_superuser:
+            return Company.objects.order_by("id").first()
+
+        memberships = CompanyMembership.objects.filter(
+            user=request.user, status="active"
+        ).select_related("company")
+
+        if memberships.count() == 1:
+            company = memberships.first().company
+            request.session["company_id"] = str(company.id)
+            return company
+
+        return None
+
+
 class HTMXLoginRedirectMiddleware:
     """Convert login-redirects for HTMX requests into HX-Redirect.
 
