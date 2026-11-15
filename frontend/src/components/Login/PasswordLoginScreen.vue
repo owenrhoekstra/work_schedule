@@ -1,7 +1,6 @@
 <!-- components/Login/PasswordLoginScreen.vue -->
 <script setup lang="ts">
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { usePasswordLogin } from "@/composables/Login/usePasswordLogin";
 import BackToOptionsButton from "./BackToOptionsButton.vue";
 import FormErrorAlert from "./FormErrorAlert.vue";
@@ -9,8 +8,7 @@ import PasswordField from "./PasswordField.vue";
 import SubmitButton from "./SubmitButton.vue";
 
 const emit = defineEmits<{ back: [] }>();
-const { username, password, submitting, formError, fieldErrors, invalid, describedBy, submit } =
-  usePasswordLogin();
+const { username, password, submitting, formError, submit } = usePasswordLogin();
 </script>
 
 <template>
@@ -24,7 +22,7 @@ const { username, password, submitting, formError, fieldErrors, invalid, describ
 
     <form novalidate class="space-y-5" @submit.prevent="submit">
       <div class="space-y-1.5">
-        <Label for="username">Username</Label>
+        <label for="username" class="text-sm font-medium leading-none"> Username </label>
         <Input
           id="username"
           v-model="username"
@@ -34,20 +32,11 @@ const { username, password, submitting, formError, fieldErrors, invalid, describ
           autocapitalize="none"
           spellcheck="false"
           class="h-11 text-base md:text-sm"
-          :aria-invalid="invalid('username')"
-          :aria-describedby="describedBy('username')"
+          :aria-describedby="formError ? 'form-error' : undefined"
         />
-        <p v-if="fieldErrors.username" id="username-error" class="text-sm text-danger">
-          {{ fieldErrors.username }}
-        </p>
       </div>
 
-      <PasswordField
-        id="password"
-        v-model="password"
-        :error="fieldErrors.password"
-        :form-error="formError"
-      />
+      <PasswordField id="password" v-model="password" :form-error="formError" />
 
       <SubmitButton :submitting="submitting" label="Log in" loading-label="Logging in…" />
     </form>

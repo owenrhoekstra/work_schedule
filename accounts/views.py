@@ -205,7 +205,7 @@ def verify_signup_otp(request):
                     password=pending["password_hash"],
                     first_name=employee.first_name,
                     last_name=employee.last_name,
-                    is_active=False,
+                    is_active=True,
                 )
                 user.save()
                 employee.user = user
@@ -334,12 +334,10 @@ def approve_account(request, user_id):
         membership.status = CompanyMembership.STATUS_ACTIVE
         membership.save(update_fields=["status"])
 
-        # Activate the User account if it's still inactive (password
-        # signup path). OIDC users already start active, so this is a
-        # no-op for them.
-        if not user.is_active:
-            user.is_active = True
-            user.save(update_fields=["is_active"])
+        # User.is_active is always True by this point (OIDC and
+        # password signup both create active accounts). The access
+        # gate is CompanyMembership.status, not the account flag.
+        # Nothing to flip here.
 
         staff_group, _ = Group.objects.get_or_create(name="Staff")
         user.groups.add(staff_group)

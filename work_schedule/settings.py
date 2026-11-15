@@ -230,6 +230,16 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
+# Dev sends plaintext only; staging and prod send HTML + text. The
+# console backend dumps raw MIME to the terminal — HTML parts there
+# are unreadable noise. Derived from DEBUG by default; override with
+# EMAIL_HTML_ENABLED in the environment if you need HTML output in
+# dev (e.g. to check rendering before pushing to staging).
+EMAIL_HTML_ENABLED = os.environ.get(
+    "EMAIL_HTML_ENABLED",
+    "False" if DEBUG else "True",
+).lower() in ("true", "1", "yes")
+
 # django-axes — rate limiting. Applies in every environment.
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1  # hours

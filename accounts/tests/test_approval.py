@@ -94,7 +94,7 @@ class ApproveAccountTests(TestCase):
             username="newbie",
             password="p",
             email=self.emp.email,
-            is_active=False,
+            is_active=True,
         )
         self.emp.user = self.user
         self.emp.save()
@@ -124,12 +124,16 @@ class ApproveAccountTests(TestCase):
         mock_send.assert_not_called()
 
     def test_approve_get_redirects_no_action(self):
-        """GET doesn't mutate — the membership stays pending."""
+        """GET doesn't mutate — the membership stays pending.
+
+        User.is_active is no longer a useful signal here: under the
+        multi-tenancy contract the account is active from signup and
+        CompanyMembership.status is the access gate. Assert the
+        membership status, not the account flag.
+        """
         self.client.get(reverse("approve_account", args=[self.user.pk]))
         self.membership.refresh_from_db()
         self.assertEqual(self.membership.status, "pending")
-        self.user.refresh_from_db()
-        self.assertFalse(self.user.is_active)
 
     def test_approve_without_pending_membership_at_company_errors(self):
         """Approving a user who has no pending membership at the current

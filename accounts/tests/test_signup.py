@@ -65,7 +65,7 @@ class SignupFlowTests(TestCase):
         self.assertTemplateUsed(resp, "registration/signup_pending.html")
 
         user = User.objects.get(username="newuser")
-        self.assertFalse(user.is_active)
+        self.assertTrue(user.is_active)
         self.emp.refresh_from_db()
         self.assertEqual(self.emp.user_id, user.pk)
         # session cleared

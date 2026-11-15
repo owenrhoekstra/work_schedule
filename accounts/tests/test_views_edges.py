@@ -244,11 +244,12 @@ class ApproveAccountEdgeTests(TestCase):
         self.admin = make_superuser("approver")
         self.client.force_login(self.admin)
         emp = make_employee(email="newbie@example.com")
+        self.emp = emp  # test_get_does_not_change_state needs the company
         self.user = User.objects.create_user(
             username="newbie",
             password="p",
             email=emp.email,
-            is_active=False,
+            is_active=True,
         )
         emp.user = self.user
         emp.save()
@@ -260,9 +261,18 @@ class ApproveAccountEdgeTests(TestCase):
         )
 
     def test_get_does_not_change_state(self):
+        """GET doesn't mutate — the pending membership stays pending.
+
+        Asserts membership status, not User.is_active: the account is
+        active from signup under the multi-tenancy contract;
+        CompanyMembership.status is the access gate.
+        """
+        membership = CompanyMembership.objects.get(
+            user=self.user, company=self.emp.company
+        )
         self.client.get(reverse("approve_account", args=[self.user.pk]))
-        self.user.refresh_from_db()
-        self.assertFalse(self.user.is_active)
+        membership.refresh_from_db()
+        self.assertEqual(membership.status, "pending")
 
     @patch("schedule.notifications.send_account_approved_email")
     def test_notify_success(self, mock_send):
