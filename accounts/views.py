@@ -334,10 +334,17 @@ def approve_account(request, user_id):
         membership.status = CompanyMembership.STATUS_ACTIVE
         membership.save(update_fields=["status"])
 
-        # User.is_active is always True by this point (OIDC and
-        # password signup both create active accounts). The access
-        # gate is CompanyMembership.status, not the account flag.
-        # Nothing to flip here.
+        # Legacy path: pre-Batch-2b password signups were created with
+        # is_active=False. Migration 0007 backfills their pending
+        # membership correctly (status="pending"), but their User
+        # account stays inactive until this approval. Activate it here
+        # so login works after manager approval.
+        #
+        # Post-Batch-2b signups (both OIDC and password) create active
+        # Users immediately, so this is a no-op for them.
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
 
         staff_group, _ = Group.objects.get_or_create(name="Staff")
         user.groups.add(staff_group)

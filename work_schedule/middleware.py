@@ -6,10 +6,6 @@ from django.urls import reverse
 # Paths that don't require a company context. Everything not listed is
 # tenant-scoped and gets redirected to the picker when enforcement is
 # on and the user has no company resolved.
-#
-# The admin URL is dynamically prepended to this list (see
-# TenantMiddleware.__init__) so the exempt list always matches whatever
-# URL the project configured, not a hardcoded "/admin/".
 _TENANT_EXEMPT_PREFIXES = (
     "/accounts/",
     "/healthz/",
@@ -18,12 +14,7 @@ _TENANT_EXEMPT_PREFIXES = (
     "/static/",
 )
 
-
-# Auth-flow redirects that HTMX requests must not follow internally —
-# HTMX follows a 302, receives the destination HTML (200), and swaps
-# it into the fragment target, producing a nested-page rendering bug.
-# Any 302 to one of these becomes 204 + HX-Redirect instead, so the
-# browser does a full-page navigation.
+# Auth-flow redirects that HTMX requests must not follow internally.
 _HX_AUTH_REDIRECT_PREFIXES = (
     "/accounts/login/",
     "/accounts/company-picker/",
@@ -36,18 +27,15 @@ class TenantMiddleware:
 
     Company resolution order:
       1. session["company_id"] (user's explicit choice) — re-validated
-         against current membership/employment on every request
-      2. platform admin → first company (they see all companies)
-      3. single viable membership → that company (session auto-set)
-      4. otherwise → None
-
-    "Viable" means the membership's status is active AND (if an
-    Employee row exists for this user at that company) they haven't
-    passed their last_day. See work_schedule.auth.viable_memberships.
-
-    When `settings.TENANT_ENFORCEMENT` is on and a user hits a
-    non-exempt path with request.company = None, redirect them to the
-    company picker.
+         against current membership/employment on every request. A
+         stale session is cleared and NOT auto-substituted with another
+         company: an open form for the old company must not silently
+         write against the new one. Enforcement redirects to the picker.
+      2. platform admin → first company
+      3. single viable membership AND no session choice yet → that
+         company (session auto-set). This branch only fires when the
+         user has never explicitly picked a company.
+      4. otherwise → None.
     """
 
     def __init__(self, get_response):
@@ -109,8 +97,14 @@ class TenantMiddleware:
                 for m in viable:
                     if str(m.company_id) == session_id:
                         return m.company
+            # Session named a company the user can no longer access.
+            # Clear and refuse to auto-substitute — the user must
+            # explicitly re-pick from the picker.
             request.session.pop("company_id", None)
+            return None
 
+        # Session never set. Auto-select when exactly one viable
+        # company — the common fresh-login case.
         if len(viable) == 1:
             company = viable[0].company
             request.session["company_id"] = str(company.id)
@@ -127,15 +121,8 @@ class TenantMiddleware:
 class HTMXLoginRedirectMiddleware:
     """Rewrite HTMX auth-flow redirects to 204 + HX-Redirect.
 
-    HTMX follows 302s, receives the destination HTML with a 200, and
-    swaps it into the fragment target — the user ends up with a login
-    page (or company picker, or waiting page) rendered inside a
-    schedule cell. Catch any 302 to an auth-flow URL and convert it
-    to a 204 with HX-Redirect, which tells HTMX to do a full-page
-    navigation instead.
-
     Must appear ABOVE TenantMiddleware and EmployeeDeactivationMiddleware
-    in MIDDLEWARE. Both can short-circuit with a 302 on the request
+    in MIDDLEWARE — both can short-circuit with a 302 on the request
     phase; if this middleware is below them, its response phase never
     runs and the 302 escapes to HTMX.
     """

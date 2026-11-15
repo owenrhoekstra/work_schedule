@@ -44,7 +44,7 @@ class EmployeeDeactivationMiddlewareTests(TestCase):
         company = make_company()
         user = make_staff_user(company=company)
         employee = make_employee(
-            company=company, last_day=date.today() - timedelta(days=1)
+            company=company, last_day=timezone.localdate() - timedelta(days=1)
         )
         employee.user = user
         employee.save()
@@ -174,7 +174,7 @@ class HTMXLoginRedirectMiddlewareTests(TestCase):
         company = make_company()
         user = make_staff_user(company=company)
         employee = make_employee(
-            company=company, last_day=date.today() - timedelta(days=1)
+            company=company, last_day=timezone.localdate() - timedelta(days=1)
         )
         employee.user = user
         employee.save()
