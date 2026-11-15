@@ -212,9 +212,7 @@ def verify_signup_otp(request):
 
 
 def _pending_users():
-    return User.objects.filter(
-        is_active=False, employees__is_active=True
-    ).distinct()
+    return User.objects.filter(is_active=False, employees__is_active=True).distinct()
 
 
 @login_required
@@ -266,6 +264,56 @@ def profile(request):
         "registration/profile.html",
         {"form": form, "employee": employee},
     )
+
+
+@login_required
+def company_picker(request):
+    """Pick a company to work in.
+
+    Shows active memberships only. Pending memberships stay hidden
+    (they go through the acceptance flow, not the picker). Users with
+    exactly one membership are auto-selected and redirected — that
+    path fires from TenantMiddleware's auto-resolution, but this view
+    keeps the same behavior as a safety net.
+    """
+    from schedule.models import CompanyMembership
+
+    memberships = list(
+        CompanyMembership.objects.filter(user=request.user, status="active")
+        .select_related("company")
+        .order_by("company__name")
+    )
+
+    if not memberships:
+        return redirect("waiting")
+
+    if len(memberships) == 1:
+        request.session["company_id"] = str(memberships[0].company_id)
+        return redirect("home")
+
+    if request.method == "POST":
+        company_id = request.POST.get("company_id", "").strip()
+        if any(str(m.company_id) == company_id for m in memberships):
+            request.session["company_id"] = company_id
+            return redirect("home")
+        messages.error(request, "Please choose a company.")
+
+    return render(
+        request,
+        "registration/company_picker.html",
+        {"memberships": memberships},
+    )
+
+
+@login_required
+def waiting(request):
+    """Landing page for authed users with no active company membership.
+
+    Typically reached when a signup hasn't been approved yet, or when
+    a membership was revoked. Message points at the manager so the
+    user knows who to ask.
+    """
+    return render(request, "registration/waiting.html")
 
 
 def _safe_next(request):
@@ -392,7 +440,7 @@ class OTPGatedPasswordChangeView(PasswordChangeView):
             return False
         try:
             ts = datetime.fromisoformat(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         if timezone.is_naive(ts):
             ts = timezone.make_aware(ts)

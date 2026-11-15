@@ -205,6 +205,10 @@ CACHES = {
 #   2. RESEND_API_KEY present -> Resend (prod, or a dev with a real key)
 #   3. otherwise -> console backend (dev without keys)
 
+TENANT_ENFORCEMENT = (
+    os.environ.get("TENANT_ENFORCEMENT", "False").lower() in ("true", "1", "yes")
+)
+
 if STAGING:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ.get("MAILPIT_HOST", "mailpit")

@@ -13,4 +13,6 @@ urlpatterns = [
         views.approve_account,
         name="approve_account",
     ),
+    path("company-picker/", views.company_picker, name="company_picker"),
+    path("waiting/", views.waiting, name="waiting"),
 ]

@@ -6,13 +6,32 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 
+# Paths that don't require a company context. Everything not listed is
+# tenant-scoped and gets redirected to the picker when enforcement is
+# on and the user has no company resolved.
+_TENANT_EXEMPT_PREFIXES = (
+    "/accounts/",
+    "/admin/",
+    "/healthz/",
+    "/oidc/",
+    "/api/v1/",
+    "/static/",
+)
+
 
 class TenantMiddleware:
     """Resolve request.company and populate the admin-ladder flags.
 
-    Commit 2 of Branch 2: adds is_platform_admin / is_company_admin /
-    is_team_admin to the request. Decorators and the accounts context
-    processor read these instead of re-querying per call.
+    Company resolution order:
+      1. session["company_id"] (user's explicit choice)
+      2. platform admin → first company (they see all companies)
+      3. single active membership → that company (session auto-set)
+      4. otherwise → None
+
+    When `settings.TENANT_ENFORCEMENT` is on and a user hits a
+    non-exempt path with request.company = None, redirect them to the
+    company picker. Enforcement is gated so tests and pre-launch
+    deployments can run without company context.
     """
 
     def __init__(self, get_response):
@@ -39,10 +58,18 @@ class TenantMiddleware:
                 request.user, request.team, request.company
             )
 
+            if (
+                settings.TENANT_ENFORCEMENT
+                and request.company is None
+                and not self._is_exempt(request.path)
+            ):
+                return redirect(reverse("company_picker"))
+
         return self.get_response(request)
 
     def _resolve_company(self, request):
         from schedule.models import Company, CompanyMembership
+        from work_schedule.auth import is_platform_admin
 
         session_id = request.session.get("company_id")
         if session_id:
@@ -51,7 +78,7 @@ class TenantMiddleware:
             except Company.DoesNotExist, ValueError:
                 request.session.pop("company_id", None)
 
-        if request.user.is_superuser:
+        if is_platform_admin(request.user):
             return Company.objects.order_by("id").first()
 
         memberships = CompanyMembership.objects.filter(
@@ -65,30 +92,12 @@ class TenantMiddleware:
 
         return None
 
+    def _is_exempt(self, path):
+        return any(path.startswith(prefix) for prefix in _TENANT_EXEMPT_PREFIXES)
+
 
 class HTMXLoginRedirectMiddleware:
-    """Convert login-redirects for HTMX requests into HX-Redirect.
-
-    HTMX follows 3xx via browser fetch automatically. When a session
-    expires and an HTMX form POST hits an `@login_required` view,
-    Django returns 302 → /accounts/login/. HTMX follows it, gets the
-    login page HTML (200), and swaps it into the fragment's hx-target
-    — usually #schedule-table or a modal body. The user sees the login
-    form embedded in a broken page, and loses their typed input.
-
-    Detect that case (HX-Request header set + 3xx to LOGIN_URL) and
-    rewrite: 204 with `HX-Redirect` header set to the login URL. HTMX
-    performs a full-page navigation on HX-Redirect regardless of the
-    target. The `?next=` query string is preserved, so the login view
-    bounces the user back to the form after re-auth.
-
-    Also catches the deactivation middleware's 302-to-login — same
-    failure mode, same fix.
-
-    Scoped to LOGIN_URL on purpose: an HTMX-facing view that returns a
-    non-login 3xx (e.g. a future POST-redirect-GET) would be left
-    alone. Extend the check if that assumption ever changes.
-    """
+    """Rewrite HTMX requests' login redirects to 204 + HX-Redirect."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -97,18 +106,14 @@ class HTMXLoginRedirectMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
 
-        if request.headers.get("HX-Request") != "true":
-            return response
+        if (
+            request.headers.get("HX-Request") == "true"
+            and response.status_code in (301, 302)
+            and response.url
+            and response.url.startswith(self.login_prefix)
+        ):
+            redirect_response = HttpResponse(status=204)
+            redirect_response["HX-Redirect"] = response.url
+            return redirect_response
 
-        if response.status_code not in (301, 302, 303, 307, 308):
-            return response
-
-        location = response.get("Location", "")
-        if not location.startswith(self.login_prefix):
-            return response
-
-        # 204 = no swap, no error. HX-Redirect triggers a full-page
-        # navigation to the location, including any ?next= param.
-        redirect_response = HttpResponse(status=204)
-        redirect_response["HX-Redirect"] = location
-        return redirect_response
+        return response
