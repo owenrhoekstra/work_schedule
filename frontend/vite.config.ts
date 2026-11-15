@@ -25,18 +25,14 @@ export default defineConfig({
     },
   },
   build: {
-    // Django serves the shell from templates/registration/login_spa.html,
-    // which references {% static 'vue/index.js' %} and 'vue/index.css'.
-    // collectstatic rehashes these into the manifest — no cache-busting
-    // concern here.
     outDir: "../static/vue",
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        entryFileNames: "index.js",
+        entryFileNames: "index-[hash].js",
         chunkFileNames: "[name]-[hash].js",
         assetFileNames: (assetInfo) => {
-          if (assetInfo.name?.endsWith(".css")) return "index.css";
+          if (assetInfo.name?.endsWith(".css")) return "index-[hash][extname]";
           return "[name]-[hash][extname]";
         },
       },
