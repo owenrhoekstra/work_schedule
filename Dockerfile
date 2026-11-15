@@ -55,7 +55,12 @@ EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["gunicorn", "work_schedule.wsgi:application", \
     "--bind", "0.0.0.0:8000", \
-    "--workers", "3", \
+    "--worker-class", "sync", \
+    "--workers", "4", \
+    "--threads", "1", \
     "--timeout", "60", \
+    "--worker-tmp-dir", "/dev/shm", \
+    "--max-requests", "1000", \
+    "--max-requests-jitter", "100", \
     "--access-logfile", "-", \
     "--error-logfile", "-"]

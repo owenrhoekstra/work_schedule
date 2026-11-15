@@ -19,6 +19,7 @@ dependencies = [
     "qrcode>=8.2",
     "django-ninja>=1.8.0",
     "mozilla-django-oidc>=5.0.2",
+    "django-vite>=3.2.0",
 ]
 
 [tool.uv]
