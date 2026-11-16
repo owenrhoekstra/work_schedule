@@ -37,7 +37,7 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
-LOGIN_REDIRECT_URL = "/schedule/home/"
+LOGIN_REDIRECT_URL = "/schedule/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 SESSION_SAVE_EVERY_REQUEST = True
@@ -65,7 +65,7 @@ INSTALLED_APPS = [
     "axes",
     "accounts",
     "schedule",
-    "django_vite"
+    "django_vite",
 ]
 
 MIDDLEWARE = [

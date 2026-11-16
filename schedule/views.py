@@ -703,6 +703,25 @@ def home(request):
 
 
 @login_required
+@permission_required("schedule.view_shift", raise_exception=True)
+def schedule_spa(request):
+    """Vue shell for the schedule.
+
+    Serves the SPA mount point; the SPA fetches everything else from
+    /api/v1/me/ and /api/v1/schedule/week/. Gated on view_shift only
+    (same as the Django home view it shadows): scope selection and
+    admin-only UI are driven by available_scopes from /me/, so an
+    employee with only "me" scope sees their own week in this shell
+    without needing a separate employee route.
+
+    Django's /schedule/home/ stays alive in parallel — nothing in the
+    Vue UI links to it. It will be deleted once the Vue schedule has
+    been verified on staging.
+    """
+    return render(request, "schedule/schedule_spa.html")
+
+
+@login_required
 @company_admin_required
 @permission_required("schedule.add_employee", raise_exception=True)
 @permission_required("schedule.view_shift", raise_exception=True)
@@ -1313,7 +1332,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _render_pattern_form(
             request,
             employee,
@@ -1336,7 +1355,7 @@ def _handle_pattern_form_post(request, employee, mode):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1704,7 +1723,7 @@ def pattern_form_preview(request, pk):
 
     try:
         cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1789,7 +1808,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -2709,7 +2728,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 
