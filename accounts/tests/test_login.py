@@ -19,9 +19,15 @@ _LOCMEM_CACHES = {
 @override_settings(CACHES=_LOCMEM_CACHES)
 class LoginViewTests(TestCase):
     def test_login_page_renders(self):
-        """Django serves the shell HTML; Vue renders the form client-side."""
         resp = self.client.get(reverse("login"))
         self.assertEqual(resp.status_code, 200)
+
+    def test_login_redirects_authenticated_users(self):
+        user = User.objects.create_user(username="authed", password="pass")
+        self.client.force_login(user)
+        resp = self.client.get(reverse("login"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, "/schedule/home/")
 
     def test_logout_redirects(self):
         user = User.objects.create_user(username="user", password="pass")

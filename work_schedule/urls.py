@@ -64,7 +64,7 @@ def _recently_verified(request, ttl=timedelta(minutes=5)):
         return False
     try:
         ts = datetime.fromisoformat(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     if timezone.is_naive(ts):
         ts = timezone.make_aware(ts)
@@ -192,7 +192,6 @@ urlpatterns = [
     path("accounts/", include("accounts.urls")),
     path("schedule/", include("schedule.urls")),
     path("oidc/", include("mozilla_django_oidc.urls")),
-    path("accounts/login-vue/", login_spa, name="login_vue"),
     path(
         "api/v1/accounts/login/",
         accounts_login_view,
