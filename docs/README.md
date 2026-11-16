@@ -11,9 +11,9 @@ Living documents for the work_schedule project.
   deferred work. Permanent; cleared only when every branch in the
   multi-tenancy effort has shipped, then either deleted or moved to
   `design/MULTI_TENANCY.md` (see the file's own lifecycle note).
-- `worklog/SECURITY_SWEEP.md` — Session 10 (security sweep) branch
-  record. Permanent; not cleared at merge. Its own header says: if
-  the worklog directory is ever cleared wholesale, move to
+- `SECURITY_SWEEP.md` — Session 10 (security sweep) branch record.
+  Permanent; not cleared at merge. Its own header says: if the
+  worklog directory is ever cleared wholesale, move to
   `docs/security/SECURITY_SWEEP_2026_11.md`.
 
 ### Per-branch work (cleared at merge)
