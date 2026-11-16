@@ -18,55 +18,87 @@ employees, define recurring shift patterns (including multi-week
 rotations), and set per-day overrides. Employees view their schedule
 and sign up with a manager-provided email address.
 
-Currently scoped to a single workplace. Long-term direction is
-multi-tenancy (companies + teams) and SaaS licensing. The codebase is
-deliberately structured so those are additive rather than rewrites —
-don't build either yet, but don't design in ways that block them. See
-"Multi-tenancy and beyond" at the bottom for the specific habits that
-preserve the path.
+Multi-tenancy landed in Branch 2. Company and Team models exist, every
+scheduling root has a company FK, tenant context flows from session to
+request via TenantMiddleware, and authz is enforced via an explicit
+decorator ladder (platform → company → team). Teams are schema-complete
+but UI-deferred. The eventual SaaS name is "docket"; the current
+instance becomes the multi-tenant SaaS and renames to `docket.*`
+eventually. See `docs/MULTI-TENANCY.md` for the branch record,
+including deferred work.
 
 ## Stack
 
 - **Django 6.1.1**, Python 3.14
-- **PostgreSQL** for persistence, **Redis** for cache
+- **PostgreSQL 18** for persistence, **Redis 7** for cache
+- **Django Ninja** for the `/api/v1/` API surface
+- **mozilla-django-oidc** for OIDC login (Zitadel, PKCE public client)
 - **Tailwind CSS** via `django-tailwind` (the `theme` app)
 - **HTMX 2.x** and **Alpine.js 3.x**, vendored under `static/js/`
-  (never CDN)
-- **WhiteNoise** with `CompressedManifestStaticFilesStorage` for static
-  assets
+  (never CDN) — being phased out as pages move to Vue
+- **Vue 3** + **shadcn-vue** + **Phosphor Icons** + **Pinia** + **Vue
+  Router**, built with **Vite**, served via **django-vite**
+- **`pnpm`** for frontend package management
+- **WhiteNoise** + **`ViteAwareStorage`** for static assets
+  (`ViteAwareStorage` resolves django-vite's manifest; everything else
+  goes through `CompressedManifestStaticFilesStorage`)
 - **django-axes** for login rate limiting
 - **Resend** via `anymail` for transactional email
-- **`uv`** for dependency management (not pip, not poetry)
+- **`uv`** for Python dependency management (not pip, not poetry)
 
 ## Commands
 
 All manage.py commands must be prefixed with `uv run`. An exception is
-`uv lock --check` as it is not using manage.py.
+`uv lock --check` as it is not using manage.py. All pnpm commands run
+from `frontend/`.
 
 **Before every commit**, run the full pre-commit sequence:
 
+    cd frontend && \
+    pnpm build && \
+    pnpm test:unit --run && \
+    cd .. && \
     uv run python manage.py collectstatic --noinput && \
     uv run python manage.py check && \
     uv run python manage.py test && \
     uv lock --check
 
-`collectstatic` matters more than it looks. Static storage is
-manifest-based; a template referencing a `{% static %}` file that isn't
-in `staticfiles.json` raises `Missing staticfiles manifest entry` at
-render time and takes every page down. Running `test` without
-`collectstatic` first fails in a clean checkout. Whenever you add or
-rename a static file, run `collectstatic` before running tests.
+The frontend build runs first so `collectstatic` picks up the latest
+`static/vue/` output. `test:unit --run` is required — without `--run`,
+vitest enters watch mode and hangs the script. `collectstatic` matters
+more than it looks: static storage is manifest-based; a template
+referencing a `{% static %}` file that isn't in `staticfiles.json`
+raises `Missing staticfiles manifest entry` at render time. Whenever
+you add or rename a static file, or rebuild the frontend, run
+`collectstatic` before running tests.
 
 ## Architecture
 
     work_schedule/       # project settings, urls, wsgi, context processors,
-                         #   HTMX login-redirect middleware
-    accounts/            # auth, signup, OTP, profile, admin gate
+                         #   TenantMiddleware, HTMX login-redirect middleware,
+                         #   /api/v1/ mount
+      api/               # NinjaAPI instance, per-project schemas, shared auth
+    accounts/            # auth, signup, OTP, profile, admin gate, OIDC
+                         #   backend, company picker, pending queue,
+                         #   /api/v1/accounts/ + /api/v1/companies/ endpoints
+      api.py             # plain-Django login + CSRF views; Ninja companies
+      schemas.py         # Pydantic schemas for accounts API
+      backends.py        # DocketOIDCBackend
     schedule/            # employees, patterns, shifts, schedule view
     theme/               # Tailwind config and compiled CSS
     templates/           # project-level templates (base.html, emails, partials)
     static/              # source static files
+      vue/               # Vite build output (gitignored; served via ViteAwareStorage)
     staticfiles/         # collectstatic output, do not edit
+    frontend/            # Vue SPA source
+      src/
+        components/      # Vue components (shadcn-vue, login, layout)
+        composables/     # composition API helpers (useApi, login flows)
+        views/           # route-level views (Login.vue)
+        router/          # Vue Router config
+        stores/          # Pinia stores
+        test/            # setup.ts, test-router.ts
+        __tests__/       # component tests colocated per folder
     docs/                # living docs (see "Docs" section below)
     scripts/             # one-off dev scripts (db reset/restore)
 
@@ -94,35 +126,59 @@ See `docs/README.md` for the full model. Short version:
   Items move out of here and into a branch's worklog when picked up.
 - `docs/STAGING.md` — staging environment setup (parallel stack, isolated
   data/tunnel/access). Reference, not lifecycle.
-- `docs/DEPLOYMENT.md` — prod deployment, services, backups, branch
-  flow. Reference.
+- `docs/DEPLOYMENT.md` — prod deployment, services, backups,
+  branch flow. Reference.
+- `docs/MULTI-TENANCY.md` — multi-tenancy branch record and durable
+  plan. Covers model shape, tenant resolution, authz ladder, API
+  foundation, deferred work (teams UI, home dual-serve, self-serve
+  onboarding, RLS, Go rewrite). Read this before touching
+  tenant-aware code.
 
 Don't put design rationale into `FIXED.md` — it goes in `SESSIONS.md`.
 Don't put active bugs into `ISSUES.md` — they go in `BUGREPORT.md`.
 
 ### Key models (`schedule/models.py`)
 
+- `Company` — the tenant. Every scheduling root hangs off this.
+- `Team` — scheduling sub-scope inside a company (Kitchen, Front
+  House). Schema-complete; UI deferred.
+- `CompanyMembership` — user → company access. `role ∈ {admin,
+member}`, `status ∈ {pending, active}`. The access gate — not
+  `User.is_active`.
+- `TeamMembership` — user → team (authz-scoped, history-carrying).
+- `EmployeeTeam` — employee → team (scheduling-scoped,
+  history-carrying, `is_default`).
 - `Employee` — title, name, role FK, email, optional User link,
-  `start_date`, `last_day`, `is_active`
-- `EmploymentPeriod` — one continuous stretch of employment per
-  employee. `end_date` is **exclusive** (first day NOT employed).
-- `ShiftPattern` — a snapshot of an employee's default schedule for a
-  half-open range `[effective_from, effective_to)`, both Monday-aligned.
-  `effective_to` is exclusive; `None` means open-ended. Holds
-  `cycle_weeks` (1–4) and its `Shift` rows keyed by
-  `(week_offset, day)`.
-- `Shift` — one cell of a pattern: `(pattern, week_offset, day)` →
-  start/end. Missing combinations mean OFF.
-- `ShiftOverride` — per-employee per-date override, `is_off` flag or
-  substitute times.
-- `DayOverride` — whole-date status (Closed, Holiday) affecting every
-  employee.
+  `company` FK, `start_date`, `last_day`, `is_active`. **Split from
+  CompanyMembership**: Employee holds scheduling data; membership
+  holds access. One user can be an Employee at multiple companies.
+- `EmploymentPeriod` — one continuous employment stretch.
+  `end_date` is **exclusive** (first day NOT employed). Redundant
+  `company` FK synced via `save()`.
+- `ShiftPattern` — snapshot of an employee's default schedule for
+  `[effective_from, effective_to)`, both Monday-aligned.
+  `effective_to` exclusive; `None` open-ended. `cycle_weeks` (1–4),
+  `Shift` rows keyed by `(week_offset, day)`. Redundant `company` FK
+  synced via `save()`.
+- `Shift` — one cell of a pattern. Missing means OFF. Derives company
+  via pattern.
+- `ShiftOverride` — per-employee per-date override. Derives company
+  via employee.
+- `DayOverride` — whole-date status (Closed, Holiday). Company-wide
+  when `team` is null, team-scoped otherwise.
+- `Role` / `Title` — company-scoped. Nullable `team` FK reserved for
+  team-scoped forking.
+- `OIDCIdentity` — `(issuer, subject)` → User. One user can have
+  multiple identities (Zitadel, Keycloak later).
 
 **Employee creation does not auto-create a ShiftPattern.** New hires
 have no schedule until a manager sets one up. See "Pattern form domain"
 below.
 
-### Template layout
+**Employee creation does not auto-create a CompanyMembership.**
+Password signup creates a pending membership; OIDC first-login creates
+a pending membership; manager addition of an existing User goes through
+the approval flow. Access and scheduling are separate decisions.
 
     templates/                          # project-level
       base.html                         # global shell, htmx+alpine wiring
@@ -131,8 +187,29 @@ below.
       emails/                           # transactional emails (HTML + txt)
 
     accounts/templates/registration/
-      login.html                        # Django login (default /accounts/login/)
-      login_spa.html                    # Vue shell (/accounts/login-vue/ until cutover)
+      login_spa.html                    # Vue shell (django-vite assets)
+      signup.html, signup_verify_otp.html, signup_pending.html
+      company_picker.html, waiting.html # Django pages (Vue deferred)
+      password_change_form.html, password_change_done.html
+      verify_otp.html, profile.html
+
+    frontend/src/                       # Vue SPA (only login today)
+      components/Login/                 # LoginLayout, LoginOptions,
+                                        #   PasswordLoginScreen,
+                                        #   SsoRedirectScreen, PasswordField,
+                                        #   FormErrorAlert, SubmitButton,
+                                        #   BackToOptionsButton, LoginOptionCard
+      views/Login.vue
+      composables/useApi.ts
+      composables/Login/                # useLoginMode, usePasswordLogin,
+                                        #   useSsoLogin, useFormErrors
+      router/index.ts                   # base switches on DEV vs prod
+      stores/user.ts                    # Pinia (USE_STUB=false)
+      test/setup.ts, test/test-router.ts
+      __tests__/App.spec.ts                    # transactional emails (HTML + txt)
+
+    accounts/templates/registration/
+      login_spa.html                    # Vue shell (/accounts/login/ — the only login path)
 
     schedule/templates/schedule/        # schedule app pages and pieces
       home.html
@@ -237,14 +314,18 @@ week is in the past).
     `with_pattern=True` or `cycle_weeks=N`.
 - **`make_manager_user()` grants every `schedule.*` permission** (via
   queryset, so newly-added perms are auto-granted) but is **not** a
-  superuser and is **not** in the "Management" group. Sufficient for
-  permission-only views (home, QR), insufficient for views gated on
-  `management_required`.
-- **`make_management_user()` = `make_manager_user()` + Management group
-  membership.** This is the shape you want for most write views and all
-  `settings_*` views after SEC-006 — those now require Management AND
-  the underlying permission. Reach for this first when a test needs to
-  hit a gated view.
+  superuser and is **not** in the "Platform Admin" group. Post-Branch-2,
+  `make_manager_user` also grants a `role="member"` CompanyMembership at
+  the test's first company (or a fresh one) so tenant enforcement has a
+  context. Sufficient for permission-only views (home, QR,
+  `/api/v1/smoke/me/`); insufficient for views gated on
+  `company_admin_required`.
+- **`make_management_user()` = `make_manager_user()` + Platform Admin
+  group membership + `role="admin"` CompanyMembership at the test's
+  first company.** This is the shape you want for most write views and
+  all `settings_*` views after SEC-006 — those require an active
+  company-admin membership AND the underlying permission. Reach for
+  this first when a test needs to hit a gated view.
 - **The `_manager()` / `make_manager()` helpers in test files are thin
   wrappers around `make_management_user()`.** If you see `_manager(client)`
   in `test_details.py` or `make_manager()` in `test_settings.py` /
@@ -333,7 +414,8 @@ These are the sharp edges. Read carefully.
   call `htmx.process(form)` in `$nextTick` after Alpine updates the
   attributes, or the request goes to the wrong URL.
 - For fragment responses that need context processors (`perms`,
-  `is_management`, `app_name`), use `render_to_string(template, context,
+  `is_platform_admin`, `is_company_admin`, `is_team_admin`, `app_name`),
+  use `render_to_string(template, context,
 request=request)`. Without `request=`, `RequestContext` isn't
   populated and template conditionals silently evaluate to false.
 - For out-of-band swaps, return multiple fragments concatenated in one
@@ -586,9 +668,64 @@ API-only is fine for features with no HTML surface.
 
 ## Auth and admin gating
 
-Two auth surfaces have custom gating the app relies on. Read this before
-touching `work_schedule/urls.py`, `accounts/views.py`, or
-`accounts/admin.py`.
+Multi-tenancy added a session-company layer, an admin ladder, and an
+OIDC backend on top of the existing password + OTP flows. Read this
+before touching `work_schedule/middleware.py`,
+`work_schedule/auth.py`, `accounts/views.py`, `accounts/backends.py`,
+`work_schedule/urls.py`, or `accounts/admin.py`.
+
+### The admin ladder
+
+Four decorators in `work_schedule.auth`:
+
+- `platform_admin_required` — `is_staff`, superuser, or `Platform
+Admin` group member.
+- `company_admin_required` — platform admin OR active
+  `CompanyMembership(role="admin", status="active")` at
+  `request.company`.
+- `team_admin_required` — company admin OR active
+  `TeamMembership(role="admin")` at `request.team`.
+- `any_admin_required` — alias for `team_admin_required`. The
+  workhorse.
+
+Ladder semantics: platform implies company implies team. Each decorator
+reads `request.company` (and `request.team` where relevant), which
+`TenantMiddleware` sets. Every view also has a
+`@permission_required("schedule.X")` — the ladder is the second layer,
+the permission is the first.
+
+### Tenant context and middleware
+
+`TenantMiddleware` (in `work_schedule/middleware.py`) sets
+`request.company` from `session["company_id"]`, validated against
+`viable_memberships(user)` on every request. Resolution order:
+
+1. session company, if still viable
+2. platform admin → first company
+3. single viable membership AND no session choice → auto-select
+4. otherwise → None
+
+When `TENANT_ENFORCEMENT=True` (default), an authed user with
+`request.company = None` on a non-exempt path redirects to the picker.
+
+**Stale session is rejected, not silently substituted.** An open form
+for Company A must not target Company B if A becomes invalid mid-edit.
+`_resolve_company` returns None and clears the session; the user
+re-picks via the picker.
+
+**Middleware ordering.** `HTMXLoginRedirectMiddleware` must sit above
+`TenantMiddleware`, which must sit above
+`EmployeeDeactivationMiddleware`. Both of the latter can short-circuit
+with 302s that HTMX would otherwise follow and swap into fragments.
+
+### OIDC backend
+
+`accounts.backends.DocketOIDCBackend` resolves by `(issuer, sub)`
+identity first, then email. On first login, creates a User and pending
+`CompanyMembership` only when an active unlinked Employee exists for
+the claimed email. `get_or_create_user` override merges `iss`/`sub`
+from the id_token payload into userinfo — Zitadel's userinfo endpoint
+omits `iss`.
 
 ### OTP-gated password change
 
@@ -643,6 +780,12 @@ check too — the superuser gate is the whole point.
   **schedule/tests/**
   - `test_home.py` — schedule view
   - `test_employee.py` — employee reading page
+  - `test_middleware.py` — TenantMiddleware, HTMX redirect,
+    per-company deactivation
+  - `test_views_edges.py` — auth/permission edge cases, access matrix
+  - `test_picker.py` — company picker + companies API
+  - `test_management.py` — clear_lockouts command
+  - `test_login_api.py` — /api/v1/accounts/login/ + /api/v1/csrf/
   - `test_details.py` — employee details page (`/details/`)
   - `test_overrides.py` — shift and day overrides
   - `test_print.py` — print view + QR code
@@ -663,6 +806,12 @@ check too — the superuser gate is the whole point.
 
   **accounts/tests/**
   - `test_forms.py` — signup, profile, password change forms
+  - `test_oidc.py` — DocketOIDCBackend unit tests
+  - `test_oidc_flow.py` — OIDC callback flow integration
+  - `test_emails.py` — send_email wrapper + EMAIL_HTML_ENABLED behavior
+  - `test_login_api.py` — login view, CSRF view, companies API
+  - `test_approval.py` — membership-based pending queue
+  - `test_context_processors.py` — pending_accounts + auth_flags
   - `test_signup.py` — signup flow, rate limit, stale session
   - `test_password_change.py` — accounts + admin OTP-gated password
     change
@@ -670,7 +819,7 @@ check too — the superuser gate is the whole point.
   - `test_login.py` — login view
   - `test_profile.py` — profile view
   - `test_approval.py` — pending accounts + approval flow
-  - `test_context_processors.py` — pending count, is_management
+  - `test_context_processors.py` — pending count, auth_flags
   - `test_emails.py` — send_email wrapper, HTML→text conversion
   - `test_management.py` — management commands
   - `test_views_edges.py` — auth edges for signup/verify/profile
@@ -708,7 +857,22 @@ HTTP_HX_REQUEST="true")`.
   `messages.success()`, include the `_messages.html` fragment in the
   response (see `add_employee` in `views.py` for the pattern).
 - **`make_employee()` defaults to `with_pattern=False`.** See Factories
-  section. This is the #1 test-writing gotcha.
+  section. This is the #1 test-writing gotcha. It also defaults to
+  `company=None` (auto-created unless passed) — most tests want
+  `company=self.company` explicitly.
+- **`User.is_active` is not the access gate.** Password signup and
+  OIDC first-login both create `is_active=True`. Access is gated by
+  `CompanyMembership.status` + `viable_memberships`. Tests that assert
+  `is_active` on signup or approval are testing the wrong field.
+- **Don't use `{% static 'vue/index.js' %}` in Vue-serving templates.**
+  Use `{% vite_asset 'src/main.ts' %}` (django-vite). `{% static %}`
+  bypasses the manifest and reintroduces the double-mount crash —
+  split chunks reference the unhashed `./index.js` while the template
+  loads the hashed file, so Vue executes twice.
+- **Prod/dev SSO visibility reads different sources.** Prod reads
+  `window.__LOGIN_CONFIG__.oidcEnabled` (server-injected).
+  Dev reads `VITE_OIDC_ENABLED` (Vite serves the shell, no Django
+  render). `LoginOptions.vue` gates on `import.meta.env.DEV`.
 - **Alpine `@click` on submit buttons inside HTMX-swappable forms can
   lose scope.** Symptom: the method runs but throws `this.X is not a
 function`; Alpine swallows the error and the action silently no-ops.
@@ -766,8 +930,43 @@ function`; Alpine swallows the error and the action silently no-ops.
   see the "keep in mind" note below.
 - Don't reformat large unrelated chunks of a file in a bug-fix commit.
   Keep diffs surgical.
+- Don't use `{% static %}` for Vue assets. Use `{% vite_asset %}`.
+  See Gotchas.
+- Don't flip `User.is_active` when handling employment lifecycle.
+  Deactivate/reactivate is a `CompanyMembership.status` change, not
+  an account change.
+- Don't rely on `is_management` — it's retired. Templates read
+  `is_platform_admin` / `is_company_admin` / `is_team_admin`
+  from `auth_flags` context processor.
 
 ## Multi-tenancy and beyond: what to keep in mind
+
+Multi-tenancy has landed. The shape is set: Company + Team models, FK
+on scheduling roots, session-based tenant resolution, decorator ladder
+for authz. See `docs/MULTI-TENANCY.md` for the full model.
+
+The eventual SaaS direction is unchanged:
+
+- **Self-serve onboarding** (company creation, employee TOTP signup)
+  is its own branch. Schema is shaped for it (`Company.site_url`,
+  `Company.app_name`, `Company.slug` are per-tenant).
+- **Postgres RLS** is a hardening layer planned for later. Every
+  selector already takes `company` — enabling RLS is additive.
+- **OIDC-only** is a future state. `SessionRefresh` middleware was
+  deliberately removed because it can't coexist with password auth;
+  re-add when the app retires passwords.
+- **Go backend** replaces Django views once the SPA is fully Vue.
+  The `/api/v1/` contract is stable; helper signatures can churn.
+- **`app_name` resolution is centralized** in
+  `work_schedule/context_processors.py`. When per-request tenant
+  branding lands, this is the one chokepoint to change.
+- **Emails won't have a request.** When `send_email` needs a company,
+  it takes one as a parameter rather than reading from a context.
+  This is deferred to the teams branch.
+
+When designing new domain models, ask "does this belong to a company
+or a team in the future?" and shape the fields so adding the FK is a
+one-column migration, not a restructure.
 
 Even though we're not building it, a few habits preserve the ability to
 add it later:

@@ -26,8 +26,21 @@ Persistent queue of items to tackle in a future branch.
 
 ### Reactivate / cancel activates pending-approval accounts
 
-- **Origin:** CodeRabbit finding #5 (`feb9c6a6-3585-4431-a8f9-6e766085d5d6`),
-  reviewed during SEC-006 sweep. Not a SEC-006 regression.
+- **Origin:** CodeRabbit finding #5, reviewed during SEC-006 sweep.
+  Still open after the multi-tenancy branch.
+- **Problem:** `settings_cancel_deactivation` and
+  `settings_reactivate_employee` both set `User.is_active = True` on
+  the linked user. This activates accounts created via signup but never
+  approved through `approve_account`. Employment state and
+  account-approval state share the same flag, so a Management user
+  without `auth.change_user` can approve accounts through employment
+  restoration.
+- **Fix direction:** Add a distinct `approved_at` field to `User` (or
+  `Employee.is_approved`). `approve_account` sets it. Cancel/reactivate
+  restore `is_active` only for already-approved accounts.
+- **Priority:** Medium. Not a live exploit — the views are
+  company-admin-gated — but a privilege-confusion issue.
+- **Target:** own branch. Not part of pre-prod-cleanup.
 - **Problem:** `settings_cancel_deactivation` and
   `settings_reactivate_employee` both set `User.is_active = True` on
   the linked user. This activates accounts created via signup but
@@ -52,7 +65,46 @@ Persistent queue of items to tackle in a future branch.
   existing active accounts.
 - **Target:** own branch. Not in SEC-006 scope.
 
-### Action-button / endpoint permission drift
+### Teams UI
+
+- **Origin:** Session 11 item 4. Models exist; UI deferred.
+- **Scope:**
+  - Team CRUD (company-admin-gated)
+  - Team membership CRUD (team admin assignment)
+  - Employee ↔ Team assignment UI
+  - `request.team` resolution in TenantMiddleware (session or auto-resolve)
+  - Team picker for team admins
+  - Team-scoped day-override resolver (`DayOverride.team` column exists)
+  - `Team.allow_member_view_all` behavior
+  - `Employee.show_team_schedules` toggle
+  - Stacked schedules for multi-team employees
+- **Priority:** Medium — blocks per-company `send_email(company=)` and
+  any behavior that needs a `request.team` context.
+- **Target:** own branch. Probably 2–3 sub-branches.
+
+### Home dual-serve (`GET /api/v1/home/`, `GET /api/v1/me/`, Vue home view)
+
+- **Origin:** Session 14 noted that login is the only Vue page so far.
+- **Scope:**
+  - Extract `schedule/selectors.py::schedule_for_week(company, week_start, viewer)`
+  - `/api/v1/me/` — session user + memberships + current company
+  - `/api/v1/home/` — week schedule JSON, matching `frontend/src/types/schedule.ts`
+  - Vue `Home.vue` view with week picker, replacing `schedule/home.html`
+  - Frontend tests for the home view
+- **Priority:** Medium. First non-login Vue page establishes the
+  dual-serve pattern for every subsequent feature.
+- **Target:** own branch.
+
+### Per-company `send_email(company=)`
+
+- **Origin:** Session 15 item 3. Deferred because notifications are
+  company-scoped but OTPs are user-scoped; the split is a teams concern.
+- **Scope:** Add `company` parameter to `send_email`; resolve
+  `Company.site_url`/`Company.app_name` from it. Notifications pass
+  `company=employee.company`. OTPs pass nothing (settings defaults).
+  When teams land, OTP gets per-user-company resolution.
+- **Priority:** Low until teams land; not blocking prod.
+- **Target:** teams branch.
 
 - **Origin:** CodeRabbit #7 (deactivation endpoints/buttons perm
   mismatch) and the follow-up reactivate + send welcome button
@@ -66,7 +118,7 @@ Persistent queue of items to tackle in a future branch.
   new buttons.
 - **Coverage as of this branch:** every action button on
   `settings.html`, `_identity_form.html`, and `employee_defaults.html`
-  gates on `is_management and perms.schedule.X`, matched to its
+  gates on `is_company_admin and perms.schedule.X`, matched to its
   endpoint's `@permission_required("schedule.X")`. Rule going
   forward: **the button's gate equals the endpoint's perm, nothing
   more, nothing less**.

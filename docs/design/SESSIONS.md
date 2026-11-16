@@ -97,7 +97,7 @@ Technical detail: see `FIXED-003`.
 
 6. **Pre-start-date weeks are disabled.** Grays them out; the server
    would reject them anyway via the existing `effective_from <
-   start_date_floor` guard, but the UI shouldn't invite the error.
+start_date_floor` guard, but the UI shouldn't invite the error.
 
 7. **Keyboard:** basic only. Tab between week bands, Enter to select,
    Escape to close. No arrow-key grid navigation — this is a
@@ -232,7 +232,7 @@ Technical detail: see `FIXED-003`.
 6. **Truncated-pattern edit support** (pass 1). A split can leave a
    pattern with `cycle_weeks > span_weeks`. The edit guard now rejects
    only growing past the span (`cycle_weeks > span_weeks AND
-   cycle_weeks > pattern.cycle_weeks`); unchanged or reduced cycles
+cycle_weeks > pattern.cycle_weeks`); unchanged or reduced cycles
    are allowed. Companion prefill fix: `_grid_weeks_for_form` accepts
    an optional `pattern` argument; edit mode uses direct-pattern
    prefill so unchanged saves don't write next-pattern data into
@@ -384,7 +384,7 @@ at `docs/design/CSP_PLAN.md`.
    because its perm-only user holds every schedule perm.
 
 9. **`check --deploy` verification.** `DJANGO_DEBUG=false
-   DJANGO_SECURE=true manage.py check --deploy` clean. Confirms the
+DJANGO_SECURE=true manage.py check --deploy` clean. Confirms the
    SEC-005 `SECURE_*` block works end-to-end for a prod-config run.
 
 10. **CodeRabbit follow-ups.** Eight findings across multiple passes:
@@ -465,7 +465,7 @@ at `docs/design/CSP_PLAN.md`.
     302, receives the login page HTML (200), and swaps it into the
     fragment target — the user sees a login form embedded in a
     schedule slot. Also catches the deactivation middleware's
-    kick-out redirect. Placed *before* `EmployeeDeactivationMiddleware`
+    kick-out redirect. Placed _before_ `EmployeeDeactivationMiddleware`
     in `MIDDLEWARE` so its response phase wraps the deactivation 302.
     Related 403 silent-failure case deferred to `ISSUES.md`
     (global-toast branch).
@@ -509,3 +509,147 @@ at `docs/design/CSP_PLAN.md`.
 - **Accounts test layout** (`accounts/tests.py` → `accounts/tests/`).
   Prerequisite for the deferred SEC-007 automated test. See
   `ISSUES.md`.
+
+---
+
+## Session 11 — Multi-tenancy models
+
+**Principle:** every scheduling root carries a `company` FK; `Employee`
+is scheduling-only and split from `CompanyMembership`.
+
+1. **Split model, not merged.** Employee holds the schedule; membership
+   holds access. Admin can be a member without being an employee;
+   employee can exist without a user (manager adds them before they
+   sign up).
+2. **FK on roots, derive on children.** Direct `company` FK on Employee,
+   EmploymentPeriod, ShiftPattern, DayOverride, Role, Title. Shift and
+   ShiftOverride derive via parent. Joins are cheap; adding the column
+   later is a follow-up.
+3. **`Employee.user` OneToOne → ForeignKey.** One user can be an
+   employee at multiple companies. `UniqueConstraint(user, company)`.
+4. **Team models ship schema-complete, UI-deferred.** `Team`,
+   `TeamMembership`, `EmployeeTeam` exist. `DayOverride.team`,
+   `Role.team`, `Title.team` are nullable FKs reserved for team-scoped
+   behavior.
+5. **UUIDv7 PKs, DB-side default** (`db_default=UUID7()`, PG 18).
+6. **Two-pass migration.** Pass 1: nullable FKs. Pass 2: RunPython
+   backfill (reads `SEED_COMPANY_NAME`/`SEED_COMPANY_SLUG` from env;
+   raises on populated DB if missing) → AlterField to NOT NULL.
+7. **`bootstrap_company`** mirrors the migration for fresh DBs and
+   non-seed companies. Idempotent.
+
+---
+
+## Session 12 — Multi-tenancy plumbing
+
+**Principle:** tenant context flows from session to request via
+middleware; authz lives in explicit decorators, not group names.
+
+1. **`TenantMiddleware` sets `request.company`** from
+   `session["company_id"]`, validated against `viable_memberships`
+   (active membership + still employed). Stale sessions are cleared
+   and **never auto-substituted** — an open form for Company A must
+   not target Company B if A becomes invalid mid-edit.
+2. **Auto-select when exactly one viable membership and no session
+   choice yet.** Common fresh-login case.
+3. **Login picker** at `/accounts/company-picker/`: 0 → waiting;
+   1 → auto-select; 2+ → render.
+4. **Decorator ladder** — `platform_admin_required`,
+   `company_admin_required`, `team_admin_required`,
+   `any_admin_required`. `management_required` retired.
+5. **`Management` group → `Platform Admin`** (migration 0006). The
+   group is a data flag for `is_platform_admin`, not an authz gate.
+6. **`EmployeeDeactivationMiddleware` per-company.** Deactivation at
+   Company A does not disable the account at Company B. No longer
+   flips `User.is_active`.
+7. **Middleware ordering:** HTMX > Tenant > Deactivation.
+8. **`.first()` → `company`-scoped everywhere** for cross-company
+   safety (`profile`, `user_email`, `add_employee` matching user).
+
+---
+
+## Session 13 — OIDC (Zitadel)
+
+**Principle:** OIDC is a second login path, not a replacement. Same
+invite-only policy, same access gate (`CompanyMembership.status`).
+
+1. **`mozilla-django-oidc`, PKCE public client.** No client secret.
+2. **`DocketOIDCBackend` resolution:** `(issuer, sub)` identity first,
+   then email. Creates User only when an active unlinked Employee
+   exists for the claimed email. Creates pending membership; refuses
+   everyone else.
+3. **`is_active=True` on create.** Account and employment are separate.
+   First-login reaches `/accounts/waiting/`; approval flips membership.
+4. **`get_or_create_user` override merges `iss`/`sub` from id_token
+   payload into userinfo.** Zitadel's userinfo omits `iss` — without
+   the merge, `OIDCIdentity` rows never get created and every login
+   falls through the email path.
+5. **`SessionRefresh` middleware NOT installed.** Can't coexist with
+   password auth; every password-authenticated user would be silently
+   redirected to Zitadel on every request. Re-add when OIDC-only.
+6. **`OIDC_ENABLED` = derived from env.** Endpoints always defined
+   (fallback to `oidc.invalid.example.com`) so `AUTHENTICATION_BACKENDS`
+   loads cleanly without credentials.
+7. **Pending queue shows both signup paths.** `_pending_memberships`
+   filters by `request.company` and `status="pending"`.
+8. **Signup creates `is_active=True`.** Login works immediately; the
+   waiting page gates access until approval. `approve_account` flips
+   the pending membership only.
+
+---
+
+## Session 14 — Vue login shell
+
+**Principle:** login is the first Vue page. Django serves the shell;
+Vue renders the form; the login POST goes to a plain-Django JSON
+endpoint.
+
+1. **django-vite for asset resolution.** `login_spa.html` uses
+   `{% vite_asset 'src/main.ts' %}`. django-vite reads `manifest.json`
+   at render time and emits the hashed entry + CSS tags.
+   `ViteAwareStorage` handles the manifest for WhiteNoise.
+   **Load-bearing:** this is why `{% static 'vue/index.js' %}` is
+   wrong. The double-mount bug came from a split-chunk setup where the
+   Login chunk imported the unhashed `./index.js` and the shell
+   template loaded the hashed `index.82d2a1139b1d.js` — two URLs, two
+   executions, Vue crashed on the second mount.
+2. **Plain-Django `/api/v1/accounts/login/`.** Login is pre-auth;
+   cookie-based auth classes (Ninja's CSRF mechanism post-1.5) can't
+   run. Plain views inherit CSRF from `CsrfViewMiddleware`.
+3. **`next` param honoured.** Validated against ALLOWED_HOSTS;
+   falls back to `LOGIN_REDIRECT_URL` otherwise.
+4. **Passkey ripped.** `LoginMode = "options" | "sso" | "password"`.
+5. **SSO hidden when `OIDC_ENABLED=False`.** Prod reads
+   `window.__LOGIN_CONFIG__.oidcEnabled`; dev reads
+   `VITE_OIDC_ENABLED` (Vite serves the shell without Django render).
+6. **Logout is a form POST.** RouterLink is client-side navigation —
+   never clears the Django session. `MenuBar.vue` posts to
+   `/accounts/logout/` with CSRF token.
+7. **Client-side field errors removed.** Red errors come from the
+   server (AGENTS.md). Empty-field submit → 422 → form error slot.
+   `usePasswordLogin` extracts `e.data.error` from `ApiError` before
+   `messageFor` fallback.
+
+---
+
+## Session 15 — Pre-prod cleanup
+
+**Principle:** debt that Vue-first development makes worse gets paid
+down before the next branch.
+
+1. **Dead Django login code removed.** `login.html`,
+   `StyledLoginForm`, `/accounts/login-vue/` route.
+2. **`is_management` alias retired.** Context processor renamed
+   `user_is_management` → `auth_flags`; returns the three explicit
+   flags. `grep is_management` returns zero.
+3. **`send_email(company=)` deferred to teams branch.** Notifications
+   are company-scoped; OTPs are user-scoped. Splitting the two is a
+   teams-branch concern.
+4. **Frontend test infrastructure.** `src/test/setup.ts` stubs
+   `window.__LOGIN_CONFIG__` + `matchMedia`. `src/test/test-router.ts`
+   provides a minimal router. Component tests for
+   `LoginOptions.vue`, `PasswordLoginScreen.vue`, `usePasswordLogin`.
+   `pnpm test:unit --run` added to pre-commit and CI.
+5. **The double-mount crash fixed by django-vite.**
+   `inlineDynamicImports` worked but broke `{% static %}` lookups;
+   django-vite is the correct architecture.

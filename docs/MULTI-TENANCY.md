@@ -2,9 +2,19 @@
 
 ## Status
 
-**IN DESIGN (branch start 2026-11-09).** Branch 0 plan-complete;
-Branches 1–2 outlined (need file reads to finalize); branches 3+
-follow the per-feature dual-endpoint pattern. Nothing built yet.
+**SHIPPED TO STAGING (2026-11-15).** Prod deploy pending. Branches 0
+(Ninja foundation), 1 (models), and 2 (plumbing + OIDC + Vue login)
+are all merged to `staging`. All Greptile review items resolved (three
+rounds: 18 + 7 + 4). 544 Django tests + 13 frontend tests green.
+
+**Deferred to follow-up branches** (see `docs/ISSUES.md`):
+- Teams UI (models exist; no UI, no `request.team` resolution,
+  team-scoped day overrides not wired)
+- Home dual-serve (`GET /api/v1/home/`, `/api/v1/me/`, Vue home view)
+- Self-serve onboarding (company creation, TOTP signup)
+- OIDC org → company mapping
+- Postgres RLS
+- Go backend
 
 **This file is the branch record and the durable plan.** Unlike
 `worklog/BUGREPORT.md` and `worklog/FIXED.md` — cleared at merge —
