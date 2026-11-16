@@ -21,6 +21,7 @@
     "@internationalized/date": "^3.12.4",
     "@phosphor-icons/vue": "^2.2.1",
     "@tailwindcss/vite": "^4.3.5",
+    "@tanstack/vue-query": "^5.107.1",
     "@vueuse/core": "^15.0.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",

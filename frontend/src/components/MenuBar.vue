@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { PhCalendarDots, PhGear, PhSignOut, PhUser } from "@phosphor-icons/vue";
-import { storeToRefs } from "pinia";
+import { useQuery } from "@tanstack/vue-query";
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useUserStore } from "@/stores/user";
+import { meQueryOptions } from "@/queries/me";
 
-const { fullName, ready } = storeToRefs(useUserStore()); // loaded by the router guard
+const { data: me, isPending } = useQuery(meQueryOptions());
+
+const fullName = computed(() =>
+  me.value ? `${me.value.first_name} ${me.value.last_name}`.trim() : "",
+);
 
 // Shared classes. Complete strings, so Tailwind still detects them.
 const touchTarget = "max-sm:min-h-11 max-sm:min-w-11";
@@ -52,8 +57,8 @@ const csrfToken = (() => {
 
       <div class="ml-auto flex min-w-0 items-center gap-2">
         <div class="mr-2 min-w-0 sm:mr-4" aria-live="polite">
-          <Skeleton v-if="!ready" class="h-5 w-24 sm:w-36" aria-hidden="true" />
-          <span v-if="!ready" class="sr-only">Loading your name</span>
+          <Skeleton v-if="isPending" class="h-5 w-24 sm:w-36" aria-hidden="true" />
+          <span v-if="isPending" class="sr-only">Loading your name</span>
           <p v-else class="truncate">
             {{ fullName ? `Hello, ${fullName}!` : "Hello!" }}
           </p>
