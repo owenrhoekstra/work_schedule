@@ -81,6 +81,10 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
+      - name: Test Vue frontend
+        working-directory: frontend
+        run: pnpm test:unit --run
+
       - name: Collect static files
         run: uv run python manage.py collectstatic --noinput
 
