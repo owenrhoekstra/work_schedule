@@ -80,11 +80,14 @@ def _flag(request, name):
     return False
 
 
-def user_is_management(request):
+def auth_flags(request):
+    """Admin-ladder template flags.
+
+    Returns the three rungs of the per-request admin ladder. Templates
+    AND-gate UI against their view's permission_required and
+    admin-required decorators using these.
+    """
     return {
-        # Legacy alias — resolves to is_company_admin. Removed once
-        # every template uses the explicit flags.
-        "is_management": _flag(request, "is_company_admin"),
         "is_platform_admin": _flag(request, "is_platform_admin"),
         "is_company_admin": _flag(request, "is_company_admin"),
         "is_team_admin": _flag(request, "is_team_admin"),

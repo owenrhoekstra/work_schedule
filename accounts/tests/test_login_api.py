@@ -82,24 +82,6 @@ class LoginAPITests(TestCase):
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
-class LoginSpaViewTests(TestCase):
-    def test_redirects_authenticated_users(self):
-        user = User.objects.create_user(username="authed", password="pass")
-        self.client.force_login(user)
-        resp = self.client.get(reverse("login_vue"))
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/schedule/home/")
-
-    def test_renders_for_anonymous(self):
-        """The shell renders once Vue is built and collectstatic has
-        populated the manifest. Prior to the Vue build this test
-        expected 500 (missing manifest entry); now that the app ships
-        the shell, 200 is the correct expectation."""
-        resp = self.client.get(reverse("login_vue"))
-        self.assertEqual(resp.status_code, 200)
-
-
-@override_settings(CACHES=_LOCMEM_CACHES)
 class CsrfViewTests(TestCase):
     def test_get_sets_csrf_cookie(self):
         resp = self.client.get("/api/v1/csrf/")

@@ -192,7 +192,6 @@ urlpatterns = [
     path("accounts/", include("accounts.urls")),
     path("schedule/", include("schedule.urls")),
     path("oidc/", include("mozilla_django_oidc.urls")),
-    path("accounts/login-vue/", login_spa, name="login_vue"),
     path(
         "api/v1/accounts/login/",
         accounts_login_view,

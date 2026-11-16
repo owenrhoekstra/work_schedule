@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import AnonymousUser, Group, User
 from django.test import RequestFactory, TestCase, override_settings
 
-from accounts.context_processors import pending_accounts, user_is_management
+from accounts.context_processors import auth_flags, pending_accounts
 from schedule.models import CompanyMembership
 
 from .factories import make_company, make_employee, make_staff_user, make_superuser
@@ -56,8 +56,6 @@ class PendingAccountsContextTests(TestCase):
         self.assertEqual(pending_accounts(request)["pending_accounts_count"], 1)
 
     def test_no_company_context_returns_empty(self):
-        """Request without request.company (middleware not run) — no
-        pending count for a nonexistent tenant."""
         admin = make_superuser(company=self.company)
         request = self.factory.get("/")
         request.user = admin
@@ -75,35 +73,50 @@ class PendingAccountsContextTests(TestCase):
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)
-class UserIsManagementContextTests(TestCase):
+class AuthFlagsContextTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.company = make_company()
 
-    def test_anonymous_false(self):
+    def test_anonymous_all_false(self):
         request = self.factory.get("/")
         request.user = AnonymousUser()
-        self.assertFalse(user_is_management(request)["is_management"])
+        flags = auth_flags(request)
+        self.assertFalse(flags["is_platform_admin"])
+        self.assertFalse(flags["is_company_admin"])
+        self.assertFalse(flags["is_team_admin"])
 
-    def test_plain_user_false(self):
+    def test_plain_user_all_false(self):
         user = make_staff_user(company=self.company)
         request = self.factory.get("/")
         request.user = user
         request.company = self.company
-        self.assertFalse(user_is_management(request)["is_management"])
+        flags = auth_flags(request)
+        self.assertFalse(flags["is_platform_admin"])
+        self.assertFalse(flags["is_company_admin"])
+        self.assertFalse(flags["is_team_admin"])
 
-    def test_superuser_true(self):
+    def test_superuser_all_true_via_ladder(self):
         admin = make_superuser(company=self.company)
         request = self.factory.get("/")
         request.user = admin
         request.company = self.company
-        self.assertTrue(user_is_management(request)["is_management"])
+        flags = auth_flags(request)
+        # Platform admin > company admin > team admin. A superuser is
+        # the top of the ladder, so all three rungs are true.
+        self.assertTrue(flags["is_platform_admin"])
+        self.assertTrue(flags["is_company_admin"])
+        self.assertTrue(flags["is_team_admin"])
 
-    def test_management_group_true(self):
+    def test_platform_admin_group_all_true(self):
         user = make_staff_user(company=self.company)
         mgmt, _ = Group.objects.get_or_create(name="Platform Admin")
         user.groups.add(mgmt)
         request = self.factory.get("/")
         request.user = user
         request.company = self.company
-        self.assertTrue(user_is_management(request)["is_management"])
+        flags = auth_flags(request)
+        self.assertTrue(flags["is_platform_admin"])
+        # Platform admin implies company admin and team admin via the ladder
+        self.assertTrue(flags["is_company_admin"])
+        self.assertTrue(flags["is_team_admin"])

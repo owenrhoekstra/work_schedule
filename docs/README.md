@@ -4,23 +4,19 @@ Living documents for the work_schedule project.
 
 ## Structure
 
-### Per-branch work (cleared at merge)
+### Branch records (permanent — not cleared at merge)
 
-- `worklog/BUGREPORT.md` — active bugs on the current branch. Cleared
-  at merge; surviving items go to `ISSUES.md`.
-- `worklog/FIXED.md` — bugs fixed on the current branch. Cleared at
-  merge; follow-up notes inside FIXED entries get extracted into
-  `ISSUES.md` before clearing. Git commit log is the permanent
-  archive.
-
-### Branch records (permanent; not cleared at merge)
-
-- `SECURITY_SWEEP.md` — Session 10 (security sweep) branch record.
-  Permanent; not cleared at merge.
-- `MULTI-TENANCY.md` — multi-tenancy branch record. Permanent;
-  cleared only when every branch in the multi-tenancy effort has
-  shipped, then either deleted or moved to
+- `MULTI-TENANCY.md` — multi-tenancy branch record and durable plan.
+  Covers model shape, tenant resolution, authz ladder, API foundation,
+  deferred work. Permanent; cleared only when every branch in the
+  multi-tenancy effort has shipped, then either deleted or moved to
   `design/MULTI_TENANCY.md` (see the file's own lifecycle note).
+- `SECURITY_SWEEP.md` — Session 10 (security sweep) branch record.
+  Permanent; not cleared at merge. Its own header says: if the
+  worklog directory is ever cleared wholesale, move to
+  `docs/security/SECURITY_SWEEP_2026_11.md`.
+
+### Per-branch work (cleared at merge)
 
 ### Design (persistent across branches)
 

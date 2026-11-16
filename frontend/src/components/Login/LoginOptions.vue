@@ -13,15 +13,18 @@ const emit = defineEmits<{ select: [mode: "sso" | "password"] }>();
 // instead — set it to "true" in .env to mirror your backend's OIDC
 // state during local development. Prod ignores this env var; only
 // the shell injection is trusted there.
+import { resolveOidcEnabled } from "./resolve-oidc-enabled";
+
 const config = (
   window as unknown as {
     __LOGIN_CONFIG__?: { oidcEnabled?: boolean };
   }
 ).__LOGIN_CONFIG__;
 
-const oidcEnabled = import.meta.env.DEV
-  ? import.meta.env.VITE_OIDC_ENABLED === "true"
-  : config?.oidcEnabled === true;
+const oidcEnabled = resolveOidcEnabled(config, {
+  isDev: import.meta.env.DEV,
+  devFlag: import.meta.env.VITE_OIDC_ENABLED,
+});
 </script>
 
 <template>

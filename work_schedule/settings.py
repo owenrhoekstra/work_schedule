@@ -96,7 +96,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "accounts.context_processors.pending_accounts",
-                "accounts.context_processors.user_is_management",
+                "accounts.context_processors.auth_flags",
                 "accounts.context_processors.oidc_enabled",
                 "work_schedule.context_processors.app_name",
             ],

@@ -440,7 +440,7 @@ def waiting(request):
 
 
 def login_spa(request):
-    """Render the Vue login shell.
+    """Render the Vue login shell at /accounts/login/.
 
     Config for the Vue app is injected via window.__LOGIN_CONFIG__
     in the template — no round-trip for oidc_enabled, no separate

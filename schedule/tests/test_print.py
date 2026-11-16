@@ -165,7 +165,8 @@ class QRCodeTests(TestCase):
 
         Policy decision logged in SECURITY_SWEEP.md: qr_code gets
         `permission_required` per "every view has a perm" but not
-        `management_required` (it's a login URL, no data).
+        `company_admin_required` and the permission (it's a login URL,
+        no data).
         """
         self.client.logout()
         self.client.force_login(make_staff_user("qrstaff"))

@@ -2022,7 +2022,8 @@ def employee_defaults(request, pk):
 def employee_details(request, pk):
     """Edit an employee's identity, or trigger deactivation.
 
-    Gated on `is_management` (superuser or Management group) AND
+    Gated on `@company_admin_required` (company admin at
+    `request.company`, with platform-admin bypass) AND
     `schedule.view_employee`. The reading page stays read-only; this
     is the only entry point for identity edits.
 
