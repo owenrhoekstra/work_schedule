@@ -4,7 +4,7 @@ Full schedule table for one week.
 Context:
 - rows — list from _build_schedule_rows()
 - day_headers — list from _build_schedule_rows()
-- is_management, perms — inherited from the parent template context
+- is_company_admin, perms — inherited from the parent template context
 
 Each row is rendered by _schedule_row.html. Rows carry a stable
 id="schedule-row-{{ employee.pk }}" so future HTMX conversions can
