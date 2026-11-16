@@ -27,3 +27,22 @@ class SelectCompanyRequest(Schema):
 class SelectCompanyResponse(Schema):
     ok: bool
     error: str = ""
+
+
+class TeamMembershipSchema(Schema):
+    id: str
+    name: str
+    company_id: str
+    role: str
+
+
+class MeResponse(Schema):
+    id: str
+    first_name: str
+    last_name: str
+    is_platform_admin: bool
+    permissions: list[str]
+    current_company_id: str | None
+    current_team_id: str | None
+    companies: list[CompanySchema]
+    teams: list[TeamMembershipSchema]

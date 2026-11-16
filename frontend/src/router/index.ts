@@ -8,11 +8,6 @@ declare module "vue-router" {
   }
 }
 
-// The shell is served at /accounts/login/ in prod (and /accounts/
-// login-vue/ as a dev alias). The router base must exactly match the
-// URL Django rendered, or history-based navigation and router.resolve
-// append relative paths (producing URLs like
-// /accounts/login-vue/accounts/login/).
 const getBase = (): string => {
   if (import.meta.env.DEV) return "/";
   const pathname = window.location.pathname;
@@ -40,12 +35,21 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true;
 
   const userStore = useUserStore();
-  await userStore.load();
+  await userStore.load(true);
 
-  if (userStore.user) return true;
-  if (userStore.error?.isUnauthorized && router.hasRoute("login")) {
-    return { name: "login" };
+  if (userStore.user) {
+    // Waiting only when the server gave us nothing to work with.
+    // Platform admins may have current_company_id set via middleware
+    // even with an empty companies[] (their memberships don't cover
+    // every company they can reach). Trust current_company_id.
+    if (!userStore.user.current_company_id && userStore.user.companies.length === 0) {
+      window.location.assign("/accounts/waiting/");
+      return false;
+    }
+    return true;
   }
+
+  if (router.hasRoute("login")) return { name: "login" };
   return true;
 });
 

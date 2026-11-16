@@ -2,14 +2,31 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { ApiError, useApi } from "@/composables/useApi";
 
-export interface CurrentUser {
-  firstName: string;
-  lastName: string;
+export interface CompanyMembership {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
 }
 
-// Flip to false once /api/v1/me/ exists
-const USE_STUB = false;
-const stubUser: CurrentUser = { firstName: "Jane", lastName: "Doe" };
+export interface TeamMembership {
+  id: string;
+  name: string;
+  company_id: string;
+  role: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  first_name: string;
+  last_name: string;
+  is_platform_admin: boolean;
+  permissions: string[];
+  current_company_id: string | null;
+  current_team_id: string | null;
+  companies: CompanyMembership[];
+  teams: TeamMembership[];
+}
 
 export const useUserStore = defineStore("user", () => {
   const api = useApi();
@@ -21,20 +38,32 @@ export const useUserStore = defineStore("user", () => {
   let inflight: Promise<void> | null = null;
 
   const fullName = computed(() =>
-    user.value ? `${user.value.firstName} ${user.value.lastName}`.trim() : "",
+    user.value ? `${user.value.first_name} ${user.value.last_name}`.trim() : "",
   );
 
+  // Guards call `load(true)` for per-navigation revalidation (also acts
+  // as a session probe). `load()` without `force` is a no-op once
+  // populated.
   function load(force = false): Promise<void> {
     if (user.value && !force) return Promise.resolve();
     inflight ??= (async () => {
       loading.value = true;
       try {
-        user.value = USE_STUB
-          ? await new Promise<CurrentUser>((resolve) => setTimeout(() => resolve(stubUser), 300))
-          : await api.get<CurrentUser>("/me");
+        user.value = await api.get<CurrentUser>("/me/");
         error.value = null;
       } catch (e) {
-        error.value = e instanceof ApiError ? e : null;
+        const apiErr = e instanceof ApiError ? e : null;
+        error.value = apiErr;
+        // Hardening against blips:
+        // - 401 → the session is gone. Drop the cached user so the
+        //   router guard redirects to login.
+        // - Any other failure (network, timeout, 5xx) → transient.
+        //   Keep the previously-loaded user so a blip doesn't log an
+        //   active session out. The error is still surfaced via
+        //   `error.value` for a toast/retry affordance.
+        if (apiErr?.isUnauthorized) {
+          user.value = null;
+        }
       } finally {
         loading.value = false;
         ready.value = true;

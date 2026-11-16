@@ -22,6 +22,7 @@ from work_schedule.api.auth import session_auth
 
 from .schemas import (
     CompaniesResponse,
+    MeResponse,
     SelectCompanyRequest,
     SelectCompanyResponse,
 )
@@ -159,3 +160,77 @@ def select_company(request, payload: SelectCompanyRequest):
             return {"ok": True}
 
     return {"ok": False, "error": "No access to that company."}
+
+
+# ---------------------------------------------------------------------------
+# Me (Ninja — post-auth)
+# ---------------------------------------------------------------------------
+
+
+me_router = Router(tags=["accounts"])
+
+
+@me_router.get("/", auth=session_auth, response=MeResponse)
+def me(request):
+    """Return the session user, viable memberships, and current context.
+
+    `current_company_id` / `current_team_id` mirror request.company /
+    request.team as resolved by TenantMiddleware. For platform admins
+    this may name a company they have no CompanyMembership at — the
+    middleware grants them access to any company, so /me/ reports the
+    truth rather than second-guessing. `companies` is still filtered to
+    viable_memberships, which means a platform admin can see
+    current_company_id that isn't in companies[]. That's intentional:
+    companies[] is the switcher list, not "every company this admin can
+    reach."
+
+    `companies` mirrors work_schedule.auth.viable_memberships. Pending
+    memberships are excluded. `teams` is scoped to viable companies'
+    TeamMembership rows (request.team isn't wired yet — the session
+    team_id is echoed until the teams UI lands).
+    """
+    from schedule.models import TeamMembership
+    from work_schedule.auth import is_platform_admin, viable_memberships
+
+    memberships = viable_memberships(request.user)
+
+    team_memberships = (
+        TeamMembership.objects.filter(
+            user=request.user,
+            valid_to__isnull=True,
+            team__company_id__in={m.company_id for m in memberships},
+        )
+        .select_related("team")
+        .order_by("team__name")
+    )
+    viable_team_ids = {str(t.team_id) for t in team_memberships}
+
+    session_team = request.session.get("team_id")
+
+    return {
+        "id": str(request.user.id),
+        "first_name": request.user.first_name,
+        "last_name": request.user.last_name,
+        "is_platform_admin": is_platform_admin(request.user),
+        "permissions": sorted(request.user.get_all_permissions()),
+        "current_company_id": (str(request.company.id) if request.company else None),
+        "current_team_id": (session_team if session_team in viable_team_ids else None),
+        "companies": [
+            {
+                "id": str(m.company.id),
+                "name": m.company.name,
+                "slug": m.company.slug,
+                "role": m.role,
+            }
+            for m in memberships
+        ],
+        "teams": [
+            {
+                "id": str(t.team.id),
+                "name": t.team.name,
+                "company_id": str(t.team.company_id),
+                "role": t.role,
+            }
+            for t in team_memberships
+        ],
+    }
