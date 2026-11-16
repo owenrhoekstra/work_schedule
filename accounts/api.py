@@ -172,24 +172,8 @@ me_router = Router(tags=["accounts"])
 
 @me_router.get("/", auth=session_auth, response=MeResponse)
 def me(request):
-    """Return the session user, viable memberships, and current context.
-
-    `current_company_id` / `current_team_id` mirror request.company /
-    request.team as resolved by TenantMiddleware. For platform admins
-    this may name a company they have no CompanyMembership at — the
-    middleware grants them access to any company, so /me/ reports the
-    truth rather than second-guessing. `companies` is still filtered to
-    viable_memberships, which means a platform admin can see
-    current_company_id that isn't in companies[]. That's intentional:
-    companies[] is the switcher list, not "every company this admin can
-    reach."
-
-    `companies` mirrors work_schedule.auth.viable_memberships. Pending
-    memberships are excluded. `teams` is scoped to viable companies'
-    TeamMembership rows (request.team isn't wired yet — the session
-    team_id is echoed until the teams UI lands).
-    """
     from schedule.models import TeamMembership
+    from schedule.selectors import available_scopes_for
     from work_schedule.auth import is_platform_admin, viable_memberships
 
     memberships = viable_memberships(request.user)
@@ -233,4 +217,9 @@ def me(request):
             }
             for t in team_memberships
         ],
+        "available_scopes": (
+            available_scopes_for(request.company, request.user)
+            if request.company
+            else []
+        ),
     }

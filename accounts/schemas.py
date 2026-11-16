@@ -46,3 +46,4 @@ class MeResponse(Schema):
     current_team_id: str | None
     companies: list[CompanySchema]
     teams: list[TeamMembershipSchema]
+    available_scopes: list[str]  # NEW

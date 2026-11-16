@@ -15,7 +15,7 @@ from datetime import date
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from schedule.models import Team, TeamMembership
+from schedule.models import CompanyMembership, Team, TeamMembership
 from schedule.tests._helpers import login_as
 from schedule.tests.factories import (
     make_company,
@@ -133,3 +133,80 @@ class MeEndpointTests(TestCase):
         self.assertEqual(membership["name"], team.name)
         self.assertEqual(membership["company_id"], str(self.company.id))
         self.assertEqual(membership["role"], "admin")
+
+    def test_available_scopes_for_company_admin_without_employee(self):
+        # Company admin who isn't on the schedule: sees company-wide
+        # scope only. No Employee row → no "me"; not on any team → no
+        # "team". Not a bug — the admin has no schedule to view.
+        login_as(self.client, self.user, self.company)
+        data = self.client.get("/api/v1/me/").json()
+        self.assertEqual(data["available_scopes"], ["company"])
+
+    def test_available_scopes_for_company_admin_who_is_employed(self):
+        # Company admin + Employee row + team admin → all three scopes.
+        # "team" comes from the TeamMembership admin path, which does
+        # not depend on the team's allow_member_view_all flag.
+        from datetime import date
+
+        from schedule.models import Team, TeamMembership
+        from schedule.tests.factories import make_employee
+
+        team = Team.objects.create(company=self.company, name="Kitchen")
+        make_employee(
+            company=self.company,
+            user=self.user,
+            with_pattern=True,
+            email="admin@x.com",
+        )
+        TeamMembership.objects.create(
+            user=self.user, team=team, role="admin", valid_from=date.today()
+        )
+
+        login_as(self.client, self.user, self.company)
+        data = self.client.get("/api/v1/me/").json()
+        self.assertEqual(data["available_scopes"], ["me", "team", "company"])
+
+    def test_available_scopes_for_plain_employee(self):
+        emp_user = User.objects.create_user(
+            username="plain",
+            password="x",
+            first_name="P",
+            last_name="E",
+        )
+        CompanyMembership.objects.create(
+            user=emp_user,
+            company=self.company,
+            role="member",
+            status="active",
+        )
+        from schedule.tests.factories import make_employee
+
+        make_employee(company=self.company, user=emp_user, email="plain@x.com")
+        login_as(self.client, emp_user, self.company)
+
+        data = self.client.get("/api/v1/me/").json()
+        self.assertEqual(data["available_scopes"], ["me"])
+
+    def test_available_scopes_company_flag_adds_company_scope(self):
+        self.company.allow_member_view_all = True
+        self.company.save()
+
+        emp_user = User.objects.create_user(
+            username="flagged",
+            password="x",
+            first_name="F",
+            last_name="L",
+        )
+        CompanyMembership.objects.create(
+            user=emp_user,
+            company=self.company,
+            role="member",
+            status="active",
+        )
+        from schedule.tests.factories import make_employee
+
+        make_employee(company=self.company, user=emp_user, email="flagged@x.com")
+        login_as(self.client, emp_user, self.company)
+
+        data = self.client.get("/api/v1/me/").json()
+        self.assertIn("company", data["available_scopes"])
