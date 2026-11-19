@@ -25,6 +25,7 @@ export interface CurrentUser {
   current_team_id: string | null;
   companies: CompanyMembership[];
   teams: TeamMembership[];
+  available_scopes: string[];
 }
 
 // /me carries permissions + company context. 30s staleness means a

@@ -35,7 +35,7 @@ class LoginAPITests(TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["redirect_url"], "/schedule/home/")
+        self.assertEqual(data["redirect_url"], "/schedule/")
         self.assertIn("_auth_user_id", self.client.session)
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
 

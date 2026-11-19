@@ -39,7 +39,7 @@ class CompanyPickerTests(TestCase):
         _make_membership(self.user, company)
         resp = self.client.get(reverse("company_picker"))
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, reverse("home"))
+        self.assertEqual(resp.url, reverse("schedule_spa"))
         self.assertEqual(self.client.session["company_id"], str(company.id))
 
     def test_multiple_memberships_renders_picker(self):
@@ -59,7 +59,7 @@ class CompanyPickerTests(TestCase):
         _make_membership(self.user, b)
         resp = self.client.post(reverse("company_picker"), {"company_id": str(b.id)})
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, reverse("home"))
+        self.assertEqual(resp.url, reverse("schedule_spa"))
         self.assertEqual(self.client.session["company_id"], str(b.id))
 
     def test_posting_unknown_company_rerenders_with_error(self):

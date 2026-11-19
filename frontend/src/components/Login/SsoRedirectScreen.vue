@@ -1,7 +1,7 @@
 <!-- components/Login/SsoRedirectScreen.vue -->
 <script setup lang="ts">
-import { onMounted } from "vue";
 import { PhSpinner, PhWarningCircle } from "@phosphor-icons/vue";
+import { onMounted } from "vue";
 import { Button } from "@/components/ui/button";
 import { useSsoLogin } from "@/composables/Login/useSsoLogin";
 import BackToOptionsButton from "./BackToOptionsButton.vue";

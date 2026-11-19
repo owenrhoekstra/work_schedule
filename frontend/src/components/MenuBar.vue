@@ -45,7 +45,7 @@ const csrfToken = (() => {
       Skip to main content
     </a>
 
-    <div class="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-6">
+    <div class="mx-auto flex h-14 max-w-8xl items-center gap-2 px-4 sm:gap-6">
       <nav aria-label="Main">
         <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
           <RouterLink :to="{ name: 'schedule' }">
@@ -66,17 +66,17 @@ const csrfToken = (() => {
 
         <nav aria-label="Account" class="flex items-center gap-2">
           <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
-            <RouterLink :to="{ name: 'profile' }">
+            <a href="/accounts/profile/">
               <PhUser :class="iconSize" aria-hidden="true" />
               <span class="sr-only sm:not-sr-only">Profile</span>
-            </RouterLink>
+            </a>
           </Button>
 
           <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
-            <RouterLink :to="{ name: 'settings' }">
+            <a href="/schedule/settings/">
               <PhGear :class="iconSize" aria-hidden="true" />
               <span class="sr-only sm:not-sr-only">Settings</span>
-            </RouterLink>
+            </a>
           </Button>
         </nav>
 

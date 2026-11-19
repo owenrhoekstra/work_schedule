@@ -27,7 +27,7 @@ class LoginViewTests(TestCase):
         self.client.force_login(user)
         resp = self.client.get(reverse("login"))
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/schedule/home/")
+        self.assertEqual(resp.url, "/schedule/")
 
     def test_logout_redirects(self):
         user = User.objects.create_user(username="user", password="pass")
