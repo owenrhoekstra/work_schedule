@@ -213,10 +213,11 @@ class WeekEndpointTests(TestCase):
 
     # ---- viewer_can ----------------------------------------------------
 
-    def test_viewer_can_admin_all_true(self):
+    def test_viewer_can_admin(self):
         login_as(self.client, self.admin, self.company)
         data = self.client.get("/api/v1/schedule/week/?scope=company").json()
-        self.assertTrue(data["viewer_can"]["set_override"])
+        self.assertTrue(data["viewer_can"]["can_add_shift"])
+        self.assertTrue(data["viewer_can"]["can_delete_shift"])
         self.assertTrue(data["viewer_can"]["set_day_override"])
         self.assertTrue(data["viewer_can"]["add_employee"])
         self.assertTrue(data["viewer_can"]["print"])
@@ -228,7 +229,8 @@ class WeekEndpointTests(TestCase):
         )
         login_as(self.client, member, self.company)
         data = self.client.get("/api/v1/schedule/week/?scope=me").json()
-        self.assertFalse(data["viewer_can"]["set_override"])
+        self.assertFalse(data["viewer_can"]["can_add_shift"])
+        self.assertFalse(data["viewer_can"]["can_delete_shift"])
         self.assertFalse(data["viewer_can"]["set_day_override"])
         self.assertFalse(data["viewer_can"]["add_employee"])
         self.assertFalse(data["viewer_can"]["print"])

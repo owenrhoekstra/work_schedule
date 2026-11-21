@@ -13,6 +13,8 @@ export interface Cell {
   end: string | null;
   has_override: boolean;
   is_employed: boolean;
+  default_start: string | null; // "HH:MM" or null; pattern default for this day
+  default_end: string | null;
 }
 
 export interface DayHeader {
@@ -53,7 +55,8 @@ export interface WeekRef {
 }
 
 export interface ViewerCan {
-  set_override: boolean;
+  can_add_shift: boolean; // gates "Save"
+  can_delete_shift: boolean; // gates "Mark off" / "Reset to default"
   set_day_override: boolean;
   add_employee: boolean;
   print: boolean;

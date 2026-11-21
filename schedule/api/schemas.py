@@ -28,6 +28,42 @@ class Cell(Schema):
     end: str | None
     has_override: bool
     is_employed: bool
+    # The pattern's default for this day, regardless of override state.
+    # Enables optimistic reset on the client: the popover can compute
+    # what the cell will look like when "Reset to default" is clicked
+    # without a round trip. Null when the pattern has no default shift
+    # for this day, or when no pattern covers the week.
+    default_start: str | None
+    default_end: str | None
+
+
+class ViewerCan(Schema):
+    # Split from a combined `set_override` per Session 10's "button's
+    # gate equals endpoint's perm" rule: Save gates on add_shift,
+    # Mark off / Reset gate on delete_shift. Cell is clickable when
+    # either is true.
+    can_add_shift: bool
+    can_delete_shift: bool
+    set_day_override: bool
+    add_employee: bool
+    print: bool
+
+
+class OverrideRequest(Schema):
+    action: Literal["save", "off", "reset"]
+    start: str | None = None
+    end: str | None = None
+    notify: bool = False
+
+
+class OverrideResponse(Schema):
+    # Full updated employee row so the client can replace its cached
+    # copy in one round trip. Same WeekEmployee shape as /week/'s
+    # employees[] — no separate schema for "the same employee after a
+    # mutation."
+    employee: "WeekEmployee"
+    notification_sent: bool
+    notification_error: str | None
 
 
 class DayHeader(Schema):
@@ -59,13 +95,6 @@ class WeekRef(Schema):
     next: str
     is_current: bool
     can_go_back: bool
-
-
-class ViewerCan(Schema):
-    set_override: bool
-    set_day_override: bool
-    add_employee: bool
-    print: bool
 
 
 class WeekResponse(Schema):

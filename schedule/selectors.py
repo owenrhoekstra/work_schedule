@@ -177,6 +177,13 @@ def _minutes_between(start_str, end_str):
 
 def _build_cell(day, d, day_override, employed, defaults, overrides):
     base = {"date": d.isoformat(), "weekday": day}
+
+    default_shift = defaults.get(day)
+    default_start = (
+        default_shift.start_time.strftime("%H:%M") if default_shift else None
+    )
+    default_end = default_shift.end_time.strftime("%H:%M") if default_shift else None
+
     if day_override:
         return {
             **base,
@@ -185,6 +192,8 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
             "end": None,
             "has_override": False,
             "is_employed": False,
+            "default_start": default_start,
+            "default_end": default_end,
         }
     if d not in employed:
         return {
@@ -194,8 +203,9 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
             "end": None,
             "has_override": False,
             "is_employed": False,
+            "default_start": default_start,
+            "default_end": default_end,
         }
-    default_shift = defaults.get(day)
     override = overrides.get(d)
     if override and override.is_off:
         return {
@@ -205,6 +215,8 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
             "end": None,
             "has_override": True,
             "is_employed": True,
+            "default_start": default_start,
+            "default_end": default_end,
         }
     if override:
         return {
@@ -214,15 +226,19 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
             "end": override.end_time.strftime("%H:%M"),
             "has_override": True,
             "is_employed": True,
+            "default_start": default_start,
+            "default_end": default_end,
         }
     if default_shift:
         return {
             **base,
             "kind": "default",
-            "start": default_shift.start_time.strftime("%H:%M"),
-            "end": default_shift.end_time.strftime("%H:%M"),
+            "start": default_start,
+            "end": default_end,
             "has_override": False,
             "is_employed": True,
+            "default_start": default_start,
+            "default_end": default_end,
         }
     return {
         **base,
@@ -231,6 +247,8 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
         "end": None,
         "has_override": False,
         "is_employed": True,
+        "default_start": None,
+        "default_end": None,
     }
 
 
@@ -281,16 +299,15 @@ def _viewer_can(viewer, company):
 
     if not is_company_admin(viewer, company):
         return {
-            "set_override": False,
+            "can_add_shift": False,
+            "can_delete_shift": False,
             "set_day_override": False,
             "add_employee": False,
             "print": False,
         }
     return {
-        "set_override": (
-            viewer.has_perm("schedule.add_shift")
-            or viewer.has_perm("schedule.delete_shift")
-        ),
+        "can_add_shift": viewer.has_perm("schedule.add_shift"),
+        "can_delete_shift": viewer.has_perm("schedule.delete_shift"),
         "set_day_override": viewer.has_perm("schedule.change_shift"),
         "add_employee": viewer.has_perm("schedule.add_employee"),
         "print": True,
@@ -369,3 +386,29 @@ def week_schedule_for_scope(company, week_start, scope, viewer):
         ],
         "viewer_can": _viewer_can(viewer, company),
     }
+
+
+def week_row_for(company, employee, week_start):
+    """Build a single WeekEmployee row for one employee/week.
+
+    Used by the override mutation endpoint to return the updated row
+    in the same shape as /week/'s employees[] — client can replace its
+    cached copy without a second fetch.
+    """
+    week_dates = [week_start + timedelta(days=d) for d in DAYS]
+    day_overrides = {
+        o.date: o
+        for o in DayOverride.objects.filter(date__in=week_dates, company=company)
+    }
+    overrides_by_employee = {}
+    for override in ShiftOverride.objects.filter(
+        employee=employee,
+        employee__company=company,
+        date__in=week_dates,
+    ):
+        overrides_by_employee.setdefault(override.employee_id, {})[override.date] = (
+            override
+        )
+    return _employee_week_row(
+        employee, week_start, overrides_by_employee, day_overrides
+    )
