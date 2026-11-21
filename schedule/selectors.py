@@ -20,7 +20,7 @@ from .models import (
     ShiftOverride,
     TeamMembership,
 )
-from .views import (
+from .scheduling import (
     DAY_LABELS,
     DAY_LABELS_FULL,
     DAYS,
@@ -30,13 +30,9 @@ from .views import (
     _employees_for_week,
     _pattern_for_week,
     _week_offset_for,
+    _week_start,
     _week_title_for,
 )
-
-
-def _week_start(d):
-    return d - timedelta(days=d.weekday())
-
 
 # ---------------------------------------------------------------------------
 # Scope resolution
