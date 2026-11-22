@@ -70,3 +70,13 @@ export interface WeekResponse {
   employees: WeekEmployee[];
   viewer_can: ViewerCan;
 }
+
+// Wire shape for POST /api/v1/schedule/overrides/<id>/<date>/.
+// Mirrors schedule/api/schemas.py::OverrideResponse.
+// `employee` is the full updated row (same shape as WeekResponse's
+// employees[]); the client replaces its cached copy in one round trip.
+export interface OverrideResponse {
+  employee: WeekEmployee;
+  notification_sent: boolean;
+  notification_error: string | null;
+}

@@ -2,21 +2,40 @@
 import { Badge } from "@/components/ui/badge";
 import { format12, formatDateMedium, formatDuration } from "@/lib/format";
 import type { Cell, CellKind, DayHeader, WeekResponse } from "@/types/week";
+import { Button } from "../ui/button";
+import OverridePopover from "./OverridePopover.vue";
 
-defineProps<{ data: WeekResponse }>();
+const props = defineProps<{ data: WeekResponse }>();
 
-// Semantic tokens, not hardcoded brand colors. Mirrors the state map
-// in your ScheduleCell.vue — override is coral (primary), off is
-// subtle, default is foreground. off_override stays primary because
-// it's a manager action, not a normal off.
 const kindClasses: Record<CellKind, string> = {
   default: "text-foreground",
-  override: "text-primary",
+  // Empty — override times get per-piece coloring in cellPieceClass
+  // so only the changed piece(s) read as coral. A cell whose override
+  // equals the default (rare no-op) reads as a normal default cell.
+  override: "",
   off_override: "text-primary",
   day_override: "text-foreground font-medium",
   not_employed: "text-subtle-foreground",
   none: "text-subtle-foreground",
 };
+
+// Per-piece color for cells that display a start/end range (kind =
+// "default" or "override"). For override cells, a piece is coral when
+// it differs from the pattern default for that day. Falls back to the
+// Commit 4 styling otherwise: start inherits the outer cell class,
+// end is de-emphasized to muted-foreground.
+//
+// Null baseline (no default shift that day) counts as "changed" —
+// the override is new for this day, both pieces highlight.
+function cellPieceClass(cell: Cell, piece: "start" | "end"): string {
+  if (cell.kind === "override") {
+    const current = piece === "start" ? cell.start : cell.end;
+    const baseline = piece === "start" ? cell.default_start : cell.default_end;
+    const changed = baseline === null || current !== baseline;
+    if (changed) return "text-primary font-medium";
+  }
+  return piece === "end" ? "text-muted-foreground" : "";
+}
 
 function cellText(cell: Cell, day: DayHeader | undefined): string {
   if (cell.kind === "day_override") return dayStatusLabel(day?.override_status);
@@ -31,6 +50,20 @@ function dayStatusLabel(status: string | null | undefined): string {
   if (status === "closed") return "Closed";
   if (status === "holiday") return "Holiday";
   return status ?? "";
+}
+
+// Cell is editable when the viewer holds either shift perm AND the
+// day isn't blocked by a company-wide override or non-employment.
+// Per-action gates (Save vs Mark off) live inside the popover —
+// derived from the same viewer_can flags.
+function isCellEditable(cell: Cell): boolean {
+  if (!cell.is_employed) return false;
+  if (cell.kind === "day_override") return false;
+  return props.data.viewer_can.can_add_shift || props.data.viewer_can.can_delete_shift;
+}
+
+function employeeDefaultsUrl(id: string): string {
+  return `/schedule/employees/${id}/defaults/`;
 }
 </script>
 
@@ -47,8 +80,6 @@ function dayStatusLabel(status: string | null | undefined): string {
     id="schedule-table"
     class="overflow-x-auto rounded-xl border border-border bg-card shadow-sm"
   >
-    <!-- table-fixed at md (768px): proportional columns, fits the
-         container, no scroll. Below md: natural width + scroll. -->
     <table class="w-full min-w-max border-collapse md:min-w-0 md:table-fixed">
       <colgroup>
         <col class="w-[18%]" />
@@ -86,9 +117,19 @@ function dayStatusLabel(status: string | null | undefined): string {
           class="border-t border-border transition-colors hover:bg-muted/50"
         >
           <td class="overflow-hidden p-2">
-            <div class="truncate font-medium text-foreground" :title="emp.display_name">
-              {{ emp.display_name }}
-            </div>
+            <Button
+              as-child
+              variant="ghost"
+              class="h-auto max-w-full min-w-0 justify-start p-0 font-medium"
+            >
+              <a
+                :href="employeeDefaultsUrl(emp.id)"
+                class="block truncate"
+                :title="emp.display_name"
+              >
+                {{ emp.display_name }}
+              </a>
+            </Button>
             <div
               v-if="emp.role_name"
               class="truncate text-sm text-muted-foreground"
@@ -108,16 +149,27 @@ function dayStatusLabel(status: string | null | undefined): string {
             :key="cell.date"
             class="overflow-hidden p-0 text-center text-sm whitespace-nowrap"
           >
-            <span :class="['block px-2 py-2', kindClasses[cell.kind]]">
-              <template v-if="cell.start && cell.end">
-                <span>{{ format12(cell.start) }}</span>
-                <span class="text-subtle-foreground"> – </span>
-                <span class="text-muted-foreground">{{ format12(cell.end) }}</span>
-              </template>
-              <template v-else>
-                {{ cellText(cell, data.days[i]) }}
-              </template>
-            </span>
+            <OverridePopover
+              :employee-id="emp.id"
+              :employee-name="emp.display_name"
+              :cell="cell"
+              :day-label="data.days[i]?.long_label ?? ''"
+              :date-label="data.days[i]?.date_label ?? ''"
+              :can-add-shift="data.viewer_can.can_add_shift"
+              :can-delete-shift="data.viewer_can.can_delete_shift"
+              :editable="isCellEditable(cell)"
+            >
+              <span :class="kindClasses[cell.kind]">
+                <template v-if="cell.start && cell.end">
+                  <span :class="cellPieceClass(cell, 'start')">{{ format12(cell.start) }}</span>
+                  <span class="text-subtle-foreground"> – </span>
+                  <span :class="cellPieceClass(cell, 'end')">{{ format12(cell.end) }}</span>
+                </template>
+                <template v-else>
+                  {{ cellText(cell, data.days[i]) }}
+                </template>
+              </span>
+            </OverridePopover>
           </td>
           <td
             class="p-2 text-center text-sm font-medium tabular-nums whitespace-nowrap text-foreground"
