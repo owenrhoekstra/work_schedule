@@ -29,6 +29,17 @@ class SelectCompanyResponse(Schema):
     error: str = ""
 
 
+class SelectTeamRequest(Schema):
+    # None or "" clears the selection (all-teams view). A UUID string
+    # narrows scope=team to that one team.
+    team_id: str | None = None
+
+
+class SelectTeamResponse(Schema):
+    ok: bool
+    error: str = ""
+
+
 class TeamMembershipSchema(Schema):
     id: str
     name: str

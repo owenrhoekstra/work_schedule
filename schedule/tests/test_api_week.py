@@ -266,3 +266,49 @@ class WeekEndpointTests(TestCase):
         ids = {e["id"] for e in response.json()["employees"]}
         self.assertIn(str(team_a_member.id), ids)  # admin team visible
         self.assertNotIn(str(team_b_peer.id), ids)  # member team blocked
+
+    def test_team_scope_scopes_to_selected_team(self):
+        # Two teams, user is admin of both, session selects team A.
+        # Roster must show ONLY team A's members.
+        team_a = Team.objects.create(
+            company=self.company, name="Kitchen", allow_member_view_all=True
+        )
+        team_b = Team.objects.create(
+            company=self.company, name="Front", allow_member_view_all=True
+        )
+        member_a = _make_employee_on_team(self.company, team_a, email="a@x.com")
+        member_b = _make_employee_on_team(self.company, team_b, email="b@x.com")
+        TeamMembership.objects.create(
+            user=self.admin, team=team_a, role="admin", valid_from=date.today()
+        )
+        TeamMembership.objects.create(
+            user=self.admin, team=team_b, role="admin", valid_from=date.today()
+        )
+
+        login_as(self.client, self.admin, self.company, team=team_a)
+        data = self.client.get("/api/v1/schedule/week/?scope=team").json()
+        ids = {e["id"] for e in data["employees"]}
+        self.assertIn(str(member_a.id), ids)
+        self.assertNotIn(str(member_b.id), ids)
+
+    def test_team_scope_without_session_team_returns_union(self):
+        team_a = Team.objects.create(
+            company=self.company, name="Kitchen", allow_member_view_all=True
+        )
+        team_b = Team.objects.create(
+            company=self.company, name="Front", allow_member_view_all=True
+        )
+        member_a = _make_employee_on_team(self.company, team_a, email="a@x.com")
+        member_b = _make_employee_on_team(self.company, team_b, email="b@x.com")
+        TeamMembership.objects.create(
+            user=self.admin, team=team_a, role="admin", valid_from=date.today()
+        )
+        TeamMembership.objects.create(
+            user=self.admin, team=team_b, role="admin", valid_from=date.today()
+        )
+
+        login_as(self.client, self.admin, self.company)  # no team session
+        data = self.client.get("/api/v1/schedule/week/?scope=team").json()
+        ids = {e["id"] for e in data["employees"]}
+        self.assertIn(str(member_a.id), ids)
+        self.assertIn(str(member_b.id), ids)

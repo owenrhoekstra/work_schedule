@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TestCase
+from freezegun import freeze_time
 
 from schedule.models import (
     CompanyMembership,
@@ -37,6 +38,7 @@ def _make_admin_with_perms(company, username, *perm_codes):
     return user
 
 
+@freeze_time("2026-11-18")
 class OverrideEndpointTests(TestCase):
     def setUp(self):
         self.company = make_company()
@@ -44,7 +46,7 @@ class OverrideEndpointTests(TestCase):
         self.employee = make_employee(
             company=self.company, with_pattern=False, email="emp@x.com"
         )
-        self.today = date.today()
+        self.today = date(2026, 11, 18)
 
     def _url(self, employee=None, when=None):
         employee = employee or self.employee

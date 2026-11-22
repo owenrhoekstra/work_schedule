@@ -84,6 +84,21 @@ def _viewer_team_ids(viewer, employee, company):
     return ids
 
 
+def viewable_team_ids(user, company):
+    """Team IDs the user can view as team scope.
+
+    Public wrapper around _viewer_team_ids that resolves the user's
+    Employee row first. Used by accounts.api (teams/select, /me/
+    filtering) and by schedule.api.week (defensive: an unviewable
+    session team returns empty rather than leaking).
+
+    Returns an empty set when the user has no Employee and no
+    admin-role TeamMembership at this company.
+    """
+    employee = _employee_for(user, company)
+    return _viewer_team_ids(user, employee, company)
+
+
 def available_scopes_for(company, user):
     """Which scopes the given user can view at this company.
 
@@ -319,7 +334,7 @@ def _viewer_can(viewer, company):
 # ---------------------------------------------------------------------------
 
 
-def _scoped_employees(company, week_start, scope, viewer, employee):
+def _scoped_employees(company, week_start, scope, viewer, employee, team=None):
     base = _employees_for_week(week_start, company)
 
     if scope == "me":
@@ -331,11 +346,19 @@ def _scoped_employees(company, week_start, scope, viewer, employee):
         return base
 
     if scope == "team":
-        team_ids = _viewer_team_ids(viewer, employee, company)
-        if not team_ids:
+        viewable = _viewer_team_ids(viewer, employee, company)
+        if team is not None:
+            # Defensive: session team that isn't viewable (stale, or
+            # viewability lost after session write) yields empty.
+            if team.id not in viewable:
+                return base.none()
+            target = {team.id}
+        else:
+            target = viewable
+        if not target:
             return base.none()
         return base.filter(
-            team_links__team_id__in=team_ids,
+            team_links__team_id__in=target,
             team_links__valid_to__isnull=True,
         ).distinct()
 
@@ -347,16 +370,13 @@ def _scoped_employees(company, week_start, scope, viewer, employee):
 # ---------------------------------------------------------------------------
 
 
-def week_schedule_for_scope(company, week_start, scope, viewer):
-    """Build the structured schedule payload for one week/scope.
-
-    Caller is responsible for checking `scope in available_scopes_for(...)`
-    first — this function assumes the viewer is authorized for the scope
-    and will return an empty roster rather than raising on empty.
-    """
+def week_schedule_for_scope(company, week_start, scope, viewer, team=None):
+    """..."""
     employee = _employee_for(viewer, company)
 
-    employees = list(_scoped_employees(company, week_start, scope, viewer, employee))
+    employees = list(
+        _scoped_employees(company, week_start, scope, viewer, employee, team)
+    )
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
 
     day_overrides = {

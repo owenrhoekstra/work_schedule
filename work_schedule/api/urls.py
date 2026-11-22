@@ -1,6 +1,6 @@
 """Router registration for /api/v1/."""
 
-from accounts.api import me_router
+from accounts.api import me_router, teams_router
 from accounts.api import router as accounts_router
 from schedule.api import router as schedule_router
 from work_schedule.api.api import api
@@ -12,3 +12,4 @@ def register_routers() -> None:
     api.add_router("/me/", me_router)
     api.add_router("/schedule/", schedule_router)
     api.add_router("/companies/", accounts_router)
+    api.add_router("/teams/", teams_router)

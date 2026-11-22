@@ -74,21 +74,21 @@ def make_employee(
     with_pattern=False,
     **kwargs,
 ):
-    """Create an Employee, optionally with an empty starting ShiftPattern.
-
-    `company` defaults to the first existing company (so all employees
-    created in one test share a tenant, matching `_current_company()`)
-    or a fresh one if none exists. Pass `company=` explicitly to place
-    an employee in a specific company.
-
-    Post-Session 8, Employee creation does not auto-create a pattern.
-    Opt in with `with_pattern=True` or `cycle_weeks=N`.
-    """
     cycle_weeks = kwargs.pop("cycle_weeks", None)
     if cycle_weeks is not None:
         with_pattern = True
     if cycle_weeks is None:
         cycle_weeks = 1
+
+    if start_date is None:
+        start_date = date.today()
+        # Clamp Sunday to Saturday. The schedule week is Mon-Sat
+        # (DAYS = [0..5]); on Sunday, date.today() is AFTER the
+        # current week's Saturday, so _employees_for_week excludes
+        # the employee. Tests using the default start_date pass on
+        # Mon-Sat and would fail on Sunday without this clamp.
+        if start_date.weekday() == 6:
+            start_date -= timedelta(days=1)
 
     company = company or Company.objects.first() or make_company()
     role = role or make_role(company=company)
@@ -98,7 +98,7 @@ def make_employee(
         email=email,
         role=role,
         company=company,
-        start_date=start_date or date.today(),
+        start_date=start_date,
         **kwargs,
     )
 

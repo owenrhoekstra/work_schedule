@@ -23,7 +23,7 @@ const showChrome = computed(() => ready.value && !route.meta.public);
 <template>
   <MenuBar v-if="showChrome" />
 
-  <div :class="[showChrome && 'w-full mx-auto px-4 xl:px-8 max-w-8xl']">
+  <div :class="[showChrome && 'w-full mx-auto px-4 xl:px-8 max-w-7xl']">
     <main id="main-content" tabindex="-1" :class="['outline-none', showChrome && 'w-full p-6']">
       <PageSkeleton v-if="!ready" />
       <RouterView v-else />

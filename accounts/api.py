@@ -7,6 +7,7 @@ endpoints where Ninja's session/CSRF model is exactly right.
 """
 
 import json
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth import authenticate
@@ -25,10 +26,12 @@ from .schemas import (
     MeResponse,
     SelectCompanyRequest,
     SelectCompanyResponse,
+    SelectTeamRequest,
+    SelectTeamResponse,
 )
 
 router = Router(tags=["accounts"])
-
+teams_router = Router(tags=["accounts"])
 
 # ---------------------------------------------------------------------------
 # Password login (plain Django view)
@@ -142,12 +145,6 @@ def list_companies(request):
 
 @router.post("/select/", auth=session_auth, response=SelectCompanyResponse)
 def select_company(request, payload: SelectCompanyRequest):
-    """Set the session company after validating membership.
-
-    Uses viable_memberships so a user cannot switch to a company
-    they've been removed from or that has ended employment. Session
-    is written only on success.
-    """
     from work_schedule.auth import viable_memberships
 
     company_id = payload.company_id.strip()
@@ -156,10 +153,57 @@ def select_company(request, payload: SelectCompanyRequest):
 
     for m in viable_memberships(request.user):
         if str(m.company_id) == company_id:
+            # Only clear team_id when switching to a DIFFERENT company.
+            # Re-selecting the same company preserves the team selection.
+
+            print(
+                f"[select_company] session_company={request.session.get('company_id')!r} "
+                f"payload_company={company_id!r} "
+                f"equal={request.session.get('company_id') == company_id} "
+                f"session_team={request.session.get('team_id')!r}"
+            )
+
+            if request.session.get("company_id") != company_id:
+                request.session.pop("team_id", None)
             request.session["company_id"] = company_id
             return {"ok": True}
 
     return {"ok": False, "error": "No access to that company."}
+
+
+@teams_router.post("/select/", auth=session_auth, response=SelectTeamResponse)
+def select_team(request, payload: SelectTeamRequest):
+    """Set or clear the session team.
+
+    Team must be viewable as team scope: admin role in TeamMembership,
+    or member of a team whose allow_member_view_all is true (with the
+    user's Employee row showing show_team_schedules). None/empty
+    clears the selection and the roster falls back to the union of all
+    viewable teams.
+
+    Reads request.company from TenantMiddleware — team must belong to
+    the currently-selected company.
+    """
+    from schedule.selectors import viewable_team_ids
+
+    if payload.team_id is None or payload.team_id == "":
+        request.session.pop("team_id", None)
+        return {"ok": True}
+
+    company = request.company
+    if company is None:
+        return {"ok": False, "error": "No company in context."}
+
+    try:
+        team_uuid = UUID(payload.team_id)
+    except ValueError, TypeError:
+        return {"ok": False, "error": "Invalid team ID."}
+
+    if team_uuid not in viewable_team_ids(request.user, company):
+        return {"ok": False, "error": "No access to that team."}
+
+    request.session["team_id"] = str(team_uuid)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -173,20 +217,26 @@ me_router = Router(tags=["accounts"])
 @me_router.get("/", auth=session_auth, response=MeResponse)
 def me(request):
     from schedule.models import TeamMembership
-    from schedule.selectors import available_scopes_for
     from work_schedule.auth import is_platform_admin, viable_memberships
 
     memberships = viable_memberships(request.user)
 
-    team_memberships = (
-        TeamMembership.objects.filter(
-            user=request.user,
-            valid_to__isnull=True,
-            team__company_id__in={m.company_id for m in memberships},
+    from schedule.selectors import available_scopes_for, viewable_team_ids
+
+    if request.company is not None:
+        allowed_ids = viewable_team_ids(request.user, request.company)
+        team_memberships = (
+            TeamMembership.objects.filter(
+                user=request.user,
+                valid_to__isnull=True,
+                team__company=request.company,
+                team_id__in=allowed_ids,
+            )
+            .select_related("team")
+            .order_by("team__name")
         )
-        .select_related("team")
-        .order_by("team__name")
-    )
+    else:
+        team_memberships = TeamMembership.objects.none()
     viable_team_ids = {str(t.team_id) for t in team_memberships}
 
     session_team = request.session.get("team_id")

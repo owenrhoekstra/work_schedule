@@ -64,7 +64,7 @@ def _recently_verified(request, ttl=timedelta(minutes=5)):
         return False
     try:
         ts = datetime.fromisoformat(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     if timezone.is_naive(ts):
         ts = timezone.make_aware(ts)
@@ -175,7 +175,7 @@ urlpatterns = [
     path("accounts/login/", login_spa, name="login"),
     path(
         "accounts/logout/",
-        LogoutView.as_view(),
+        LogoutView.as_view(next_page="/accounts/login/"),
         name="logout",
     ),
     path(

@@ -48,4 +48,6 @@ def week(request, week: str | None = None, scope: str = "me"):
             raise HttpError(400, "Invalid week format.")
         week_start = d - timedelta(days=d.weekday())
 
-    return week_schedule_for_scope(company, week_start, scope, request.user)
+    return week_schedule_for_scope(
+        company, week_start, scope, request.user, request.team
+    )

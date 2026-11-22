@@ -2,8 +2,14 @@ import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig, mergeConfig } from "vitest/config";
 import viteConfig from "./vite.config.ts";
 
+// vite.config.ts exports a UserConfigFnObject (function of ConfigEnv).
+// mergeConfig wants a plain UserConfig object; resolve the function
+// once for the test environment before merging.
+const baseConfig =
+  typeof viteConfig === "function" ? viteConfig({ command: "serve", mode: "test" }) : viteConfig;
+
 export default mergeConfig(
-  viteConfig,
+  baseConfig,
   defineConfig({
     test: {
       environment: "jsdom",

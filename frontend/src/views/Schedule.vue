@@ -3,8 +3,7 @@ import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ScheduleDesktop from "@/components/Schedule/ScheduleDesktop.vue";
-import ScopeSelector from "@/components/Schedule/ScopeSelector.vue";
-import WeekHeader from "@/components/Schedule/WeekHeader.vue";
+import ScheduleToolbar from "@/components/Schedule/ScheduleToolbar.vue";
 import { meQueryOptions } from "@/queries/me";
 import { weekQueryOptions } from "@/queries/week";
 
@@ -73,9 +72,16 @@ function goCurrent() {
     Could not load schedule: {{ error?.message ?? "Unknown error" }}
   </div>
 
-  <div v-else-if="week" class="space-y-6">
-    <WeekHeader :week="week.week" @navigate="setWeek" @go-current="goCurrent" />
-    <ScopeSelector :scopes="week.available_scopes" :current="scope" @select="setScope" />
+  <div v-else-if="week" class="mx-auto space-y-5 pt-16">
+    <ScheduleToolbar
+      :week="week.week"
+      :scopes="week.available_scopes"
+      :current-scope="scope"
+      :viewer-can="week.viewer_can"
+      @navigate="setWeek"
+      @go-current="goCurrent"
+      @select-scope="setScope"
+    />
     <ScheduleDesktop :data="week" />
   </div>
 </template>

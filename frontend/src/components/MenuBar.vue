@@ -45,7 +45,7 @@ const csrfToken = (() => {
       Skip to main content
     </a>
 
-    <div class="mx-auto flex h-14 max-w-8xl items-center gap-2 px-4 sm:gap-6">
+    <div class="mx-auto flex h-14 max-w-375 items-center gap-4 px-8 sm:gap-6">
       <nav aria-label="Main">
         <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
           <RouterLink :to="{ name: 'schedule' }">
@@ -55,7 +55,7 @@ const csrfToken = (() => {
         </Button>
       </nav>
 
-      <div class="ml-auto flex min-w-0 items-center gap-2">
+      <div class="ml-auto flex min-w-0 items-center gap-4">
         <div class="mr-2 min-w-0 sm:mr-4" aria-live="polite">
           <Skeleton v-if="isPending" class="h-5 w-24 sm:w-36" aria-hidden="true" />
           <span v-if="isPending" class="sr-only">Loading your name</span>
@@ -64,7 +64,7 @@ const csrfToken = (() => {
           </p>
         </div>
 
-        <nav aria-label="Account" class="flex items-center gap-2">
+        <nav aria-label="Account" class="flex items-center gap-4">
           <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
             <a href="/accounts/profile/">
               <PhUser :class="iconSize" aria-hidden="true" />
