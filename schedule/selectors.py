@@ -316,14 +316,16 @@ def _viewer_can(viewer, company):
         return {
             "can_add_shift": False,
             "can_delete_shift": False,
-            "set_day_override": False,
+            "change_employee_day_override": False,
+            "change_day_override": False,
             "add_employee": False,
             "print": False,
         }
     return {
         "can_add_shift": viewer.has_perm("schedule.add_shift"),
         "can_delete_shift": viewer.has_perm("schedule.delete_shift"),
-        "set_day_override": viewer.has_perm("schedule.change_shift"),
+        "change_employee_day_override": viewer.has_perm("schedule.change_shift"),
+        "change_day_override": viewer.has_perm("schedule.change_dayoverride"),
         "add_employee": viewer.has_perm("schedule.add_employee"),
         "print": True,
     }

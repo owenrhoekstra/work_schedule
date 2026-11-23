@@ -45,9 +45,11 @@ def is_company_admin(user, company):
     Platform admins pass (ladder). Otherwise requires an active
     CompanyMembership with role="admin" at that company.
     """
+    if not user.is_authenticated:
+        return False
     if is_platform_admin(user):
         return True
-    if company is None or not user.is_authenticated:
+    if company is None:
         return False
     from schedule.models import CompanyMembership
 

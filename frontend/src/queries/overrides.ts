@@ -171,3 +171,29 @@ export function useOverrideMutation() {
     },
   });
 }
+
+export interface DayOverrideVars {
+  date: string; // "YYYY-MM-DD"
+  action: "closed" | "holiday" | "clear";
+}
+
+export interface DayOverrideResponse {
+  date: string;
+  status: "closed" | "holiday" | null;
+}
+
+export function useDayOverrideMutation() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (vars: DayOverrideVars) =>
+      api.post<DayOverrideResponse>(`/schedule/overrides/days/${vars.date}/`, {
+        action: vars.action,
+      }),
+    // Prefix match: refreshes every cached week (all scopes and the
+    // prefetched neighbours), not just the visible one.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["week"] }),
+    onError: (err) => toast.error(err.message),
+  });
+}

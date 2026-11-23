@@ -85,7 +85,8 @@ function makeWeek(cells: Cell[] = [makeCell()]): WeekResponse {
     viewer_can: {
       can_add_shift: true,
       can_delete_shift: true,
-      set_day_override: true,
+      change_employee_day_override: true,
+      change_day_override: true,
       add_employee: true,
       print: true,
     },

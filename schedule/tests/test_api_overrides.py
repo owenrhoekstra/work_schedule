@@ -215,14 +215,14 @@ class OverrideEndpointTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_invalid_date_returns_400(self):
+    def test_invalid_date_returns_422(self):
         login_as(self.client, self.admin, self.company)
         response = self.client.post(
             f"/api/v1/schedule/overrides/{self.employee.pk}/not-a-date/",
             data={"action": "off"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 422)
 
     def test_unknown_action_returns_422(self):
         login_as(self.client, self.admin, self.company)

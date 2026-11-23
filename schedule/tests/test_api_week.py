@@ -6,7 +6,6 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from schedule.models import (
-    CompanyMembership,
     EmployeeTeam,
     Team,
     TeamMembership,
@@ -218,7 +217,8 @@ class WeekEndpointTests(TestCase):
         data = self.client.get("/api/v1/schedule/week/?scope=company").json()
         self.assertTrue(data["viewer_can"]["can_add_shift"])
         self.assertTrue(data["viewer_can"]["can_delete_shift"])
-        self.assertTrue(data["viewer_can"]["set_day_override"])
+        self.assertTrue(data["viewer_can"]["change_employee_day_override"])
+        self.assertTrue(data["viewer_can"]["change_day_override"])
         self.assertTrue(data["viewer_can"]["add_employee"])
         self.assertTrue(data["viewer_can"]["print"])
 
@@ -231,7 +231,8 @@ class WeekEndpointTests(TestCase):
         data = self.client.get("/api/v1/schedule/week/?scope=me").json()
         self.assertFalse(data["viewer_can"]["can_add_shift"])
         self.assertFalse(data["viewer_can"]["can_delete_shift"])
-        self.assertFalse(data["viewer_can"]["set_day_override"])
+        self.assertFalse(data["viewer_can"]["change_employee_day_override"])
+        self.assertFalse(data["viewer_can"]["change_day_override"])
         self.assertFalse(data["viewer_can"]["add_employee"])
         self.assertFalse(data["viewer_can"]["print"])
 

@@ -1,5 +1,6 @@
 """Response schemas for /api/v1/schedule/ endpoints."""
 
+import datetime
 from typing import Literal
 
 from ninja import Schema
@@ -44,7 +45,8 @@ class ViewerCan(Schema):
     # either is true.
     can_add_shift: bool
     can_delete_shift: bool
-    set_day_override: bool
+    change_employee_day_override: bool
+    change_day_override: bool
     add_employee: bool
     print: bool
 
@@ -104,3 +106,12 @@ class WeekResponse(Schema):
     available_scopes: list[str]
     employees: list[WeekEmployee]
     viewer_can: ViewerCan
+
+
+class DayOverrideIn(Schema):
+    action: Literal["closed", "holiday", "clear"]
+
+
+class DayOverrideOut(Schema):
+    date: datetime.date
+    status: Literal["closed", "holiday"] | None

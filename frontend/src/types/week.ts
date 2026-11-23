@@ -57,7 +57,8 @@ export interface WeekRef {
 export interface ViewerCan {
   can_add_shift: boolean; // gates "Save"
   can_delete_shift: boolean; // gates "Mark off" / "Reset to default"
-  set_day_override: boolean;
+  change_employee_day_override: boolean;
+  change_day_override: boolean;
   add_employee: boolean;
   print: boolean;
 }

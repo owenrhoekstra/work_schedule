@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { format12, formatDateMedium, formatDuration } from "@/lib/format";
 import type { Cell, CellKind, DayHeader, WeekResponse } from "@/types/week";
 import { Button } from "../ui/button";
+import DayStatusMenu from "./DayStatusMenu.vue";
 import OverridePopover from "./OverridePopover.vue";
 
 const props = defineProps<{ data: WeekResponse }>();
@@ -94,8 +95,15 @@ function employeeDefaultsUrl(id: string): string {
             :key="day.date"
             class="p-2 text-center font-display text-sm font-medium whitespace-nowrap"
           >
-            <div>{{ day.long_label }}</div>
-            <div class="text-xs font-normal opacity-80">{{ day.date_label }}</div>
+            <DayStatusMenu
+              :date="day.date"
+              :label="`${day.long_label}, ${day.date_label}`"
+              :status="day.override_status"
+              :editable="data.viewer_can.change_day_override"
+            >
+              <span class="block">{{ day.long_label }}</span>
+              <span class="block text-xs font-normal opacity-80">{{ day.date_label }}</span>
+            </DayStatusMenu>
             <Badge
               v-if="day.override_status"
               class="mt-1 bg-highlight text-highlight-foreground hover:bg-highlight"
