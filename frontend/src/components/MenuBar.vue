@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhCalendarDots, PhGear, PhSignOut, PhUser } from "@phosphor-icons/vue";
+import { PhCalendarDots, PhGear, PhLockKey, PhSignOut, PhUser } from "@phosphor-icons/vue";
 import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
@@ -12,6 +12,14 @@ const { data: me, isPending } = useQuery(meQueryOptions());
 const fullName = computed(() =>
   me.value ? `${me.value.first_name} ${me.value.last_name}`.trim() : "",
 );
+
+const isCompanyAdmin = computed(
+  () =>
+    me.value?.is_company_admin.find((a) => a.company_id === me.value?.current_company_id)?.status ??
+    false,
+);
+
+const isPlatformAdmin = computed(() => me.value?.is_platform_admin ?? false);
 
 // Shared classes. Complete strings, so Tailwind still detects them.
 const touchTarget = "max-sm:min-h-11 max-sm:min-w-11";
@@ -72,10 +80,27 @@ const csrfToken = (() => {
             </a>
           </Button>
 
-          <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
+          <Button
+            v-if="isCompanyAdmin"
+            as-child
+            variant="outline"
+            :class="[highlightHover, touchTarget]"
+          >
             <a href="/schedule/settings/">
               <PhGear :class="iconSize" aria-hidden="true" />
               <span class="sr-only sm:not-sr-only">Settings</span>
+            </a>
+          </Button>
+
+          <Button
+            v-if="isPlatformAdmin"
+            as-child
+            variant="outline"
+            :class="[highlightHover, touchTarget]"
+          >
+            <a href="/back-panel01294/">
+              <PhLockKey :class="iconSize" aria-hidden="true" />
+              <span class="sr-only sm:not-sr-only">Admin</span>
             </a>
           </Button>
         </nav>

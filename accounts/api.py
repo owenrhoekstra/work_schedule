@@ -20,6 +20,7 @@ from django.views.decorators.http import require_GET, require_POST
 from ninja import Router
 
 from work_schedule.api.auth import session_auth
+from work_schedule.auth import is_company_admin, is_team_admin
 
 from .schemas import (
     CompaniesResponse,
@@ -241,11 +242,28 @@ def me(request):
 
     session_team = request.session.get("team_id")
 
+    first_name = request.user.first_name or request.user.get_username()
+
     return {
         "id": str(request.user.id),
-        "first_name": request.user.first_name,
+        "first_name": first_name,
         "last_name": request.user.last_name,
         "is_platform_admin": is_platform_admin(request.user),
+        "is_company_admin": [
+            {
+                "status": is_company_admin(request.user, m.company.id),
+                "company_id": str(m.company.id),
+            }
+            for m in memberships
+        ],
+        "is_team_admin": [
+            {
+                "status": is_team_admin(request.user, t.team.id, t.team.company_id),
+                "company_id": str(t.team.company_id),
+                "team_id": str(t.team.id),
+            }
+            for t in team_memberships
+        ],
         "permissions": sorted(request.user.get_all_permissions()),
         "current_company_id": (str(request.company.id) if request.company else None),
         "current_team_id": (session_team if session_team in viable_team_ids else None),

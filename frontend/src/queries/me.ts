@@ -15,18 +15,31 @@ export interface TeamMembership {
   role: string;
 }
 
-export interface CurrentUser {
-  id: string;
-  first_name: string;
-  last_name: string;
-  is_platform_admin: boolean;
-  permissions: string[];
-  current_company_id: string | null;
-  current_team_id: string | null;
-  companies: CompanyMembership[];
-  teams: TeamMembership[];
-  available_scopes: string[];
+export interface CompanyAdmin {
+  status: boolean;
+  company_id: string;
 }
+
+export interface TeamAdmin {
+  status: boolean;
+  team_id: string;
+  company_id: string;
+}
+
+export interface CurrentUser {
+		id: string;
+		first_name: string;
+		last_name: string;
+		is_platform_admin: boolean;
+		is_company_admin: CompanyAdmin[];
+		is_team_admin: TeamAdmin[];
+		permissions: string[];
+		current_company_id: string | null;
+		current_team_id: string | null;
+		companies: CompanyMembership[];
+		teams: TeamMembership[];
+		available_scopes: string[];
+	}
 
 // /me carries permissions + company context. 30s staleness means a
 // company switch or deactivation surfaces within half a minute without

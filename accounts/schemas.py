@@ -7,6 +7,8 @@ file — one import surface per app.
 
 from ninja import Schema
 
+from work_schedule.auth import is_company_admin, is_team_admin
+
 
 class CompanySchema(Schema):
     id: str
@@ -46,15 +48,26 @@ class TeamMembershipSchema(Schema):
     company_id: str
     role: str
 
+class CompanyAdminMe(Schema):
+    status: bool
+    company_id: str
+
+class TeamAdminMe(Schema):
+    status: bool
+    company_id: str
+    team_id: str
+
 
 class MeResponse(Schema):
     id: str
     first_name: str
     last_name: str
     is_platform_admin: bool
+    is_company_admin: list[CompanyAdminMe]
+    is_team_admin: list[TeamAdminMe]
     permissions: list[str]
     current_company_id: str | None
     current_team_id: str | None
     companies: list[CompanySchema]
     teams: list[TeamMembershipSchema]
-    available_scopes: list[str]  # NEW
+    available_scopes: list[str]

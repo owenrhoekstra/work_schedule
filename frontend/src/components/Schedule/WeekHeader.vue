@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { PhArrowLeft, PhArrowRight, PhCalendarBlank } from "@phosphor-icons/vue";
 import type { WeekRef } from "@/types/week";
+import WeekSelector from "./WeekSelector.vue";
 
 // Week nav only. Back-to-current lives in ScheduleToolbar above this,
-// on its own line. Kept here just so WeekHeader stays self-contained
-// for the arrow/title/arrow row.
+// on its own line.
 defineProps<{ week: WeekRef }>();
 defineEmits<{ navigate: [week: string] }>();
 </script>
@@ -11,33 +12,31 @@ defineEmits<{ navigate: [week: string] }>();
 <template>
   <div class="flex items-center gap-3">
     <button
-      v-if="week.can_go_back"
       type="button"
       aria-label="Previous week"
-      class="font-display text-2xl leading-none text-foreground transition-colors hover:text-link"
+      :disabled="!week.can_go_back"
+      class="text-foreground transition-colors hover:text-link disabled:cursor-not-allowed disabled:text-subtle-foreground disabled:hover:text-subtle-foreground"
       @click="$emit('navigate', week.prev)"
     >
-      ←
+      <PhArrowLeft class="size-6" aria-hidden="true" />
     </button>
-    <span
-      v-else
-      aria-hidden="true"
-      class="cursor-not-allowed font-display text-2xl leading-none text-subtle-foreground"
-    >
-      ←
-    </span>
 
     <h1 class="font-display text-2xl font-bold whitespace-nowrap text-foreground">
-      {{ week.is_current ? "This Week's Schedule" : week.title }}
+      <WeekSelector :week="week" @navigate="$emit('navigate', $event)">
+        <span class="leading-none">
+          {{ week.is_current ? "This Week's Schedule" : week.title }}
+        </span>
+        <PhCalendarBlank class="size-6 shrink-0" aria-hidden="true" />
+      </WeekSelector>
     </h1>
 
     <button
       type="button"
       aria-label="Next week"
-      class="font-display text-2xl leading-none text-foreground transition-colors hover:text-link"
+      class="text-foreground transition-colors hover:text-link"
       @click="$emit('navigate', week.next)"
     >
-      →
+      <PhArrowRight class="size-6" aria-hidden="true" />
     </button>
   </div>
 </template>
