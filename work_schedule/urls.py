@@ -169,7 +169,7 @@ register_routers()
 
 urlpatterns = [
     path("healthz/", project_views.healthz, name="healthz"),
-    path("", RedirectView.as_view(url="/schedule/home/")),
+    path("", RedirectView.as_view(pattern_name="schedule_spa")),
     path("back-panel01294/", admin.site.urls),
     # Auth
     path("accounts/login/", login_spa, name="login"),
