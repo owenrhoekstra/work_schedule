@@ -48,7 +48,6 @@ from django.views.decorators.http import require_POST
 
 from work_schedule.auth import (
     company_admin_required,
-    company_admin_required,
     viable_memberships,
 )
 

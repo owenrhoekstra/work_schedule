@@ -22,7 +22,7 @@ from .schemas import (
     OverrideResponse,
 )
 
-router = Router(tags=["schedule"], auth=session_auth)
+router = Router(tags=["overrides"], auth=session_auth)
 
 
 # Route order matters: Ninja registers patterns as declared and matches

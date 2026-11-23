@@ -2,6 +2,7 @@
 import { PhArrowSquareOut, PhEnvelopeSimple, PhSpinner } from "@phosphor-icons/vue";
 import { useQuery } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,8 @@ import {
   useSendWelcomeMutation,
 } from "@/queries/employee";
 import type { WeekEmployee } from "@/types/week";
+
+const showDialog = ref(false);
 
 const props = defineProps<{ employee: WeekEmployee | null }>();
 const open = defineModel<boolean>("open", { required: true });
@@ -154,12 +157,19 @@ const profileUrl = computed(() => `/schedule/employees/${id.value}/defaults/`);
             variant="outline"
             size="sm"
             :disabled="welcomeMutation.isPending.value"
-            @click="welcomeMutation.mutate()"
+            @click="showDialog = true"
           >
             <PhEnvelopeSimple class="size-4" aria-hidden="true" />
             Send welcome email
           </Button>
         </section>
+        <ConfirmDialog
+          v-model:open="showDialog"
+          title="Send Welcome Email?"
+          :description="`This will send ${employee?.display_name} a welcome email to ${detail.email} `"
+          @approved=welcomeMutation.mutate()
+          @cancelled="showDialog = false"
+        />
       </div>
 
       <SheetFooter class="mt-auto border-t p-4">
