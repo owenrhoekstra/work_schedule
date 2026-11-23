@@ -90,9 +90,7 @@ class OIDCBackendTests(TestCase):
 
     def test_create_user_refuses_when_employee_already_linked(self):
         company = make_company()
-        existing = User.objects.create_user(
-            username="existing", email="taken@x.com"
-        )
+        existing = User.objects.create_user(username="existing", email="taken@x.com")
         make_employee(email="taken@x.com", company=company, user=existing)
 
         user = self.backend.create_user(_claims("taken@x.com", sub="sub-taken"))

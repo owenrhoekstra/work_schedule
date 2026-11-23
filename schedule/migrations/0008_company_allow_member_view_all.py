@@ -4,15 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('schedule', '0007_backfill_staff_memberships'),
+        ("schedule", "0007_backfill_staff_memberships"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='company',
-            name='allow_member_view_all',
-            field=models.BooleanField(default=False, help_text='When true, any employed member can view the full company schedule via /api/v1/schedule/week/?scope=company. When false, company-wide viewing is limited to company admins.'),
+            model_name="company",
+            name="allow_member_view_all",
+            field=models.BooleanField(
+                default=False,
+                help_text="When true, any employed member can view the full company schedule via /api/v1/schedule/week/?scope=company. When false, company-wide viewing is limited to company admins.",
+            ),
         ),
     ]

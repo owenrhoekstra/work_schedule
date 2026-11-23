@@ -4,7 +4,7 @@ The picker itself is client-side Alpine; Django tests cover the
 template presence, context values, and edit-mode static rendering.
 """
 
-from datetime import date, timedelta
+from datetime import date
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from schedule.views import _week_start
 
-from .factories import make_employee, make_management_user, make_manager_user
+from .factories import make_employee, make_management_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}

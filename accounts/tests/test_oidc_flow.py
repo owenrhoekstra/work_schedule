@@ -312,7 +312,5 @@ class OIDCApprovalActivatesMembershipTests(TestCase):
         user.refresh_from_db()
         self.assertFalse(user.is_active)
         self.assertFalse(
-            CompanyMembership.objects.filter(
-                user=user, company=self.company
-            ).exists()
+            CompanyMembership.objects.filter(user=user, company=self.company).exists()
         )

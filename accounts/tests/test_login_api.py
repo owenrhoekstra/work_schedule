@@ -10,7 +10,6 @@ import json
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
-from django.urls import reverse
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}

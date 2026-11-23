@@ -7,224 +7,456 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('schedule', '0003_shiftpattern_effective_to_and_more'),
+        ("schedule", "0003_shiftpattern_effective_to_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Company',
+            name="Company",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('name', models.CharField(max_length=200)),
-                ('slug', models.SlugField(max_length=100, unique=True)),
-                ('domain', models.CharField(blank=True, help_text='Reserved for future per-tenant domain routing. Unused today.', max_length=255)),
-                ('site_url', models.CharField(blank=True, help_text='Absolute base URL for building links in emails and QR codes.', max_length=255)),
-                ('app_name', models.CharField(blank=True, help_text='Branded app name shown in the UI and emails.', max_length=100)),
-                ('cycle_epoch', models.DateField(help_text='Anchor Monday for computing which week of a multi-week cycle a date falls on.')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("slug", models.SlugField(max_length=100, unique=True)),
+                (
+                    "domain",
+                    models.CharField(
+                        blank=True,
+                        help_text="Reserved for future per-tenant domain routing. Unused today.",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "site_url",
+                    models.CharField(
+                        blank=True,
+                        help_text="Absolute base URL for building links in emails and QR codes.",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "app_name",
+                    models.CharField(
+                        blank=True,
+                        help_text="Branded app name shown in the UI and emails.",
+                        max_length=100,
+                    ),
+                ),
+                (
+                    "cycle_epoch",
+                    models.DateField(
+                        help_text="Anchor Monday for computing which week of a multi-week cycle a date falls on."
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'verbose_name_plural': 'companies',
-                'ordering': ['name'],
+                "verbose_name_plural": "companies",
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='CompanyMembership',
+            name="CompanyMembership",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('role', models.CharField(choices=[('admin', 'Admin'), ('member', 'Member')], default='member', max_length=20)),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('active', 'Active')], default='pending', max_length=20)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[("admin", "Admin"), ("member", "Member")],
+                        default="member",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[("pending", "Pending"), ("active", "Active")],
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
         ),
         migrations.CreateModel(
-            name='EmployeeTeam',
+            name="EmployeeTeam",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('is_default', models.BooleanField(default=False)),
-                ('valid_from', models.DateField()),
-                ('valid_to', models.DateField(blank=True, help_text='Exclusive: first day no longer on this team. Null while current.', null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("is_default", models.BooleanField(default=False)),
+                ("valid_from", models.DateField()),
+                (
+                    "valid_to",
+                    models.DateField(
+                        blank=True,
+                        help_text="Exclusive: first day no longer on this team. Null while current.",
+                        null=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['employee', 'valid_from'],
+                "ordering": ["employee", "valid_from"],
             },
         ),
         migrations.CreateModel(
-            name='Team',
+            name="Team",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('name', models.CharField(max_length=100)),
-                ('allow_member_view_all', models.BooleanField(default=False, help_text="When true, team members may toggle their home view to see the whole team's schedule. When false, they see only their own.")),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("name", models.CharField(max_length=100)),
+                (
+                    "allow_member_view_all",
+                    models.BooleanField(
+                        default=False,
+                        help_text="When true, team members may toggle their home view to see the whole team's schedule. When false, they see only their own.",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['company', 'name'],
+                "ordering": ["company", "name"],
             },
         ),
         migrations.CreateModel(
-            name='TeamMembership',
+            name="TeamMembership",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('role', models.CharField(choices=[('admin', 'Admin'), ('member', 'Member')], default='member', max_length=20)),
-                ('valid_from', models.DateField()),
-                ('valid_to', models.DateField(blank=True, help_text='Exclusive: first day no longer on this team. Null while current.', null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[("admin", "Admin"), ("member", "Member")],
+                        default="member",
+                        max_length=20,
+                    ),
+                ),
+                ("valid_from", models.DateField()),
+                (
+                    "valid_to",
+                    models.DateField(
+                        blank=True,
+                        help_text="Exclusive: first day no longer on this team. Null while current.",
+                        null=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['team', 'valid_from'],
+                "ordering": ["team", "valid_from"],
             },
         ),
         migrations.RemoveConstraint(
-            model_name='employee',
-            name='unique_active_employee_email',
+            model_name="employee",
+            name="unique_active_employee_email",
         ),
         migrations.AddField(
-            model_name='employee',
-            name='show_team_schedules',
-            field=models.BooleanField(default=True, help_text="Only relevant when the team's allow_member_view_all is true. When false, this employee's home view stays on their own schedule."),
+            model_name="employee",
+            name="show_team_schedules",
+            field=models.BooleanField(
+                default=True,
+                help_text="Only relevant when the team's allow_member_view_all is true. When false, this employee's home view stays on their own schedule.",
+            ),
         ),
         migrations.AlterField(
-            model_name='dayoverride',
-            name='date',
+            model_name="dayoverride",
+            name="date",
             field=models.DateField(),
         ),
         migrations.AlterField(
-            model_name='employee',
-            name='user',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employees', to=settings.AUTH_USER_MODEL),
+            model_name="employee",
+            name="user",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="employees",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AlterField(
-            model_name='role',
-            name='name',
+            model_name="role",
+            name="name",
             field=models.CharField(max_length=100),
         ),
         migrations.AlterField(
-            model_name='title',
-            name='name',
+            model_name="title",
+            name="name",
             field=models.CharField(max_length=20),
         ),
         migrations.AddField(
-            model_name='dayoverride',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='day_overrides', to='schedule.company'),
+            model_name="dayoverride",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="day_overrides",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='employee',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='schedule.company'),
+            model_name="employee",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="employees",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='employmentperiod',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='employment_periods', to='schedule.company'),
+            model_name="employmentperiod",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="employment_periods",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='role',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='roles', to='schedule.company'),
+            model_name="role",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="roles",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='shiftpattern',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='shift_patterns', to='schedule.company'),
+            model_name="shiftpattern",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="shift_patterns",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='title',
-            name='company',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='titles', to='schedule.company'),
+            model_name="title",
+            name="company",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="titles",
+                to="schedule.company",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='employee',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_active', True)), fields=('company', 'email'), name='unique_active_employee_email_per_company', nulls_distinct=False),
+            model_name="employee",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("is_active", True)),
+                fields=("company", "email"),
+                name="unique_active_employee_email_per_company",
+                nulls_distinct=False,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='employee',
-            constraint=models.UniqueConstraint(condition=models.Q(('user__isnull', False)), fields=('user', 'company'), name='unique_employee_per_user_per_company', nulls_distinct=False),
+            model_name="employee",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("user__isnull", False)),
+                fields=("user", "company"),
+                name="unique_employee_per_user_per_company",
+                nulls_distinct=False,
+            ),
         ),
         migrations.AddField(
-            model_name='companymembership',
-            name='company',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memberships', to='schedule.company'),
+            model_name="companymembership",
+            name="company",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="memberships",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='companymembership',
-            name='user',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='company_memberships', to=settings.AUTH_USER_MODEL),
+            model_name="companymembership",
+            name="user",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="company_memberships",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AddField(
-            model_name='employeeteam',
-            name='employee',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='team_links', to='schedule.employee'),
+            model_name="employeeteam",
+            name="employee",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="team_links",
+                to="schedule.employee",
+            ),
         ),
         migrations.AddField(
-            model_name='team',
-            name='company',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='teams', to='schedule.company'),
+            model_name="team",
+            name="company",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="teams",
+                to="schedule.company",
+            ),
         ),
         migrations.AddField(
-            model_name='employeeteam',
-            name='team',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='employee_links', to='schedule.team'),
+            model_name="employeeteam",
+            name="team",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="employee_links",
+                to="schedule.team",
+            ),
         ),
         migrations.AddField(
-            model_name='dayoverride',
-            name='team',
-            field=models.ForeignKey(blank=True, help_text='Null = whole-company status. Set = team-scoped.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='day_overrides', to='schedule.team'),
+            model_name="dayoverride",
+            name="team",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Null = whole-company status. Set = team-scoped.",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="day_overrides",
+                to="schedule.team",
+            ),
         ),
         migrations.AddField(
-            model_name='role',
-            name='team',
-            field=models.ForeignKey(blank=True, help_text='Null = company-wide default. Set = team-scoped fork.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='roles', to='schedule.team'),
+            model_name="role",
+            name="team",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Null = company-wide default. Set = team-scoped fork.",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="roles",
+                to="schedule.team",
+            ),
         ),
         migrations.AddField(
-            model_name='title',
-            name='team',
-            field=models.ForeignKey(blank=True, help_text='Null = company-wide default. Set = team-scoped fork.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='titles', to='schedule.team'),
+            model_name="title",
+            name="team",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Null = company-wide default. Set = team-scoped fork.",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="titles",
+                to="schedule.team",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='dayoverride',
-            constraint=models.UniqueConstraint(fields=('company', 'team', 'date'), name='unique_day_override_per_company_team_date', nulls_distinct=False),
+            model_name="dayoverride",
+            constraint=models.UniqueConstraint(
+                fields=("company", "team", "date"),
+                name="unique_day_override_per_company_team_date",
+                nulls_distinct=False,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='role',
-            constraint=models.UniqueConstraint(fields=('company', 'team', 'name'), name='unique_role_per_company_or_team', nulls_distinct=False),
+            model_name="role",
+            constraint=models.UniqueConstraint(
+                fields=("company", "team", "name"),
+                name="unique_role_per_company_or_team",
+                nulls_distinct=False,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='title',
-            constraint=models.UniqueConstraint(fields=('company', 'team', 'name'), name='unique_title_per_company_or_team', nulls_distinct=False),
+            model_name="title",
+            constraint=models.UniqueConstraint(
+                fields=("company", "team", "name"),
+                name="unique_title_per_company_or_team",
+                nulls_distinct=False,
+            ),
         ),
         migrations.AddField(
-            model_name='teammembership',
-            name='team',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memberships', to='schedule.team'),
+            model_name="teammembership",
+            name="team",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="memberships",
+                to="schedule.team",
+            ),
         ),
         migrations.AddField(
-            model_name='teammembership',
-            name='user',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='team_memberships', to=settings.AUTH_USER_MODEL),
+            model_name="teammembership",
+            name="user",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="team_memberships",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='companymembership',
-            constraint=models.UniqueConstraint(fields=('user', 'company'), name='unique_company_membership'),
+            model_name="companymembership",
+            constraint=models.UniqueConstraint(
+                fields=("user", "company"), name="unique_company_membership"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='team',
-            constraint=models.UniqueConstraint(fields=('company', 'name'), name='unique_team_per_company'),
+            model_name="team",
+            constraint=models.UniqueConstraint(
+                fields=("company", "name"), name="unique_team_per_company"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='employeeteam',
-            constraint=models.UniqueConstraint(condition=models.Q(('valid_to__isnull', True)), fields=('employee', 'team'), name='unique_active_employee_team'),
+            model_name="employeeteam",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("valid_to__isnull", True)),
+                fields=("employee", "team"),
+                name="unique_active_employee_team",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='employeeteam',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_default', True), ('valid_to__isnull', True)), fields=('employee',), name='unique_default_employee_team'),
+            model_name="employeeteam",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("is_default", True), ("valid_to__isnull", True)),
+                fields=("employee",),
+                name="unique_default_employee_team",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='teammembership',
-            constraint=models.UniqueConstraint(condition=models.Q(('valid_to__isnull', True)), fields=('user', 'team'), name='unique_active_team_membership'),
+            model_name="teammembership",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("valid_to__isnull", True)),
+                fields=("user", "team"),
+                name="unique_active_team_membership",
+            ),
         ),
     ]

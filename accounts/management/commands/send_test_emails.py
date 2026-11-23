@@ -57,9 +57,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"  ✓ {label}"))
 
         self.stdout.write(
-            self.style.SUCCESS(
-                f"\nAll {len(sends)} {mode} emails sent to {recipient}."
-            )
+            self.style.SUCCESS(f"\nAll {len(sends)} {mode} emails sent to {recipient}.")
         )
 
     @staticmethod

@@ -1,5 +1,4 @@
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 @import "@fontsource-variable/space-grotesk";
 @import "@fontsource-variable/inter";
@@ -119,6 +118,14 @@
   ::selection {
     background: var(--color-highlight);
     color: var(--color-highlight-foreground);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="tab"],
+  [role="combobox"]:not(:disabled),
+  summary {
+    cursor: pointer;
   }
 }
 

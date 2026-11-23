@@ -5,7 +5,6 @@ from django.test import SimpleTestCase
 from schedule.views import (
     _format_duration,
     _format_time_12,
-    _ordinal,
     _parse_time,
     _week_start,
 )

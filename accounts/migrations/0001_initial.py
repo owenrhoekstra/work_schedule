@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -16,18 +15,37 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='OIDCIdentity',
+            name="OIDCIdentity",
             fields=[
-                ('id', models.UUIDField(db_default=django.db.models.functions.uuid.UUID7(), editable=False, primary_key=True, serialize=False)),
-                ('issuer', models.CharField(max_length=255)),
-                ('subject', models.CharField(max_length=255)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('last_login_at', models.DateTimeField(blank=True, null=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='oidc_identities', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.UUIDField(
+                        db_default=django.db.models.functions.uuid.UUID7(),
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("issuer", models.CharField(max_length=255)),
+                ("subject", models.CharField(max_length=255)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("last_login_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="oidc_identities",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['issuer', 'subject'],
-                'constraints': [models.UniqueConstraint(fields=('issuer', 'subject'), name='unique_oidc_identity')],
+                "ordering": ["issuer", "subject"],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("issuer", "subject"), name="unique_oidc_identity"
+                    )
+                ],
             },
         ),
     ]

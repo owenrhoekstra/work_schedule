@@ -54,9 +54,7 @@ class Command(BaseCommand):
             ("Technician", 40),
             ("Veterinary Assistant", 50),
         ]:
-            Role.objects.get_or_create(
-                name=name, defaults={"display_order": order}
-            )
+            Role.objects.get_or_create(name=name, defaults={"display_order": order})
         self.stdout.write("  roles ready")
 
     def _seed_titles(self):

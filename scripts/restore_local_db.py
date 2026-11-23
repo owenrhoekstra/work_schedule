@@ -67,11 +67,7 @@ downloads = Path.home() / "Downloads"
 # to Finder to remember the filename. Only the most recent few, sorted
 # descending, filtered to plausible dump files.
 candidates = sorted(
-    [
-        p
-        for p in downloads.glob("work_schedule_*.sql*")
-        if p.is_file()
-    ],
+    [p for p in downloads.glob("work_schedule_*.sql*") if p.is_file()],
     key=lambda p: p.stat().st_mtime,
     reverse=True,
 )[:5]
@@ -126,9 +122,7 @@ if dump_path.suffix == ".gz":
     )
     if check.returncode != 0:
         sys.stderr.write(check.stderr.decode(errors="replace"))
-        sys.exit(
-            f"{dump_path.name} failed integrity check — not resetting DB"
-        )
+        sys.exit(f"{dump_path.name} failed integrity check — not resetting DB")
 else:
     # Non-.gz dumps are streamed via `cat`; if it's missing on this
     # system, detect now rather than after the destructive reset.
@@ -189,13 +183,18 @@ try:
     psql = subprocess.Popen(
         [
             "psql",
-            "-X",                              # ignore ~/.psqlrc
-            "-h", host,
-            "-p", port,
-            "-U", user,
-            "-d", db_name,
+            "-X",  # ignore ~/.psqlrc
+            "-h",
+            host,
+            "-p",
+            port,
+            "-U",
+            user,
+            "-d",
+            db_name,
             "-q",
-            "-v", "ON_ERROR_STOP=1",
+            "-v",
+            "ON_ERROR_STOP=1",
             "--single-transaction",
         ],
         stdin=producer.stdout,
@@ -232,8 +231,7 @@ try:
     # braces for any producer failure that slips past.
     if producer_rc != 0:
         sys.exit(
-            f"{dump_cmd[0]} exited with code {producer_rc} — restore may be "
-            f"incomplete"
+            f"{dump_cmd[0]} exited with code {producer_rc} — restore may be incomplete"
         )
 finally:
     # Remove the passfile on every path: success, psql failure,

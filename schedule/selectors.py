@@ -12,10 +12,12 @@ temporary and intentional — see SESSIONS.md Commit 3 entry.
 
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
     DayOverride,
+    Employee,
     EmployeeTeam,
     ShiftOverride,
     TeamMembership,
@@ -28,7 +30,9 @@ from .scheduling import (
     _earliest_week,
     _employed_dates,
     _employees_for_week,
+    _last_week_of,
     _pattern_for_week,
+    _pattern_summary,
     _week_offset_for,
     _week_start,
     _week_title_for,
@@ -140,12 +144,89 @@ def available_scopes_for(company, user):
     if has_member_team or has_admin_team:
         scopes.append("team")
 
-    if is_company_admin(user, company):
-        scopes.append("company")
-    elif employed and company.allow_member_view_all:
+    if is_company_admin(user, company) or employed and company.allow_member_view_all:
         scopes.append("company")
 
     return scopes
+
+
+# ---------------------------------------------------------------------------
+# Employee drawer: current pattern + who may open whom
+# ---------------------------------------------------------------------------
+
+
+def current_pattern_context(employee):
+    """Current-week pattern pieces. Shared by the HTML defaults page
+    and the employee drawer API so the two can't drift."""
+    this_week_start = _week_start(timezone.localdate())
+    current = _pattern_for_week(employee, this_week_start)
+
+    current_weeks = _pattern_summary(current) if current else []
+    current_cycle_label = None
+    if current is not None and current.cycle_weeks > 1:
+        offset = _week_offset_for(this_week_start, current)
+        current_cycle_label = WEEK_LABELS[offset]
+
+    current_last_week = _last_week_of(current)
+    return {
+        "current_pattern": current,
+        "current_weeks": current_weeks,
+        "current_last_week": current_last_week,
+        "current_last_week_end": (
+            current_last_week + timedelta(days=6) if current_last_week else None
+        ),
+        "current_cycle_label": current_cycle_label,
+    }
+
+
+def managed_team_ids(user, company):
+    """Teams the user administers at this company."""
+    if not user.is_authenticated:
+        return set()
+    return set(
+        TeamMembership.objects.filter(
+            user=user,
+            role="admin",
+            valid_to__isnull=True,
+            team__company=company,
+        ).values_list("team_id", flat=True)
+    )
+
+
+def employees_visible_to(viewer, company):
+    """Every employee the viewer may open, across all of their scopes.
+
+    Same rules as week_schedule_for_scope (me / team / company), minus
+    the week window: the drawer must open for anyone the table can show
+    in any week. Anyone not in this set is indistinguishable from a
+    nonexistent ID (callers 404).
+    """
+    base = Employee.objects.filter(company=company)
+    scopes = available_scopes_for(company, viewer)
+    if "company" in scopes:
+        return base
+
+    employee = _employee_for(viewer, company)
+    q = Q()
+    if "me" in scopes and employee is not None:
+        q |= Q(pk=employee.pk)
+    if "team" in scopes:
+        team_ids = _viewer_team_ids(viewer, employee, company)
+        if team_ids:
+            q |= Q(team_links__team_id__in=team_ids, team_links__valid_to__isnull=True)
+    if not q:
+        return base.none()
+    return base.filter(q).distinct()
+
+
+def is_team_admin_of_employee(viewer, company, employee):
+    """True if the viewer administers a team this employee is currently on."""
+    team_ids = managed_team_ids(viewer, company)
+    if not team_ids:
+        return False
+    return EmployeeTeam.objects.filter(
+        employee=employee, valid_to__isnull=True, team_id__in=team_ids
+    ).exists()
 
 
 # ---------------------------------------------------------------------------

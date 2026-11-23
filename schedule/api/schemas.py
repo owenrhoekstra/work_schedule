@@ -2,6 +2,7 @@
 
 import datetime
 from typing import Literal
+from uuid import UUID
 
 from ninja import Schema
 
@@ -63,7 +64,7 @@ class OverrideResponse(Schema):
     # copy in one round trip. Same WeekEmployee shape as /week/'s
     # employees[] — no separate schema for "the same employee after a
     # mutation."
-    employee: "WeekEmployee"
+    employee: WeekEmployee
     notification_sent: bool
     notification_error: str | None
 
@@ -115,3 +116,49 @@ class DayOverrideIn(Schema):
 class DayOverrideOut(Schema):
     date: datetime.date
     status: Literal["closed", "holiday"] | None
+
+
+class EmployeeFlagOut(Schema):
+    key: str
+    label: str
+    description: str | None
+    value: bool
+    can_edit: bool
+
+
+class PatternDayOut(Schema):
+    label: str
+    start: str | None  # "HH:MM"
+    end: str | None
+
+
+class PatternWeekOut(Schema):
+    label: str
+    days: list[PatternDayOut]
+
+
+class PatternSummaryOut(Schema):
+    effective_from: datetime.date
+    through: datetime.date | None
+    cycle_weeks: int
+    current_cycle_label: str | None
+    weeks: list[PatternWeekOut]
+
+
+class EmployeeCan(Schema):
+    send_welcome: bool
+
+
+class EmployeeDetailOut(Schema):
+    id: UUID
+    email: str | None  # admins only
+    start_date: datetime.date
+    last_day: datetime.date | None
+    flags: list[EmployeeFlagOut]
+    pattern: PatternSummaryOut | None
+    can: EmployeeCan
+
+
+class FlagIn(Schema):
+    key: str
+    value: bool

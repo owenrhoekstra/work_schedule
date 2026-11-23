@@ -81,7 +81,7 @@ def _format_duration(td):
 def _format_time_12(t):
     """Format a time as '9:00 AM' (no leading zero on the hour)."""
     s = t.strftime("%I:%M %p")
-    return s[1:] if s.startswith("0") else s
+    return s.removeprefix("0")
 
 
 def _ordinal(n):
@@ -238,3 +238,38 @@ def _cell_display(employee, d):
             f"{_format_time_12(default.end_time)}"
         )
     return "OFF"
+
+
+def _last_week_of(pattern):
+    """The Monday of the last week this pattern covers, or None if open-ended.
+
+    effective_to is exclusive — the first week *not* covered — so the
+    last covered week starts seven days earlier. Used for display copy
+    only; resolution logic uses effective_to directly.
+    """
+    if pattern is None or pattern.effective_to is None:
+        return None
+    return pattern.effective_to - timedelta(days=7)
+
+
+def _pattern_summary(pattern):
+    """Render-ready rows for a pattern, grouped by cycle week.
+
+    Returns a list of dicts, one per week in the cycle:
+        {"label": "A", "rows": [{"label": "Monday", "shift": <Shift or None>}, ...]}
+
+    Used by the Saved Patterns list to show the hours inside each
+    saved pattern without firing a query per pattern.
+    """
+    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
+    weeks = []
+    for offset in range(pattern.cycle_weeks):
+        rows = [
+            {
+                "label": DAY_LABELS_FULL[day],
+                "shift": shifts_by_key.get((offset, day)),
+            }
+            for day in DAYS
+        ]
+        weeks.append({"label": WEEK_LABELS[offset], "rows": rows})
+    return weeks

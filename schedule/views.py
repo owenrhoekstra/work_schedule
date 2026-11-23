@@ -29,7 +29,6 @@ new rows. See docs/MULTI-TENANCY.md for the plan.
 
 import io
 from datetime import date, datetime, timedelta
-from functools import wraps
 from types import SimpleNamespace
 
 import qrcode
@@ -39,7 +38,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Min, Q
+from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -48,10 +47,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from work_schedule.auth import (
-    any_admin_required,
     company_admin_required,
-    platform_admin_required,
-    team_admin_required,
+    company_admin_required,
     viable_memberships,
 )
 
@@ -69,27 +66,27 @@ from .models import (
     Title,
 )
 from .scheduling import (
-    DAY_LABELS,
     DAY_LABELS_FULL,
     DAYS,
     MAX_CYCLE_WEEKS,
     MAX_PRINT_WEEKS,
     WEEK_LABELS,
-    _cell_display,
     _cycle_offset,
     _earliest_week,
     _employed_dates,
     _employees_for_week,
     _format_duration,
     _format_time_12,
-    _ordinal,
+    _last_week_of,
     _parse_time,
     _pattern_for_week,
+    _pattern_summary,
     _shift_display,
     _week_offset_for,
     _week_start,
     _week_title_for,
 )
+from .selectors import current_pattern_context
 from .services import OverrideError, apply_override
 
 # ---------------------------------------------------------------------------
@@ -192,18 +189,6 @@ def _calendar_aligned_shifts(employee, effective_from, cycle_weeks):
             if s.week_offset == source_offset:
                 baseline[(target_offset, s.day)] = s
     return baseline
-
-
-def _last_week_of(pattern):
-    """The Monday of the last week this pattern covers, or None if open-ended.
-
-    effective_to is exclusive — the first week *not* covered — so the
-    last covered week starts seven days earlier. Used for display copy
-    only; resolution logic uses effective_to directly.
-    """
-    if pattern is None or pattern.effective_to is None:
-        return None
-    return pattern.effective_to - timedelta(days=7)
 
 
 def _home_context(week_start, company):
@@ -310,29 +295,6 @@ def _new_week_details(pattern, old_cycle, new_cycle):
             for day in DAYS
         ]
         weeks.append({"label": f"Week {WEEK_LABELS[offset]}", "rows": rows})
-    return weeks
-
-
-def _pattern_summary(pattern):
-    """Render-ready rows for a pattern, grouped by cycle week.
-
-    Returns a list of dicts, one per week in the cycle:
-        {"label": "A", "rows": [{"label": "Monday", "shift": <Shift or None>}, ...]}
-
-    Used by the Saved Patterns list to show the hours inside each
-    saved pattern without firing a query per pattern.
-    """
-    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
-    weeks = []
-    for offset in range(pattern.cycle_weeks):
-        rows = [
-            {
-                "label": DAY_LABELS_FULL[day],
-                "shift": shifts_by_key.get((offset, day)),
-            }
-            for day in DAYS
-        ]
-        weeks.append({"label": WEEK_LABELS[offset], "rows": rows})
     return weeks
 
 
@@ -728,9 +690,6 @@ def _employee_page_context(request, employee):
     "Oct 19 through Oct 19"). Both derive from effective_to, which is
     exclusive.
     """
-    this_week_start = _week_start(timezone.localdate())
-    current = _pattern_for_week(employee, this_week_start)
-
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
     )
@@ -749,24 +708,9 @@ def _employee_page_context(request, employee):
             }
         )
 
-    current_weeks = _pattern_summary(current) if current else []
-    current_cycle_label = None
-    if current is not None and current.cycle_weeks > 1:
-        offset = _week_offset_for(this_week_start, current)
-        current_cycle_label = WEEK_LABELS[offset]
-
-    current_last_week = _last_week_of(current)
-    current_last_week_end = (
-        current_last_week + timedelta(days=6) if current_last_week else None
-    )
-
     return {
         "employee": employee,
-        "current_pattern": current,
-        "current_weeks": current_weeks,
-        "current_last_week": current_last_week,
-        "current_last_week_end": current_last_week_end,
-        "current_cycle_label": current_cycle_label,
+        **current_pattern_context(employee),
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
         "can_change": (

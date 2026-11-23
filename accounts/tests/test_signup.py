@@ -1,4 +1,3 @@
-from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -6,9 +5,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.forms import SignUpForm  # noqa
-from schedule.models import Employee
 
-from .factories import make_employee, make_role
+from .factories import make_employee
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -173,9 +171,7 @@ class StalePendingSignupTests(TestCase):
         emp.email = "changed@example.com"
         emp.save(update_fields=["email"])
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"code": "123456"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"code": "123456"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("signup"))
         self.assertNotIn("pending_signup", self.client.session)
@@ -190,9 +186,7 @@ class StalePendingSignupTests(TestCase):
         emp.is_active = False
         emp.save(update_fields=["is_active"])
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"code": "123456"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"code": "123456"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("signup"))
         self.assertNotIn("pending_signup", self.client.session)
@@ -211,9 +205,7 @@ class StalePendingSignupTests(TestCase):
         emp.save(update_fields=["user"])
         self._prime_session(emp)
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"code": "123456"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"code": "123456"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("login"))
         self.assertNotIn("pending_signup", self.client.session)
@@ -227,9 +219,7 @@ class StalePendingSignupTests(TestCase):
         emp.email = "new2@example.com"
         emp.save(update_fields=["email"])
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"action": "resend"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"action": "resend"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("signup"))
         self.assertNotIn("pending_signup", self.client.session)
@@ -242,9 +232,7 @@ class StalePendingSignupTests(TestCase):
         emp.is_active = False
         emp.save(update_fields=["is_active"])
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"action": "resend"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"action": "resend"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("signup"))
         self.assertNotIn("pending_signup", self.client.session)
@@ -258,9 +246,7 @@ class StalePendingSignupTests(TestCase):
         emp.save(update_fields=["user"])
         self._prime_session(emp)
 
-        resp = self.client.post(
-            reverse("verify_signup_otp"), {"action": "resend"}
-        )
+        resp = self.client.post(reverse("verify_signup_otp"), {"action": "resend"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp.url, reverse("signup"))
         self.assertNotIn("pending_signup", self.client.session)

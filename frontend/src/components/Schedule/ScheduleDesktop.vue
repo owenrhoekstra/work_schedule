@@ -1,12 +1,26 @@
 <script setup lang="ts">
+import { computed, ref } from "vue";
 import { Badge } from "@/components/ui/badge";
 import { format12, formatDateMedium, formatDuration } from "@/lib/format";
 import type { Cell, CellKind, DayHeader, WeekResponse } from "@/types/week";
 import { Button } from "../ui/button";
 import DayStatusMenu from "./DayStatusMenu.vue";
+import EmployeeDrawer from "./EmployeeDrawer.vue";
 import OverridePopover from "./OverridePopover.vue";
 
 const props = defineProps<{ data: WeekResponse }>();
+
+const drawerOpen = ref(false);
+const selectedId = ref<string | null>(null);
+// Keep the last selection after close so the sheet doesn't blank out mid-animation.
+const selected = computed(
+  () => props.data.employees.find((e) => e.id === selectedId.value) ?? null,
+);
+
+function openDrawer(id: string) {
+  selectedId.value = id;
+  drawerOpen.value = true;
+}
 
 const kindClasses: Record<CellKind, string> = {
   default: "text-foreground",
@@ -126,17 +140,12 @@ function employeeDefaultsUrl(id: string): string {
         >
           <td class="overflow-hidden p-2">
             <Button
-              as-child
               variant="ghost"
               class="h-auto max-w-full min-w-0 justify-start p-0 font-medium"
+              :title="emp.display_name"
+              @click="openDrawer(emp.id)"
             >
-              <a
-                :href="employeeDefaultsUrl(emp.id)"
-                class="block truncate"
-                :title="emp.display_name"
-              >
-                {{ emp.display_name }}
-              </a>
+              <span class="truncate">{{ emp.display_name }}</span>
             </Button>
             <div
               v-if="emp.role_name"
@@ -187,5 +196,6 @@ function employeeDefaultsUrl(id: string): string {
         </tr>
       </tbody>
     </table>
+    <EmployeeDrawer v-model:open="drawerOpen" :employee="selected" />
   </div>
 </template>

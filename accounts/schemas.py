@@ -7,8 +7,6 @@ file — one import surface per app.
 
 from ninja import Schema
 
-from work_schedule.auth import is_company_admin, is_team_admin
-
 
 class CompanySchema(Schema):
     id: str
@@ -48,9 +46,11 @@ class TeamMembershipSchema(Schema):
     company_id: str
     role: str
 
+
 class CompanyAdminMe(Schema):
     status: bool
     company_id: str
+
 
 class TeamAdminMe(Schema):
     status: bool

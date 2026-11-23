@@ -4,8 +4,6 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.views import _ordinal
-
 from .factories import (
     make_employee,
     make_management_user,

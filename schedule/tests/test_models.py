@@ -1,18 +1,16 @@
-from datetime import date, timedelta
+from datetime import date
 
 from django.db import IntegrityError
 from django.test import TestCase
 
 from schedule.models import (
-    Employee,
-    EmploymentPeriod,
     Role,
     Shift,
     ShiftOverride,
     Title,
 )
 
-from .factories import make_company, make_employee, make_role, make_title
+from .factories import make_company, make_employee, make_title
 
 
 class EmployeeStrTests(TestCase):

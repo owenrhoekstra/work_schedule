@@ -166,8 +166,6 @@ def viable_memberships(user):
         user=user, status="active"
     ).select_related("company"):
         employee = user.employees.filter(company=m.company).first()
-        if employee is None:
-            viable.append(m)
-        elif employee.last_day is None or employee.last_day >= today:
+        if employee is None or employee.last_day is None or employee.last_day >= today:
             viable.append(m)
     return viable

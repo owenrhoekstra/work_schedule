@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, EmploymentPeriod, Role, Title
+from schedule.models import Role, Title
 
 from .factories import (
     make_company,
