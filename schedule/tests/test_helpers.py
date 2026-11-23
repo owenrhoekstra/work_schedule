@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 
 from django.test import SimpleTestCase
 
+from schedule.scheduling import _ordinal
 from schedule.views import (
     _format_duration,
     _format_time_12,
