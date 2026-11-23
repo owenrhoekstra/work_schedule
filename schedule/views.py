@@ -30,6 +30,7 @@ new rows. See docs/MULTI-TENANCY.md for the plan.
 import io
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import qrcode
 import qrcode.image.svg
@@ -535,7 +536,9 @@ def add_employee(request):
     - Plain POST → redirect to home (full page reload).
     - HTMX POST → swap the schedule table on success; swap just the
       form back into the modal on validation failure so the dialog
-      stays open with errors and the user's input preserved.
+      stays open with errors and the user's input preserved. When the
+      HTMX request comes from the settings page there is no schedule
+      table to swap, so success replies 204 + HX-Refresh instead.
 
     The user's viewed week is preserved across both response paths.
     The form carries a hidden `week` field seeded from the schedule
@@ -595,6 +598,16 @@ def add_employee(request):
                 messages.success(request, f"{employee} added.")
 
             if is_htmx:
+                # Added from the settings page: there is no schedule
+                # table to swap into, so tell htmx to reload the page.
+                # Messages are left unconsumed so they show after the
+                # reload.
+                current_path = urlparse(request.headers.get("HX-Current-URL", "")).path
+                if current_path == reverse("settings_home"):
+                    response = HttpResponse(status=204)
+                    response["HX-Refresh"] = "true"
+                    return response
+
                 rows, day_headers = _build_schedule_rows(viewed_week, company)
 
                 # Render the table (primary swap target) and the
@@ -2106,7 +2119,7 @@ def settings_home(request):
     if request.is_company_admin and request.user.has_perm("schedule.add_employee"):
         context["employee_form"] = EmployeeForm(company=company)
         context["week_start"] = _week_start(timezone.localdate())
-        
+
     return render(request, "schedule/settings.html", context)
 
 
