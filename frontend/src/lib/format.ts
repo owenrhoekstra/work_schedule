@@ -17,6 +17,11 @@
 export function format12(time24: string): string {
   // Defaults satisfy noUncheckedIndexedAccess; runtime always has both
   // parts because the schema guarantees "HH:MM".
+
+  if (time24 === "") {
+    return ``
+  }
+  
   const [hStr = "00", mStr = "00"] = time24.split(":");
   const h = parseInt(hStr, 10);
   const suffix = h < 12 ? "AM" : "PM";

@@ -103,6 +103,13 @@ add-employee modal is a plain Django form with no Alpine involvement.
 
                         if (!e.detail.successful) return;
 
+                        // Settings page has no schedule table to swap into,
+                        // so refresh to show the new employee in the list.
+                        if (opts.reloadOnAdd) {
+                            window.location.reload();
+                            return;
+                        }
+
                         // Success: reset the form to a clean slate so
                         // the next open doesn't show stale errors or
                         // values. The table has already been swapped

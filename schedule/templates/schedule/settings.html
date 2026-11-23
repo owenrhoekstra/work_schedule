@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}Settings{% endblock %} {% block content %}
-<div class="max-w-5xl mx-auto px-6 py-10">
+<div class="max-w-5xl mx-auto px-6 py-10" x-data="schedulePage({ reloadOnAdd: true })">
     <h1 class="font-display text-2xl font-bold text-brand-indigo mb-6">
         Settings
     </h1>
@@ -14,11 +14,14 @@
             <h2 class="font-display text-lg font-bold text-brand-indigo">
                 Employees
             </h2>
-            <a
-                href="{% url 'home' %}"
-                class="text-sm font-medium text-brand-coral hover:underline"
-                >+ Add Employee</a
+            {% if is_company_admin and perms.schedule.add_employee %}
+            <button
+                @click="openAddEmployee()"
+                class="font-display text-sm font-medium text-white bg-brand-coral hover:bg-[#e6484d] rounded-lg px-4 py-2 transition-colors whitespace-nowrap"
             >
+                + Add Employee
+            </button>
+            {% endif %}
         </div>
         <div class="overflow-x-auto">
             <table class="min-w-full border-collapse">
@@ -340,6 +343,11 @@
             </button>
         </form>
     </section>
+
+    {% if is_company_admin and perms.schedule.add_employee %}
+    {% include "schedule/partials/_page_state.html" %}
+    {% include "schedule/modals/_add_employee.html" %}
+    {% endif %}
 </div>
 
 <!-- Reactivate modal -->

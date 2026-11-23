@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format12 } from "@/lib/format";
 import { useOverrideMutation } from "@/queries/overrides";
 import type { Cell } from "@/types/week";
 
@@ -43,8 +44,8 @@ const mutation = useOverrideMutation();
 // refetch) without clobbering mid-edit values.
 watch(open, (isOpen) => {
   if (!isOpen) return;
-  startTime.value = props.cell.start ?? props.cell.default_start ?? "";
-  endTime.value = props.cell.end ?? props.cell.default_end ?? "";
+  startTime.value = format12(props.cell.start ?? props.cell.default_start ?? "");
+  endTime.value = format12(props.cell.end ?? props.cell.default_end ?? "");
   notify.value = false;
   mutation.reset();
 });

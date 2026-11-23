@@ -123,8 +123,8 @@ describe("OverridePopover", () => {
     await nextTick();
     await nextTick();
     const inputs = wrapper.findAll('input[type="text"]');
-    expect((inputs[0]!.element as HTMLInputElement).value).toBe("09:00");
-    expect((inputs[1]!.element as HTMLInputElement).value).toBe("17:00");
+    expect((inputs[0]!.element as HTMLInputElement).value).toBe("9:00 AM");
+    expect((inputs[1]!.element as HTMLInputElement).value).toBe("5:00 PM");
   });
 
   it("pre-fills from defaults when the cell has no override", async () => {
@@ -134,8 +134,8 @@ describe("OverridePopover", () => {
     await flushPromises();
     await nextTick();
     const inputs = wrapper.findAll('input[type="text"]');
-    expect((inputs[0]!.element as HTMLInputElement).value).toBe("09:00");
-    expect((inputs[1]!.element as HTMLInputElement).value).toBe("17:00");
+    expect((inputs[0]!.element as HTMLInputElement).value).toBe("9:00 AM");
+    expect((inputs[1]!.element as HTMLInputElement).value).toBe("5:00 PM");
   });
 
   it("hides Save when canAddShift is false", async () => {
@@ -191,8 +191,8 @@ describe("OverridePopover", () => {
         employeeId: "e1",
         date: "2026-11-16",
         action: "save",
-        start: "09:00",
-        end: "17:00",
+        start: "9:00 AM",
+        end: "5:00 PM",
         notify: false,
       }),
       expect.any(Object),

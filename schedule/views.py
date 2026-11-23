@@ -2102,6 +2102,11 @@ def settings_home(request):
         "roles": Role.objects.filter(company=company),
         "today": today,
     }
+
+    if request.is_company_admin and request.user.has_perm("schedule.add_employee"):
+        context["employee_form"] = EmployeeForm(company=company)
+        context["week_start"] = _week_start(timezone.localdate())
+        
     return render(request, "schedule/settings.html", context)
 
 
