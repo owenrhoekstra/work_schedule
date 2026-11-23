@@ -1,7 +1,14 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import ScheduleToolbar from "@/components/Schedule/ScheduleToolbar.vue";
 import type { ViewerCan, WeekRef } from "@/types/week";
+
+// Stub the picker — it needs VueQueryPlugin + fetch mocking, but the
+// toolbar spec doesn't exercise it. ScopeContextPicker has its own
+// dedicated spec file.
+vi.mock("@/components/Schedule/ScopeContextPicker.vue", () => ({
+  default: { template: "<div />" },
+}));
 
 function makeWeek(): WeekRef {
   return {

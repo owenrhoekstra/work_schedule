@@ -2,6 +2,7 @@
 import { PhPrinter } from "@phosphor-icons/vue";
 import { Button } from "@/components/ui/button";
 import type { ViewerCan, WeekRef } from "@/types/week";
+import ScopeContextPicker from "./ScopeContextPicker.vue";
 import ScopeSelector from "./ScopeSelector.vue";
 import WeekHeader from "./WeekHeader.vue";
 
@@ -42,6 +43,7 @@ defineEmits<{
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <WeekHeader :week="week" @navigate="$emit('navigate', $event)" />
       <div class="flex items-center gap-2">
+        <ScopeContextPicker :scope="currentScope" />
         <ScopeSelector
           :scopes="scopes"
           :current="currentScope"

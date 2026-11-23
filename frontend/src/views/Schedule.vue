@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { useQuery } from "@tanstack/vue-query";
-import { computed } from "vue";
+import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ScheduleDesktop from "@/components/Schedule/ScheduleDesktop.vue";
+import ScheduleSkeleton from "@/components/Schedule/ScheduleSkeleton.vue";
 import ScheduleToolbar from "@/components/Schedule/ScheduleToolbar.vue";
 import { meQueryOptions } from "@/queries/me";
-import { weekQueryOptions } from "@/queries/week";
+import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/week";
 
 const route = useRoute();
 const router = useRouter();
 
 const { data: me } = useQuery(meQueryOptions());
+const companyId = computed<string | null>(() => me.value?.current_company_id ?? null);
 
 const weekParam = computed<string | null>(() => {
   const w = route.query.week;
@@ -43,9 +45,20 @@ const enabled = computed(() => me.value !== undefined && hasScopes.value);
 const {
   data: week,
   isPending,
+  isPlaceholderData,
   isError,
   error,
-} = useQuery(weekQueryOptions(weekParam, scope, enabled));
+} = useQuery(weekQueryOptions(companyId, weekParam, scope, enabled));
+
+const queryClient = useQueryClient();
+
+// Prefetch adjacent weeks whenever the current week changes (initial
+// load, week nav, or scope switch). Reacts to both dependencies so a
+// scope change warms the new scope's neighbourhood too.
+watch([() => week.value?.week, scope, companyId], ([currentWeek, currentScope, currentCompany]) => {
+  if (!currentWeek || !currentCompany) return;
+  void prefetchAdjacentWeeks(queryClient, currentCompany, currentWeek, currentScope);
+});
 
 function setWeek(newWeek: string) {
   router.push({ query: { ...route.query, week: newWeek } });
@@ -66,13 +79,15 @@ function goCurrent() {
     <p class="mt-2 text-sm text-muted-foreground">Ask a manager to add you to the schedule.</p>
   </div>
 
-  <div v-else-if="isPending" class="py-8 text-muted-foreground">Loading schedule…</div>
+  <div v-else-if="isPending && !week" class="mx-auto max-w-6xl space-y-2 pt-6">
+    <ScheduleSkeleton />
+  </div>
 
   <div v-else-if="isError" class="py-8 text-destructive">
     Could not load schedule: {{ error?.message ?? "Unknown error" }}
   </div>
 
-  <div v-else-if="week" class="mx-auto space-y-5 pt-16">
+  <div v-else-if="week" class="mx-auto max-w-6xl space-y-2 pt-6">
     <ScheduleToolbar
       :week="week.week"
       :scopes="week.available_scopes"
@@ -82,6 +97,7 @@ function goCurrent() {
       @go-current="goCurrent"
       @select-scope="setScope"
     />
-    <ScheduleDesktop :data="week" />
+    <ScheduleSkeleton v-if="isPlaceholderData" />
+    <ScheduleDesktop v-else :data="week" />
   </div>
 </template>
