@@ -6,14 +6,19 @@ interface SelectResponse {
   error: string;
 }
 
-// Company switch invalidates /me/ only (current_company_id, teams[],
-// available_scopes all change). Week query keys embed the company id,
-// so the new company's weeks fetch under fresh keys once /me/ updates;
-// invalidating /week/ here would race the session switch. In-flight
-// week requests are cancelled up front for the same reason.
+// Company switch invalidates /me/ (current_company_id, teams[],
+// available_scopes all change) and marks every cached /week/ entry
+// stale WITHOUT refetching (refetchType: "none"). A normal
+// invalidation would refetch active week queries and race the session
+// switch; marking stale only is safe because nothing fires until the
+// new company's week keys mount after /me/ updates. In-flight week
+// requests are still cancelled up front for the same reason.
 // The backend clears session team_id on company switch, so the next
 // /me/ returns current_team_id: null and teams: [] for the new
-// company until the user picks one.
+// company until the user picks one. Week keys omit current_team_id,
+// so without the stale mark, switching back to a company within
+// staleTime would reuse a roster fetched under a previously selected
+// team instead of showing all viewable teams.
 export function useSelectCompanyMutation() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -25,6 +30,13 @@ export function useSelectCompanyMutation() {
     onMutate: () => queryClient.cancelQueries({ queryKey: ["week"] }),
     onSuccess: async (data) => {
       if (!data.ok) return;
+      // Stale only, no refetch: cached weeks were fetched under a team
+      // selection the backend has now cleared, so they must not be
+      // treated as fresh when their key next mounts.
+      queryClient.invalidateQueries({
+        queryKey: ["week"],
+        refetchType: "none",
+      });
       // Week keys embed current_company_id, so the new company's
       // weeks only fetch once /me/ has updated.
       await queryClient.invalidateQueries({ queryKey: ["me"] });
