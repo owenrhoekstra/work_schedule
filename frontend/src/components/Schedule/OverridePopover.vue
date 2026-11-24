@@ -114,8 +114,8 @@ const canReset = computed(
 </script>
 
 <template>
-  <Popover v-model:open="open">
-    <PopoverTrigger as-child :disabled="!editable">
+  <Popover v-model:open="open" >
+    <PopoverTrigger as-child :disabled="!editable" >
       <button
         v-if="editable"
         type="button"
@@ -132,6 +132,7 @@ const canReset = computed(
       class="w-80 border-2 border-foreground/25 shadow-xl"
       align="center"
       :side-offset="4"
+      v-if="editable"
     >
       <div class="space-y-3">
         <div>

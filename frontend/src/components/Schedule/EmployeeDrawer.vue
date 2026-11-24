@@ -20,12 +20,18 @@ import {
   useEmployeeFlagMutation,
   useSendWelcomeMutation,
 } from "@/queries/employee";
+import { meQueryOptions } from "@/queries/me";
 import type { WeekEmployee } from "@/types/week";
 
 const showDialog = ref(false);
 
 const props = defineProps<{ employee: WeekEmployee | null }>();
 const open = defineModel<boolean>("open", { required: true });
+
+const { data: me } = useQuery(meQueryOptions());
+const canViewEmployee = computed(
+  () => me.value?.permissions.includes("schedule.view_employee") ?? false,
+);
 
 const id = computed(() => props.employee?.id ?? null);
 const { data: detail, isPending, isError } = useQuery(employeeQueryOptions(id));
@@ -130,8 +136,8 @@ const profileUrl = computed(() => `/schedule/employees/${id.value}/defaults/`);
             <table class="w-full text-sm">
               <tbody>
                 <tr v-for="d in shownWeek?.days" :key="d.label" class="border-t first:border-t-0">
-                  <td class="py-1.5 pr-4 text-muted-foreground">{{ d.label }}</td>
-                  <td class="py-1.5">
+                  <td class="py-1.5 pr-4 text-left text-muted-foreground">{{ d.label }}</td>
+                  <td class="py-1.5 text-right tabular-nums">
                     <span v-if="d.start && d.end"
                       >{{ format12(d.start) }} – {{ format12(d.end) }}</span
                     >
@@ -167,12 +173,12 @@ const profileUrl = computed(() => `/schedule/employees/${id.value}/defaults/`);
           v-model:open="showDialog"
           title="Send Welcome Email?"
           :description="`This will send ${employee?.display_name} a welcome email to ${detail.email} `"
-          @approved=welcomeMutation.mutate()
+          @approved="welcomeMutation.mutate()"
           @cancelled="showDialog = false"
         />
       </div>
 
-      <SheetFooter class="mt-auto border-t p-4">
+      <SheetFooter class="mt-auto border-t p-4" v-if="canViewEmployee">
         <Button as-child class="w-full">
           <a :href="profileUrl">
             Open full profile
