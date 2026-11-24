@@ -1,9 +1,8 @@
 """Tests for POST /api/v1/teams/select/."""
 
-from datetime import date
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from schedule.models import (
     CompanyMembership,
@@ -36,13 +35,13 @@ class SelectTeamEndpointTests(TestCase):
             user=self.admin,
             team=self.team_a,
             role="admin",
-            valid_from=date.today(),
+            valid_from=timezone.localdate(),
         )
         TeamMembership.objects.create(
             user=self.admin,
             team=self.team_b,
             role="admin",
-            valid_from=date.today(),
+            valid_from=timezone.localdate(),
         )
 
     def _url(self):

@@ -46,7 +46,11 @@ class DayOverrideApiTests(TestCase):
         )
 
     def test_admin_with_perms_can_set_and_clear(self):
-        admin = make_company_admin("admin", self.company)
+        admin = make_company_admin(
+            "admin",
+            self.company,
+            perms=("change_dayoverride", "view_shift"),
+        )
         login_as(self.client, admin, company=self.company)
 
         r = self.post_day("closed")
@@ -75,7 +79,11 @@ class DayOverrideApiTests(TestCase):
         self.assertEqual(DayOverride.objects.count(), 0)
 
     def test_admin_missing_a_required_perm_gets_403(self):
-        admin = make_company_admin("admin", self.company, perms=("view_shift",))
+        admin = make_company_admin(
+            "admin",
+            self.company,
+            perms=("view_shift",),
+        )
         login_as(self.client, admin, company=self.company)
         self.assertEqual(self.post_day("closed").status_code, 403)
 
@@ -160,6 +168,10 @@ class OverrideAuthzOrderTests(TestCase):
 
     def test_admin_gets_404_for_other_companys_employee(self):
         other_employee = make_employee(email="x@example.com", company=make_company("B"))
-        admin = make_company_admin("admin", self.company, perms=("delete_shift",))
+        admin = make_company_admin(
+    "admin",
+    self.company,
+    perms=("delete_shift", "view_shift"),
+)
         login_as(self.client, admin, company=self.company)
         self.assertEqual(self.post_override(other_employee.pk).status_code, 404)

@@ -19,6 +19,7 @@ import uuid  # add at top of file, above `from datetime import`
 from datetime import date, timedelta
 
 from django.contrib.auth.models import Group, Permission, User
+from django.utils import timezone
 
 from schedule.models import (
     Company,
@@ -81,9 +82,9 @@ def make_employee(
         cycle_weeks = 1
 
     if start_date is None:
-        start_date = date.today()
+        start_date = timezone.localdate()
         # Clamp Sunday to Saturday. The schedule week is Mon-Sat
-        # (DAYS = [0..5]); on Sunday, date.today() is AFTER the
+        # (DAYS = [0..5]); on Sunday, timezone.localdate() is AFTER the
         # current week's Saturday, so _employees_for_week excludes
         # the employee. Tests using the default start_date pass on
         # Mon-Sat and would fail on Sunday without this clamp.
@@ -153,9 +154,37 @@ def make_member_user(username="member", company=None):
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
+
     company = company or Company.objects.order_by("id").first() or make_company()
     CompanyMembership.objects.create(
         user=user, company=company, role="member", status="active"
+    )
+    return user
+
+
+def make_viewer_user(username="viewer", company=None):
+    """Authenticated company member with view_shift but no write permissions."""
+    from schedule.models import CompanyMembership
+
+    user = User.objects.create_user(
+        username=username,
+        password="pass",
+        email=f"{username}@example.com",
+    )
+
+    perm = Permission.objects.get(
+        codename="view_shift",
+        content_type__app_label="schedule",
+    )
+    user.user_permissions.add(perm)
+
+    company = company or Company.objects.order_by("id").first() or make_company()
+
+    CompanyMembership.objects.create(
+        user=user,
+        company=company,
+        role="member",
+        status="active",
     )
     return user
 
@@ -197,5 +226,5 @@ def make_management_user(username="management", company=None):
 
 def next_monday(today=None):
     """The Monday of next week, relative to `today` (defaults to today)."""
-    today = today or date.today()
+    today = today or timezone.localdate()
     return today + timedelta(days=7 - today.weekday())

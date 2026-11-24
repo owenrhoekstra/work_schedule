@@ -10,10 +10,9 @@ _TENANT_EXEMPT_PREFIXES); test_no_viable_memberships and
 test_stale_session_company pin the behavior that depends on it.
 """
 
-from datetime import date
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from schedule.models import CompanyMembership, Team, TeamMembership
 from schedule.tests._helpers import login_as
@@ -120,7 +119,7 @@ class MeEndpointTests(TestCase):
 
         team = Team.objects.create(company=self.company, name="Kitchen")
         TeamMembership.objects.create(
-            user=self.user, team=team, role="admin", valid_from=date.today()
+            user=self.user, team=team, role="admin", valid_from=timezone.localdate()
         )
 
         login_as(self.client, self.user, self.company, team=team)
@@ -146,7 +145,6 @@ class MeEndpointTests(TestCase):
         # Company admin + Employee row + team admin → all three scopes.
         # "team" comes from the TeamMembership admin path, which does
         # not depend on the team's allow_member_view_all flag.
-        from datetime import date
 
         from schedule.models import Team, TeamMembership
         from schedule.tests.factories import make_employee
@@ -159,7 +157,7 @@ class MeEndpointTests(TestCase):
             email="admin@x.com",
         )
         TeamMembership.objects.create(
-            user=self.user, team=team, role="admin", valid_from=date.today()
+            user=self.user, team=team, role="admin", valid_from=timezone.localdate()
         )
 
         login_as(self.client, self.user, self.company)

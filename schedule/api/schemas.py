@@ -162,3 +162,7 @@ class EmployeeDetailOut(Schema):
 class FlagIn(Schema):
     key: str
     value: bool
+
+
+class WelcomeOut(Schema):
+    sent: bool

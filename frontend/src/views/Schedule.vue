@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import ScheduleDesktop from "@/components/Schedule/ScheduleDesktop.vue";
 import ScheduleSkeleton from "@/components/Schedule/ScheduleSkeleton.vue";
 import ScheduleToolbar from "@/components/Schedule/ScheduleToolbar.vue";
+import ScopeContextPicker from "@/components/Schedule/ScopeContextPicker.vue";
 import { meQueryOptions } from "@/queries/me";
 import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/week";
 
@@ -75,6 +76,9 @@ function goCurrent() {
 
 <template>
   <div v-if="me && !hasScopes" class="py-12 text-center">
+    <div class="mb-6 flex justify-center">
+      <ScopeContextPicker :scope="scope" />
+    </div>
     <p class="text-muted-foreground">You don't have a schedule here yet.</p>
     <p class="mt-2 text-sm text-muted-foreground">Ask a manager to add you to the schedule.</p>
   </div>

@@ -9,6 +9,7 @@ from ninja.errors import HttpError
 from schedule.selectors import available_scopes_for, week_schedule_for_scope
 from work_schedule.api.auth import session_auth
 
+from .authz import authorize  # at the top
 from .schemas import WeekResponse
 
 router = Router(tags=["schedule"], auth=session_auth)
@@ -26,7 +27,7 @@ def week(request, week: str | None = None, scope: str = "me"):
     `week` is an ISO date; any date within the target week is accepted
     and resolved to that week's Monday. Omitted → current week.
     """
-    company = request.company
+    company = authorize(request, "schedule.view_shift", admin=False)
     if company is None:
         raise HttpError(400, "No company in context.")
 

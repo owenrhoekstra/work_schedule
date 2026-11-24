@@ -16,7 +16,7 @@ from schedule.selectors import (
 from work_schedule.api.auth import session_auth
 
 from .authz import authorize
-from .schemas import EmployeeDetailOut, EmployeeFlagOut, FlagIn
+from .schemas import EmployeeDetailOut, EmployeeFlagOut, FlagIn, WelcomeOut
 
 router = Router(tags=["employees"], auth=session_auth)
 
@@ -139,7 +139,7 @@ def set_flag(request, employee_id: UUID, payload: FlagIn):
     return _flag_out(request, flag, employee, access)
 
 
-@router.post("/{employee_id}/welcome/")
+@router.post("/{employee_id}/welcome/", response=WelcomeOut)
 def send_welcome(request, employee_id: UUID):
     company = authorize(request, "schedule.add_employee")  # company admin only
     employee = _get_employee(request, company, employee_id)

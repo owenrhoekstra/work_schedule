@@ -217,28 +217,27 @@ me_router = Router(tags=["accounts"])
 
 @me_router.get("/", auth=session_auth, response=MeResponse)
 def me(request):
-    from schedule.models import TeamMembership
+    from schedule.models import Team
+    from schedule.selectors import (
+        available_scopes_for,
+        managed_team_ids,
+        viewable_team_ids,
+    )
     from work_schedule.auth import is_platform_admin, viable_memberships
 
     memberships = viable_memberships(request.user)
 
-    from schedule.selectors import available_scopes_for, viewable_team_ids
-
     if request.company is not None:
         allowed_ids = viewable_team_ids(request.user, request.company)
-        team_memberships = (
-            TeamMembership.objects.filter(
-                user=request.user,
-                valid_to__isnull=True,
-                team__company=request.company,
-                team_id__in=allowed_ids,
+        admin_ids = managed_team_ids(request.user, request.company)
+        visible_teams = list(
+            Team.objects.filter(company=request.company, pk__in=allowed_ids).order_by(
+                "name"
             )
-            .select_related("team")
-            .order_by("team__name")
         )
     else:
-        team_memberships = TeamMembership.objects.none()
-    viable_team_ids = {str(t.team_id) for t in team_memberships}
+        admin_ids, visible_teams = set(), []
+    viable_team_ids = {str(t.id) for t in visible_teams}
 
     session_team = request.session.get("team_id")
 
@@ -258,11 +257,11 @@ def me(request):
         ],
         "is_team_admin": [
             {
-                "status": is_team_admin(request.user, t.team.id, t.team.company_id),
-                "company_id": str(t.team.company_id),
-                "team_id": str(t.team.id),
+                "status": is_team_admin(request.user, t.id, t.company_id),
+                "company_id": str(t.company_id),
+                "team_id": str(t.id),
             }
-            for t in team_memberships
+            for t in visible_teams
         ],
         "permissions": sorted(request.user.get_all_permissions()),
         "current_company_id": (str(request.company.id) if request.company else None),
@@ -278,12 +277,12 @@ def me(request):
         ],
         "teams": [
             {
-                "id": str(t.team.id),
-                "name": t.team.name,
-                "company_id": str(t.team.company_id),
-                "role": t.role,
+                "id": str(t.id),
+                "name": t.name,
+                "company_id": str(t.company_id),
+                "role": "admin" if t.id in admin_ids else "member",
             }
-            for t in team_memberships
+            for t in visible_teams
         ],
         "available_scopes": (
             available_scopes_for(request.company, request.user)

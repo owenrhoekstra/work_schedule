@@ -10,7 +10,7 @@ from ninja.errors import HttpError
 
 from schedule.models import DayOverride, Employee
 from schedule.scheduling import _employed_dates, _week_start
-from schedule.selectors import week_row_for
+from schedule.selectors import DAY_OVERRIDE_PERMS, week_row_for
 from schedule.services import OverrideError, apply_override
 from work_schedule.api.auth import session_auth
 
@@ -33,16 +33,17 @@ router = Router(tags=["overrides"], auth=session_auth)
 def set_day_override(request, target_date: date, payload: DayOverrideIn):
     """Mark a whole date as Closed or Holiday, or clear that status.
 
-    Authz: company admin plus change_shift and view_shift. Returns the
-    resulting status; the client invalidates its week query to pick up
-    the new column state.
+    Authz: company admin plus change_dayoverride and view_shift (the
+    DAY_OVERRIDE_PERMS pair, shared with the viewer_can flag). Returns
+    the resulting status; the client invalidates its week query to pick
+    up the new column state.
 
     Validation (authz runs first):
     - 400: no company in context
-    - 403: not company admin, or missing change_shift/view_shift
+    - 403: not company admin, or missing change_dayoverride/view_shift
     - 422: malformed date or unknown action (schema validation)
     """
-    company = authorize(request, "schedule.change_shift", "schedule.view_shift")
+    company = authorize(request, *DAY_OVERRIDE_PERMS)
 
     # team=None limits this to company-wide rows, matching override().
     # Team-scoped DayOverrides are reserved for the teams UI and must
@@ -87,7 +88,7 @@ def override(request, employee_id: UUID, override_date: date, payload: OverrideR
         if payload.action in ("off", "reset")
         else "schedule.add_shift"
     )
-    company = authorize(request, perm)
+    company = authorize(request, perm, "schedule.view_shift")
 
     today = timezone.localdate()
     try:

@@ -114,7 +114,11 @@ function patchEmployee(
 }
 
 function replaceEmployee(old: WeekResponse, fresh: WeekEmployee): WeekResponse {
-  if (!old.employees.some((e) => e.id === fresh.id)) return old;
+  const current = old.employees.find((e) => e.id === fresh.id);
+  if (!current) return old;
+  // The row covers ONE week. Cells[0] is that week's Monday, so a
+  // mismatch means this cache holds a different week: leave it alone.
+  if (current.cells[0]?.date !== fresh.cells[0]?.date) return old;
   return {
     ...old,
     employees: old.employees.map((e) => (e.id === fresh.id ? fresh : e)),
@@ -141,19 +145,28 @@ export function useOverrideMutation() {
     // the employee isn't in the roster) return unchanged.
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: ["week"] });
-      const previous = queryClient.getQueriesData<WeekResponse>({ queryKey: ["week"] });
+
+      // Remember this one cell as it was, so a failure can undo just this edit.
+      let previousCell: Cell | undefined;
+      for (const [, data] of queryClient.getQueriesData<WeekResponse>({ queryKey: ["week"] })) {
+        previousCell = data?.employees
+          .find((e) => e.id === vars.employeeId)
+          ?.cells.find((c) => c.date === vars.date);
+        if (previousCell) break;
+      }
+
       queryClient.setQueriesData<WeekResponse>({ queryKey: ["week"] }, (old) =>
         old ? patchEmployee(old, vars.employeeId, vars.date, (c) => optimisticCell(c, vars)) : old,
       );
-      return { previous };
+      return { previousCell };
     },
 
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) {
-        for (const [key, data] of ctx.previous) {
-          queryClient.setQueryData(key, data);
-        }
-      }
+    onError: (_err, vars, ctx) => {
+      const prev = ctx?.previousCell;
+      if (!prev) return;
+      queryClient.setQueriesData<WeekResponse>({ queryKey: ["week"] }, (old) =>
+        old ? patchEmployee(old, vars.employeeId, vars.date, () => prev) : old,
+      );
     },
 
     // Success: replace the optimistic cell with the server's

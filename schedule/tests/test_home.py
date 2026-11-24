@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from schedule.models import Company, DayOverride, Shift, ShiftOverride
 
@@ -87,7 +88,7 @@ class HomeScheduleRenderingTests(TestCase):
         self.client.force_login(self.user)
         self.role_a = make_role("Manager", order=10)
         self.role_b = make_role("Receptionist", order=20)
-        self.mon = date.today() - timedelta(days=date.today().weekday())
+        self.mon = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
         self.early_start = self.mon - timedelta(days=30)
 
     # ----- sorting -----

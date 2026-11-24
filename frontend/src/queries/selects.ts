@@ -6,8 +6,11 @@ interface SelectResponse {
   error: string;
 }
 
-// Company switch invalidates BOTH /me/ (current_company_id, teams[],
-// available_scopes all change) and /week/ (roster entirely different).
+// Company switch invalidates /me/ only (current_company_id, teams[],
+// available_scopes all change). Week query keys embed the company id,
+// so the new company's weeks fetch under fresh keys once /me/ updates;
+// invalidating /week/ here would race the session switch. In-flight
+// week requests are cancelled up front for the same reason.
 // The backend clears session team_id on company switch, so the next
 // /me/ returns current_team_id: null and teams: [] for the new
 // company until the user picks one.
@@ -16,13 +19,15 @@ export function useSelectCompanyMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (companyId: string) =>
-      api.post<SelectResponse>("/companies/select/", {
-        company_id: companyId,
-      }),
-    onSuccess: (data) => {
+      api.post<SelectResponse>("/companies/select/", { company_id: companyId }),
+    // A week request in flight when the session flips could store
+    // company B's roster under company A's key. Stop them first.
+    onMutate: () => queryClient.cancelQueries({ queryKey: ["week"] }),
+    onSuccess: async (data) => {
       if (!data.ok) return;
-      queryClient.invalidateQueries({ queryKey: ["me"] });
-      queryClient.invalidateQueries({ queryKey: ["week"] });
+      // Week keys embed current_company_id, so the new company's
+      // weeks only fetch once /me/ has updated.
+      await queryClient.invalidateQueries({ queryKey: ["me"] });
     },
   });
 }

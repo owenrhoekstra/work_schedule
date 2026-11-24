@@ -1,9 +1,8 @@
 """Tests for GET /api/v1/schedule/week/."""
 
-from datetime import date
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from schedule.models import (
     EmployeeTeam,
@@ -16,6 +15,7 @@ from schedule.tests.factories import (
     make_employee,
     make_management_user,
     make_member_user,
+    make_viewer_user,
 )
 
 User = get_user_model()
@@ -31,7 +31,7 @@ def _make_employee_on_team(
         show_team_schedules=show_team_schedules,
         user=user,
     )
-    EmployeeTeam.objects.create(employee=emp, team=team, valid_from=date.today())
+    EmployeeTeam.objects.create(employee=emp, team=team, valid_from=timezone.localdate())
     return emp
 
 
@@ -64,7 +64,7 @@ class WeekEndpointTests(TestCase):
         self.assertEqual(data["employees"][0]["id"], str(self.admin_emp.id))
 
     def test_me_scope_without_employee_403(self):
-        lonely = make_member_user(company=self.company)
+        lonely = make_viewer_user(company=self.company)
         login_as(self.client, lonely, self.company)
         response = self.client.get("/api/v1/schedule/week/?scope=me")
         self.assertEqual(response.status_code, 403)
@@ -84,7 +84,7 @@ class WeekEndpointTests(TestCase):
         self.assertIn(str(other_emp.id), ids)
 
     def test_company_scope_by_member_without_flag_403(self):
-        member = make_member_user(company=self.company)
+        member = make_viewer_user(company=self.company)
         make_employee(
             company=self.company, user=member, with_pattern=True, email="m@x.com"
         )
@@ -95,7 +95,7 @@ class WeekEndpointTests(TestCase):
     def test_company_scope_by_member_with_flag_returns_all(self):
         self.company.allow_member_view_all = True
         self.company.save()
-        member = make_member_user(company=self.company)
+        member = make_viewer_user(company=self.company)
         emp = make_employee(
             company=self.company, user=member, with_pattern=True, email="m@x.com"
         )
@@ -112,7 +112,7 @@ class WeekEndpointTests(TestCase):
         team = Team.objects.create(
             company=self.company, name="Kitchen", allow_member_view_all=True
         )
-        member = make_member_user(company=self.company, username="kitchen-member")
+        member = make_viewer_user(company=self.company, username="kitchen-member")
         emp = _make_employee_on_team(self.company, team, user=member, email="km@x.com")
         peer = _make_employee_on_team(
             self.company,
@@ -131,7 +131,7 @@ class WeekEndpointTests(TestCase):
         team = Team.objects.create(
             company=self.company, name="Kitchen", allow_member_view_all=False
         )
-        member = make_member_user(company=self.company)
+        member = make_viewer_user(company=self.company)
         _make_employee_on_team(self.company, team, user=member, email="km@x.com")
         login_as(self.client, member, self.company)
         response = self.client.get("/api/v1/schedule/week/?scope=team")
@@ -141,7 +141,7 @@ class WeekEndpointTests(TestCase):
         team = Team.objects.create(
             company=self.company, name="Kitchen", allow_member_view_all=True
         )
-        member = make_member_user(company=self.company)
+        member = make_viewer_user(company=self.company)
         _make_employee_on_team(
             self.company,
             team,
@@ -157,9 +157,9 @@ class WeekEndpointTests(TestCase):
         team = Team.objects.create(
             company=self.company, name="Kitchen", allow_member_view_all=False
         )
-        admin_user = make_member_user(company=self.company, username="team-admin")
+        admin_user = make_viewer_user(company=self.company, username="team-admin")
         TeamMembership.objects.create(
-            user=admin_user, team=team, role="admin", valid_from=date.today()
+            user=admin_user, team=team, role="admin", valid_from=timezone.localdate()
         )
         member_emp = _make_employee_on_team(self.company, team, email="km@x.com")
         login_as(self.client, admin_user, self.company)
@@ -223,7 +223,7 @@ class WeekEndpointTests(TestCase):
         self.assertTrue(data["viewer_can"]["print"])
 
     def test_viewer_can_employee_all_false(self):
-        member = make_member_user(company=self.company)
+        member = make_viewer_user(company=self.company)
         make_employee(
             company=self.company, user=member, with_pattern=True, email="m@x.com"
         )
@@ -247,9 +247,9 @@ class WeekEndpointTests(TestCase):
         team_b = Team.objects.create(
             company=self.company, name="Member Team", allow_member_view_all=True
         )
-        admin_user = make_member_user(company=self.company, username="mixed-admin")
+        admin_user = make_viewer_user(company=self.company, username="mixed-admin")
         TeamMembership.objects.create(
-            user=admin_user, team=team_a, role="admin", valid_from=date.today()
+            user=admin_user, team=team_a, role="admin", valid_from=timezone.localdate()
         )
         _make_employee_on_team(
             self.company,
@@ -280,10 +280,10 @@ class WeekEndpointTests(TestCase):
         member_a = _make_employee_on_team(self.company, team_a, email="a@x.com")
         member_b = _make_employee_on_team(self.company, team_b, email="b@x.com")
         TeamMembership.objects.create(
-            user=self.admin, team=team_a, role="admin", valid_from=date.today()
+            user=self.admin, team=team_a, role="admin", valid_from=timezone.localdate()
         )
         TeamMembership.objects.create(
-            user=self.admin, team=team_b, role="admin", valid_from=date.today()
+            user=self.admin, team=team_b, role="admin", valid_from=timezone.localdate()
         )
 
         login_as(self.client, self.admin, self.company, team=team_a)
@@ -302,10 +302,10 @@ class WeekEndpointTests(TestCase):
         member_a = _make_employee_on_team(self.company, team_a, email="a@x.com")
         member_b = _make_employee_on_team(self.company, team_b, email="b@x.com")
         TeamMembership.objects.create(
-            user=self.admin, team=team_a, role="admin", valid_from=date.today()
+            user=self.admin, team=team_a, role="admin", valid_from=timezone.localdate()
         )
         TeamMembership.objects.create(
-            user=self.admin, team=team_b, role="admin", valid_from=date.today()
+            user=self.admin, team=team_b, role="admin", valid_from=timezone.localdate()
         )
 
         login_as(self.client, self.admin, self.company)  # no team session

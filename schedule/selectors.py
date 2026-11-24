@@ -38,6 +38,10 @@ from .scheduling import (
     _week_title_for,
 )
 
+# Day-level status is its own permission, distinct from editing a
+# person's shift, so groups can hold one without the other.
+DAY_OVERRIDE_PERMS = ("schedule.change_dayoverride", "schedule.view_shift")
+
 # ---------------------------------------------------------------------------
 # Scope resolution
 # ---------------------------------------------------------------------------
@@ -406,7 +410,7 @@ def _viewer_can(viewer, company):
         "can_add_shift": viewer.has_perm("schedule.add_shift"),
         "can_delete_shift": viewer.has_perm("schedule.delete_shift"),
         "change_employee_day_override": viewer.has_perm("schedule.change_shift"),
-        "change_day_override": viewer.has_perm("schedule.change_dayoverride"),
+        "change_day_override": viewer.has_perms(DAY_OVERRIDE_PERMS),
         "add_employee": viewer.has_perm("schedule.add_employee"),
         "print": True,
     }

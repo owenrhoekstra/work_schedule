@@ -51,13 +51,23 @@ describe("useSelectCompanyMutation", () => {
     });
   });
 
-  it("invalidates me and week queries on ok=true", async () => {
+  it("invalidates me but not week on ok=true", async () => {
     mockPost.mockResolvedValueOnce({ ok: true, error: "" });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const h = await mountHarness();
     await h.company.mutateAsync("comp-uuid");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["me"] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["week"] });
+    // Week keys embed the company id; refetching them here would race
+    // the session switch and could store B's roster under A's key.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["week"] });
+  });
+
+  it("cancels in-flight week queries before the switch", async () => {
+    mockPost.mockResolvedValueOnce({ ok: true, error: "" });
+    const cancel = vi.spyOn(queryClient, "cancelQueries");
+    const h = await mountHarness();
+    await h.company.mutateAsync("comp-uuid");
+    expect(cancel).toHaveBeenCalledWith({ queryKey: ["week"] });
   });
 
   it("does not invalidate on ok=false", async () => {
