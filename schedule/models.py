@@ -43,6 +43,14 @@ class Company(models.Model):
     cycle_epoch = models.DateField(
         help_text="Anchor Monday for computing which week of a multi-week cycle a date falls on.",
     )
+    allow_member_view_all = models.BooleanField(
+        default=False,
+        help_text=(
+            "When true, any employed member can view the full company "
+            "schedule via /api/v1/schedule/week/?scope=company. When "
+            "false, company-wide viewing is limited to company admins."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

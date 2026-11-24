@@ -1,18 +1,17 @@
-from datetime import date, timedelta
+from datetime import date
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone
 
 from schedule.models import (
-    Employee,
-    EmploymentPeriod,
     Role,
     Shift,
     ShiftOverride,
     Title,
 )
 
-from .factories import make_company, make_employee, make_role, make_title
+from .factories import make_company, make_employee, make_title
 
 
 class EmployeeStrTests(TestCase):
@@ -70,7 +69,7 @@ class UniqueConstraintsTests(TestCase):
 
     def test_shift_override_unique_per_date(self):
         emp = make_employee()
-        d = date.today()
+        d = timezone.localdate()
         ShiftOverride.objects.create(employee=emp, date=d, is_off=True)
         with self.assertRaises(IntegrityError):
             ShiftOverride.objects.create(employee=emp, date=d, is_off=False)

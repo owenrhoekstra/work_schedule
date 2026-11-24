@@ -412,13 +412,13 @@ def company_picker(request):
 
     if len(memberships) == 1:
         request.session["company_id"] = str(memberships[0].company_id)
-        return redirect("home")
+        return redirect("schedule_spa")
 
     if request.method == "POST":
         company_id = request.POST.get("company_id", "").strip()
         if any(str(m.company_id) == company_id for m in memberships):
             request.session["company_id"] = company_id
-            return redirect("home")
+            return redirect("schedule_spa")
         messages.error(request, "Please choose a company.")
 
     return render(

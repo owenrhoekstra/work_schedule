@@ -9,11 +9,10 @@ The custom Axes admin classes in accounts/admin.py override every
 other permission to superuser-only. has_add_permission was the gap.
 """
 
+from axes.models import AccessAttempt, AccessLog
 from django.contrib import admin
 from django.contrib.auth.models import Permission, User
 from django.test import TestCase
-
-from axes.models import AccessAttempt, AccessLog
 
 from schedule.tests.factories import make_superuser
 

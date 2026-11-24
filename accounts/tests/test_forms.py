@@ -1,11 +1,9 @@
-from datetime import date
-
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 
 from accounts.forms import ProfileForm, SignUpForm, StyledPasswordChangeForm
 
-from .factories import make_employee, make_role, make_staff_user
+from .factories import make_employee, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}

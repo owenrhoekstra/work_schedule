@@ -23,15 +23,11 @@ from django.db import migrations, models
 def backfill_effective_to(apps, schema_editor):
     ShiftPattern = apps.get_model("schedule", "ShiftPattern")
 
-    employee_ids = (
-        ShiftPattern.objects.values_list("employee_id", flat=True).distinct()
-    )
+    employee_ids = ShiftPattern.objects.values_list("employee_id", flat=True).distinct()
 
     for emp_id in employee_ids:
         patterns = list(
-            ShiftPattern.objects.filter(employee_id=emp_id).order_by(
-                "effective_from"
-            )
+            ShiftPattern.objects.filter(employee_id=emp_id).order_by("effective_from")
         )
         for i, pattern in enumerate(patterns):
             if i + 1 < len(patterns):
@@ -55,9 +51,7 @@ class Migration(migrations.Migration):
             name="cycle_weeks",
             field=models.PositiveSmallIntegerField(
                 default=1,
-                help_text=(
-                    "Length of the repeating schedule pattern, in weeks (1–4)."
-                ),
+                help_text=("Length of the repeating schedule pattern, in weeks (1–4)."),
                 validators=[
                     django.core.validators.MinValueValidator(1),
                     django.core.validators.MaxValueValidator(4),

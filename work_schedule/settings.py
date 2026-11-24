@@ -37,7 +37,7 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
-LOGIN_REDIRECT_URL = "/schedule/home/"
+LOGIN_REDIRECT_URL = "/schedule/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 SESSION_SAVE_EVERY_REQUEST = True
@@ -65,7 +65,7 @@ INSTALLED_APPS = [
     "axes",
     "accounts",
     "schedule",
-    "django_vite"
+    "django_vite",
 ]
 
 MIDDLEWARE = [
@@ -337,5 +337,6 @@ OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_base}/oauth/v2/token"
 OIDC_OP_USER_ENDPOINT = f"{_oidc_base}/oidc/v1/userinfo"
 OIDC_OP_JWKS_ENDPOINT = f"{_oidc_base}/oauth/v2/keys"
 OIDC_OP_LOGOUT_ENDPOINT = f"{_oidc_base}/oidc/v1/end_session"
+OIDC_AUTH_REQUEST_EXTRA_PARAMS = {"prompt": "select_account"}
 
 OIDC_ENABLED = bool(OIDC_OP_BASE_URL and OIDC_RP_CLIENT_ID)

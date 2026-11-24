@@ -135,9 +135,7 @@ class ChangeEditLandsOnVisibleWeekTests(TestCase):
         self.assertEqual(shift_at_1.start_time.strftime("%H:%M"), "08:00")
         # Panel 1 must land at offset 0 and be OFF (cleared).
         self.assertFalse(
-            Shift.objects.filter(
-                pattern=target, week_offset=0, day=0
-            ).exists()
+            Shift.objects.filter(pattern=target, week_offset=0, day=0).exists()
         )
 
 
@@ -157,9 +155,7 @@ class SplitNotificationBaselineTests(TestCase):
         self.emp_user = make_staff_user("splitnotify")
 
     @patch("schedule.notifications.send_email")
-    def test_split_branch_notification_baseline_is_calendar_aligned(
-        self, mock_send
-    ):
+    def test_split_branch_notification_baseline_is_calendar_aligned(self, mock_send):
         epoch = settings.CYCLE_EPOCH
         split_week = epoch + timedelta(weeks=2)  # cycle-offset 0
 
@@ -210,20 +206,13 @@ class SplitNotificationBaselineTests(TestCase):
         # Week A Monday: old 9-5 → new 8-4 (baseline was pattern's
         # offset 0, not empty).
         self.assertIn("Week A Monday", by_label)
-        self.assertEqual(
-            by_label["Week A Monday"]["old"], "9:00 AM – 5:00 PM"
-        )
-        self.assertEqual(
-            by_label["Week A Monday"]["new"], "8:00 AM – 4:00 PM"
-        )
+        self.assertEqual(by_label["Week A Monday"]["old"], "9:00 AM – 5:00 PM")
+        self.assertEqual(by_label["Week A Monday"]["new"], "8:00 AM – 4:00 PM")
         # Week B Monday: old 10-6 → new 11-7.
         self.assertIn("Week B Monday", by_label)
-        self.assertEqual(
-            by_label["Week B Monday"]["old"], "10:00 AM – 6:00 PM"
-        )
-        self.assertEqual(
-            by_label["Week B Monday"]["new"], "11:00 AM – 7:00 PM"
-        )
+        self.assertEqual(by_label["Week B Monday"]["old"], "10:00 AM – 6:00 PM")
+        self.assertEqual(by_label["Week B Monday"]["new"], "11:00 AM – 7:00 PM")
+
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class PrefillDedupeTests(TestCase):
@@ -246,12 +235,18 @@ class PrefillDedupeTests(TestCase):
             effective_to=None,
         )
         Shift.objects.create(
-            pattern=p, week_offset=0, day=0,
-            start_time="09:00", end_time="17:00",
+            pattern=p,
+            week_offset=0,
+            day=0,
+            start_time="09:00",
+            end_time="17:00",
         )
         Shift.objects.create(
-            pattern=p, week_offset=1, day=0,
-            start_time="10:00", end_time="18:00",
+            pattern=p,
+            week_offset=1,
+            day=0,
+            start_time="10:00",
+            end_time="18:00",
         )
 
         weeks = _grid_weeks_for_form(emp, epoch, 4)
@@ -279,7 +274,9 @@ class PrefillDedupeTests(TestCase):
         )
         for w in range(3):
             Shift.objects.create(
-                pattern=p, week_offset=w, day=0,
+                pattern=p,
+                week_offset=w,
+                day=0,
                 start_time=f"{8 + w:02d}:00",
                 end_time=f"{16 + w:02d}:00",
             )

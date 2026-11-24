@@ -206,9 +206,7 @@ class AdminPasswordChangeRedirectTests(TestCase):
         admin:password_change, which only covers the self-service
         entry point.
         """
-        url = reverse(
-            "admin:auth_user_password_change", args=[self.user.pk]
-        )
+        url = reverse("admin:auth_user_password_change", args=[self.user.pk])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)
         self.assertIn(reverse("verify_otp"), resp.url)

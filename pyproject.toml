@@ -28,6 +28,7 @@ package = false
 [dependency-groups]
 dev = [
     "coverage>=7.16.2",
+    "freezegun>=1.5.5",
 ]
 
 [tool.coverage.run]

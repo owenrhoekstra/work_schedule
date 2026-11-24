@@ -8,7 +8,6 @@ SessionAuth) rather than bypassing it with ninja.testing.TestClient.
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
-
 User = get_user_model()
 
 _LOCMEM_CACHES = {

@@ -54,6 +54,7 @@ class TenantMiddleware:
 
         if request.user.is_authenticated:
             request.company = self._resolve_company(request)
+            request.team = self._resolve_team(request, request.company)
             from work_schedule.auth import (
                 is_company_admin,
                 is_platform_admin,
@@ -84,7 +85,7 @@ class TenantMiddleware:
             if session_id:
                 try:
                     return Company.objects.get(pk=session_id)
-                except Company.DoesNotExist, ValueError:
+                except (Company.DoesNotExist, ValueError):
                     request.session.pop("company_id", None)
             return Company.objects.order_by("id").first()
 
@@ -111,6 +112,27 @@ class TenantMiddleware:
             return company
 
         return None
+
+    def _resolve_team(self, request, company):
+        """Resolve session["team_id"] to a Team instance (or None).
+
+        Light lookup — no viewability check. select_team validates on
+        write; the week endpoint returns an empty roster if the session
+        team turns out to be unviewable. A team that doesn't belong to
+        the current company is cleared from the session.
+        """
+        if company is None:
+            return None
+        session_id = request.session.get("team_id")
+        if not session_id:
+            return None
+        from schedule.models import Team
+
+        try:
+            return Team.objects.get(pk=session_id, company=company)
+        except (Team.DoesNotExist, ValueError):
+            request.session.pop("team_id", None)
+            return None
 
     def _is_exempt(self, path):
         if self._admin_prefix and path.startswith(self._admin_prefix):

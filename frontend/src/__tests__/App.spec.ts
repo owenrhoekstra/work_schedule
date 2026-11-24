@@ -5,10 +5,9 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "@/App.vue";
 
 /**
- * Mount App with a minimal test router. The production router installs
- * a before-guard that calls useUserStore().load(); we skip that by not
- * replicating it — the guard returns early for public routes anyway,
- * and this test only covers the public login route.
+ * App.vue skips the router guard on public routes, so this test (which
+ * visits the login route) never triggers `ensureQueryData(meQueryOptions())`
+ * in beforeEach — meaning no VueQueryPlugin is needed for this mount.
  */
 function makeTestRouter() {
   return createRouter({

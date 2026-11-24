@@ -1,2 +1,4 @@
+allowBuilds:
+  vue-demi: true
 overrides:
   estree-walker: "2.0.2"

@@ -8,6 +8,8 @@ from accounts.emails import send_email
 
 logger = logging.getLogger(__name__)
 
+WELCOME_COOLDOWN_MSG = "Please wait a minute before sending again."
+
 
 def _cooldown_ok(key, seconds=60):
     """Return True if allowed to send now, False if on cooldown.

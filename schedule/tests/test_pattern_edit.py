@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from schedule.models import Shift, ShiftPattern
 
-from .factories import make_employee, make_management_user, make_manager_user
+from .factories import make_employee, make_management_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}

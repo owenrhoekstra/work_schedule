@@ -1,7 +1,4 @@
-from unittest.mock import patch
-
 from django.core import mail
-from django.template import TemplateDoesNotExist
 from django.test import SimpleTestCase, override_settings
 
 from accounts.emails import _html_to_text, send_email

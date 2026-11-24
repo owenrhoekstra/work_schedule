@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { PhCalendarDots, PhGear, PhSignOut, PhUser } from "@phosphor-icons/vue";
-import { storeToRefs } from "pinia";
+import { PhCalendarDots, PhGear, PhLockKey, PhSignOut, PhUser } from "@phosphor-icons/vue";
+import { useQuery } from "@tanstack/vue-query";
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useUserStore } from "@/stores/user";
+import { meQueryOptions } from "@/queries/me";
 
-const { fullName, ready } = storeToRefs(useUserStore()); // loaded by the router guard
+const { data: me, isPending } = useQuery(meQueryOptions());
+
+const fullName = computed(() =>
+  me.value ? `${me.value.first_name} ${me.value.last_name}`.trim() : "",
+);
+
+const isCompanyAdmin = computed(
+  () =>
+    me.value?.is_company_admin.find((a) => a.company_id === me.value?.current_company_id)?.status ??
+    false,
+);
+
+const isPlatformAdmin = computed(() => me.value?.is_platform_admin ?? false);
 
 // Shared classes. Complete strings, so Tailwind still detects them.
 const touchTarget = "max-sm:min-h-11 max-sm:min-w-11";
@@ -40,7 +53,7 @@ const csrfToken = (() => {
       Skip to main content
     </a>
 
-    <div class="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-6">
+    <div class="mx-auto flex h-14 max-w-375 items-center gap-4 px-8 sm:gap-6">
       <nav aria-label="Main">
         <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
           <RouterLink :to="{ name: 'schedule' }">
@@ -50,28 +63,45 @@ const csrfToken = (() => {
         </Button>
       </nav>
 
-      <div class="ml-auto flex min-w-0 items-center gap-2">
+      <div class="ml-auto flex min-w-0 items-center gap-4">
         <div class="mr-2 min-w-0 sm:mr-4" aria-live="polite">
-          <Skeleton v-if="!ready" class="h-5 w-24 sm:w-36" aria-hidden="true" />
-          <span v-if="!ready" class="sr-only">Loading your name</span>
+          <Skeleton v-if="isPending" class="h-5 w-24 sm:w-36" aria-hidden="true" />
+          <span v-if="isPending" class="sr-only">Loading your name</span>
           <p v-else class="truncate">
             {{ fullName ? `Hello, ${fullName}!` : "Hello!" }}
           </p>
         </div>
 
-        <nav aria-label="Account" class="flex items-center gap-2">
+        <nav aria-label="Account" class="flex items-center gap-4">
           <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
-            <RouterLink :to="{ name: 'profile' }">
+            <a href="/accounts/profile/">
               <PhUser :class="iconSize" aria-hidden="true" />
               <span class="sr-only sm:not-sr-only">Profile</span>
-            </RouterLink>
+            </a>
           </Button>
 
-          <Button as-child variant="outline" :class="[highlightHover, touchTarget]">
-            <RouterLink :to="{ name: 'settings' }">
+          <Button
+            v-if="isCompanyAdmin"
+            as-child
+            variant="outline"
+            :class="[highlightHover, touchTarget]"
+          >
+            <a href="/schedule/settings/">
               <PhGear :class="iconSize" aria-hidden="true" />
               <span class="sr-only sm:not-sr-only">Settings</span>
-            </RouterLink>
+            </a>
+          </Button>
+
+          <Button
+            v-if="isPlatformAdmin"
+            as-child
+            variant="outline"
+            :class="[highlightHover, touchTarget]"
+          >
+            <a href="/back-panel01294/">
+              <PhLockKey :class="iconSize" aria-hidden="true" />
+              <span class="sr-only sm:not-sr-only">Admin</span>
+            </a>
           </Button>
         </nav>
 

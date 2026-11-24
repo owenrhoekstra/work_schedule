@@ -16,7 +16,7 @@ Local `make_employee` override preserved for its distinct default
 email ("emp@example.com") vs the schedule-side "test@example.com".
 """
 
-from datetime import date
+from django.utils import timezone
 
 from schedule.models import Company, Employee
 from schedule.tests.factories import (
@@ -44,6 +44,6 @@ def make_employee(email="emp@example.com", **kwargs):
         email=email,
         role=role,
         company=company,
-        start_date=kwargs.pop("start_date", date.today()),
+        start_date=kwargs.pop("start_date", timezone.localdate()),
         **kwargs,
     )

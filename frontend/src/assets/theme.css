@@ -1,5 +1,4 @@
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 @import "@fontsource-variable/space-grotesk";
 @import "@fontsource-variable/inter";
@@ -19,9 +18,15 @@
 }
 
 /* Theme switching: follows the OS; add .light or .dark to <html> to force one */
-:root { color-scheme: light dark; }
-:root.light { color-scheme: light; }
-:root.dark { color-scheme: dark; }
+:root {
+  color-scheme: light dark;
+}
+:root.light {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+}
 
 /* Every token is light-dark(light, dark). Edit colours here only. */
 @theme static {
@@ -68,7 +73,7 @@
   --color-border: light-dark(#d9d9e8, #2c2960);
   --color-input: light-dark(#b9b8d3, #45428a);
   --color-ring-coral: light-dark(#c42a30, var(--color-brand-coral));
-  --color-ring: light-dark(var(--color-brand-yellow), var(--color-brand-yellow));
+  --color-ring: var(--color-brand-yellow);
 
   /* Status */
   --color-success: light-dark(#15803d, #4ade80);
@@ -100,7 +105,10 @@
   body {
     @apply bg-background text-foreground font-sans;
   }
-  h1, h2, h3, h4 {
+  h1,
+  h2,
+  h3,
+  h4 {
     @apply font-display tracking-tight;
   }
   :focus-visible {
@@ -111,21 +119,18 @@
     background: var(--color-highlight);
     color: var(--color-highlight-foreground);
   }
-}
-
-@theme inline { --font-heading: var(--font-sans);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="tab"],
+  [role="combobox"]:not(:disabled),
+  summary {
+    cursor: pointer;
   }
 }
 
 /* ---------- Print ---------- */
+/* Page orientation (@page size) is injected at runtime by usePrintModal. */
 
 @media print {
   /* Isolate the schedule table on the page */
@@ -194,5 +199,15 @@
   }
 }
 
-/* Orientation override, injected by usePrintModal */
-#print-page-orientation + * { /* placeholder, rules live in the \3c style> tag */ }
+@theme inline {
+  --font-heading: var(--font-sans);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

@@ -45,9 +45,11 @@ def is_company_admin(user, company):
     Platform admins pass (ladder). Otherwise requires an active
     CompanyMembership with role="admin" at that company.
     """
+    if not user.is_authenticated:
+        return False
     if is_platform_admin(user):
         return True
-    if company is None or not user.is_authenticated:
+    if company is None:
         return False
     from schedule.models import CompanyMembership
 
@@ -164,8 +166,6 @@ def viable_memberships(user):
         user=user, status="active"
     ).select_related("company"):
         employee = user.employees.filter(company=m.company).first()
-        if employee is None:
-            viable.append(m)
-        elif employee.last_day is None or employee.last_day >= today:
+        if employee is None or employee.last_day is None or employee.last_day >= today:
             viable.append(m)
     return viable

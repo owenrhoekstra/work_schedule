@@ -29,18 +29,17 @@ new rows. See docs/MULTI-TENANCY.md for the plan.
 
 import io
 from datetime import date, datetime, timedelta
-from functools import wraps
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import qrcode
 import qrcode.image.svg
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Min, Q
+from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -49,10 +48,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from work_schedule.auth import (
-    any_admin_required,
     company_admin_required,
-    platform_admin_required,
-    team_admin_required,
     viable_memberships,
 )
 
@@ -69,38 +65,35 @@ from .models import (
     ShiftPattern,
     Title,
 )
+from .scheduling import (
+    DAY_LABELS_FULL,
+    DAYS,
+    MAX_CYCLE_WEEKS,
+    MAX_PRINT_WEEKS,
+    WEEK_LABELS,
+    _cycle_offset,
+    _earliest_week,
+    _employed_dates,
+    _employees_for_week,
+    _format_duration,
+    _format_time_12,
+    _last_week_of,
+    _parse_time,
+    _pattern_for_week,
+    _pattern_summary,
+    _shift_display,
+    _week_offset_for,
+    _week_start,
+    _week_title_for,
+)
+from .selectors import current_pattern_context
+from .services import OverrideError, apply_override
 
 # ---------------------------------------------------------------------------
 # 1. Constants
 # ---------------------------------------------------------------------------
 
-DAYS = [0, 1, 2, 3, 4, 5]
-DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-DAY_LABELS_FULL = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-]
-WEEK_LABELS = ["A", "B", "C", "D"]
-MAX_CYCLE_WEEKS = 4
-MAX_PRINT_WEEKS = 4
-
-_TIME_FORMATS = (
-    "%H:%M",
-    "%H:%M:%S",
-    "%H%M",
-    "%I:%M %p",
-    "%I:%M%p",
-    "%I %p",
-    "%I%p",
-    "%I:%M:%S %p",
-    "%I:%M:%S%p",
-    "%I",
-)
-
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 # ---------------------------------------------------------------------------
 # 2. Decorators and tenant helpers
@@ -126,63 +119,13 @@ def _current_company(request):
 # 3. Parsing and formatting helpers
 # ---------------------------------------------------------------------------
 
-
-def _parse_time(value):
-    """Parse a user-entered time string. Returns None if empty.
-
-    Raises ValueError if the string can't be parsed.
-    """
-    value = (value or "").strip()
-    if not value:
-        return None
-    normalized = value.replace(".", ":").upper()
-    for fmt in _TIME_FORMATS:
-        try:
-            return datetime.strptime(normalized, fmt).time()
-        except ValueError:
-            continue
-    raise ValueError(f"Could not understand the time {value!r}.")
-
-
-def _format_duration(td):
-    """Format a timedelta as 'Hh MMm'."""
-    total_minutes = int(td.total_seconds() // 60)
-    hours, minutes = divmod(total_minutes, 60)
-    return f"{hours}h {minutes:02d}m"
-
-
-def _format_time_12(t):
-    """Format a time as '9:00 AM' (no leading zero on the hour)."""
-    s = t.strftime("%I:%M %p")
-    return s[1:] if s.startswith("0") else s
-
-
-def _ordinal(n):
-    """1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th', 11 -> '11th', ..."""
-    if 10 <= n % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
-
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 # ---------------------------------------------------------------------------
 # 4. Week helpers
 # ---------------------------------------------------------------------------
 
-
-def _week_start(d):
-    """Return the Monday of the week containing d."""
-    return d - timedelta(days=d.weekday())
-
-
-def _week_title_for(week_start):
-    """Human title for a week, with ordinal day and year when it differs."""
-    current_week = _week_start(timezone.localdate())
-    day_with_ordinal = _ordinal(week_start.day)
-    if week_start.year == current_week.year:
-        return f"Week of {week_start.strftime('%B')} {day_with_ordinal}"
-    return f"Week of {week_start.strftime('%B')} {day_with_ordinal}, {week_start.year}"
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 
 def _week_range_label(weeks):
@@ -213,16 +156,6 @@ def _parse_week_param(request):
     return _week_start(d)
 
 
-def _earliest_week(company):
-    """Monday of the week containing the oldest employment period start."""
-    earliest = EmploymentPeriod.objects.filter(company=company).aggregate(
-        d=Min("start_date")
-    )["d"]
-    if earliest is None:
-        return None
-    return _week_start(earliest)
-
-
 def _home_url_for(date_):
     """Redirect to home, scrolled to the week containing date_."""
     return f"{reverse('home')}?week={_week_start(date_).isoformat()}"
@@ -232,50 +165,7 @@ def _home_url_for(date_):
 # 5. Pattern and cycle helpers
 # ---------------------------------------------------------------------------
 
-
-def _pattern_for_week(employee, week_start):
-    """The ShiftPattern active for the week starting week_start.
-
-    Returns the pattern whose [effective_from, effective_to) range
-    contains week_start. effective_to is exclusive and None means
-    open-ended.
-
-    If multiple patterns match — possible during the transition to
-    explicit end dates, when the old form can still create overlapping
-    patterns — the one with the greatest effective_from wins. This
-    preserves the previous "latest pattern" behavior for that legacy
-    state so nothing regresses before the form is rewritten.
-
-    Iterates over the (prefetched) patterns relation in Python so the
-    schedule render doesn't fire one query per employee. Returns None
-    if no pattern covers the week.
-    """
-    candidates = [
-        p
-        for p in employee.patterns.all()
-        if p.effective_from <= week_start
-        and (p.effective_to is None or week_start < p.effective_to)
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: p.effective_from)
-
-
-def _cycle_offset(week_start, cycle_weeks):
-    """Which week of a cycle_weeks-long cycle the given week falls on.
-
-    Anchored at settings.CYCLE_EPOCH. Returns 0 for cycle_weeks <= 1
-    (single-week pattern; no offset within cycle).
-    """
-    if cycle_weeks <= 1:
-        return 0
-    weeks_since_epoch = (week_start - settings.CYCLE_EPOCH).days // 7
-    return weeks_since_epoch % cycle_weeks
-
-
-def _week_offset_for(week_start, pattern):
-    """Which week of this pattern's cycle the given week falls on."""
-    return _cycle_offset(week_start, pattern.cycle_weeks)
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 
 def _calendar_aligned_shifts(employee, effective_from, cycle_weeks):
@@ -285,10 +175,6 @@ def _calendar_aligned_shifts(employee, effective_from, cycle_weeks):
     displayed for calendar weeks effective_from + 7*i (i = 0..cycle_weeks-1)
     BEFORE a mutation, translated into the target pattern's cycle-offset
     space.
-
-    Uses calendar-week indexing (not source-pattern offsets) so the diff
-    is meaningful even when a pattern ends mid-form and a later pattern
-    takes over, or when effective_from isn't congruent with CYCLE_EPOCH.
     """
     baseline = {}
     base_target_offset = _cycle_offset(effective_from, cycle_weeks)
@@ -305,103 +191,57 @@ def _calendar_aligned_shifts(employee, effective_from, cycle_weeks):
     return baseline
 
 
-def _last_week_of(pattern):
-    """The Monday of the last week this pattern covers, or None if open-ended.
+def _home_context(week_start, company):
+    """Build the shared context for the home page."""
+    current_week = _week_start(timezone.localdate())
+    rows, day_headers = _build_schedule_rows(week_start, company)
+    min_week = _earliest_week(company)
 
-    `effective_to` is exclusive — the first week *not* covered — so the
-    last covered week starts seven days earlier. Used for display copy
-    only; resolution logic uses `effective_to` directly.
-    """
-    if pattern is None or pattern.effective_to is None:
-        return None
-    return pattern.effective_to - timedelta(days=7)
+    return {
+        "rows": rows,
+        "day_headers": day_headers,
+        "week_start": week_start,
+        "week_title": _week_title_for(week_start),
+        "prev_week": week_start - timedelta(days=7),
+        "next_week": week_start + timedelta(days=7),
+        "is_current_week": week_start == current_week,
+        "can_go_back": min_week is None or week_start > min_week,
+    }
 
 
 # ---------------------------------------------------------------------------
 # 6. Employment helpers
 # ---------------------------------------------------------------------------
 
-
-def _employees_for_week(week_start, company):
-    """Employees with any employment period overlapping this week.
-
-    Both halves of the overlap test are wrapped in a single filter() so
-    they apply to the same joined `periods` row. Chaining two filter()
-    calls on the multi-valued relation would create separate joins,
-    letting an employee with a closed period and a later reactivation
-    period appear in the gap between them.
-    """
-    week_end = week_start + timedelta(days=5)
-    return (
-        Employee.objects.filter(company=company)
-        .filter(
-            Q(periods__start_date__lte=week_end)
-            & (Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
-        )
-        .distinct()
-        .select_related("title", "role")
-        .prefetch_related("periods", "patterns__shifts")
-        .order_by("role__display_order", "role__name", "start_date")
-    )
-
-
-def _employed_dates(employee, week_dates):
-    """Set of dates in week_dates covered by any employment period.
-
-    A period covers d if start_date <= d < end_date (end_date exclusive).
-    end_date=None means currently employed.
-    """
-    covered = set()
-    for period in employee.periods.all():
-        for d in week_dates:
-            if period.start_date <= d and (
-                period.end_date is None or period.end_date > d
-            ):
-                covered.add(d)
-    return covered
-
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 # ---------------------------------------------------------------------------
 # 7. Shift display helpers
 # ---------------------------------------------------------------------------
 
-
-def _shift_display(shift):
-    """Human-readable shift display, or None."""
-    if shift is None:
-        return None
-    return f"{_format_time_12(shift.start_time)} – {_format_time_12(shift.end_time)}"
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 
-def _cell_display(employee, d):
-    """What the schedule cell shows for this employee on this date.
+def _new_week_details(pattern, old_cycle, new_cycle):
+    """Rows for weeks that become active when the cycle length grows.
 
-    Overrides take precedence; otherwise the default from the pattern
-    active that week.
+    Reads from the freshly saved pattern so the manager sees whatever
+    they put in the new weeks. Empty weeks show OFF.
     """
-    override = employee.overrides.filter(date=d).first()
-    if override:
-        if override.is_off:
-            return "OFF"
-        return (
-            f"{_format_time_12(override.start_time)} – "
-            f"{_format_time_12(override.end_time)}"
-        )
-
-    week_start = _week_start(d)
-    pattern = _pattern_for_week(employee, week_start)
-    if pattern is None:
-        return "OFF"
-
-    offset = _week_offset_for(week_start, pattern)
-    day = d.weekday()
-    default = pattern.shifts.filter(week_offset=offset, day=day).first()
-    if default:
-        return (
-            f"{_format_time_12(default.start_time)} – "
-            f"{_format_time_12(default.end_time)}"
-        )
-    return "OFF"
+    if new_cycle <= old_cycle:
+        return []
+    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
+    weeks = []
+    for offset in range(old_cycle, new_cycle):
+        rows = [
+            {
+                "day": DAY_LABELS_FULL[day],
+                "time": _shift_display(shifts_by_key.get((offset, day))) or "OFF",
+            }
+            for day in DAYS
+        ]
+        weeks.append({"label": f"Week {WEEK_LABELS[offset]}", "rows": rows})
+    return weeks
 
 
 def _diff_pattern_shifts(old_shifts, new_shifts, cycle_weeks):
@@ -458,32 +298,11 @@ def _new_week_details(pattern, old_cycle, new_cycle):
     return weeks
 
 
-def _pattern_summary(pattern):
-    """Render-ready rows for a pattern, grouped by cycle week.
-
-    Returns a list of dicts, one per week in the cycle:
-        {"label": "A", "rows": [{"label": "Monday", "shift": <Shift or None>}, ...]}
-
-    Used by the Saved Patterns list to show the hours inside each
-    saved pattern without firing a query per pattern.
-    """
-    shifts_by_key = {(s.week_offset, s.day): s for s in pattern.shifts.all()}
-    weeks = []
-    for offset in range(pattern.cycle_weeks):
-        rows = [
-            {
-                "label": DAY_LABELS_FULL[day],
-                "shift": shifts_by_key.get((offset, day)),
-            }
-            for day in DAYS
-        ]
-        weeks.append({"label": WEEK_LABELS[offset], "rows": rows})
-    return weeks
-
-
 # ---------------------------------------------------------------------------
 # 8. Schedule building
 # ---------------------------------------------------------------------------
+
+# Moved to schedule/scheduling.py in Commit 6a. Imported above.
 
 
 def _build_schedule_rows(week_start, company, employee_pk=None):
@@ -521,9 +340,6 @@ def _build_schedule_rows(week_start, company, employee_pk=None):
         for o in DayOverride.objects.filter(date__in=week_dates, company=company)
     }
 
-    # One query for every override in this week, grouped by employee.
-    # Employees are already company-scoped above; the extra
-    # employee__company filter is defensive.
     overrides_by_employee = {}
     if employees:
         for override in ShiftOverride.objects.filter(
@@ -662,24 +478,6 @@ def _build_schedule_rows(week_start, company, employee_pk=None):
     return rows, day_headers
 
 
-def _home_context(week_start, company):
-    """Build the shared context for the home page."""
-    current_week = _week_start(timezone.localdate())
-    rows, day_headers = _build_schedule_rows(week_start, company)
-    min_week = _earliest_week(company)
-
-    return {
-        "rows": rows,
-        "day_headers": day_headers,
-        "week_start": week_start,
-        "week_title": _week_title_for(week_start),
-        "prev_week": week_start - timedelta(days=7),
-        "next_week": week_start + timedelta(days=7),
-        "is_current_week": week_start == current_week,
-        "can_go_back": min_week is None or week_start > min_week,
-    }
-
-
 # ---------------------------------------------------------------------------
 # 9. Views — schedule
 # ---------------------------------------------------------------------------
@@ -703,6 +501,25 @@ def home(request):
 
 
 @login_required
+@permission_required("schedule.view_shift", raise_exception=True)
+def schedule_spa(request):
+    """Vue shell for the schedule.
+
+    Serves the SPA mount point; the SPA fetches everything else from
+    /api/v1/me/ and /api/v1/schedule/week/. Gated on view_shift only
+    (same as the Django home view it shadows): scope selection and
+    admin-only UI are driven by available_scopes from /me/, so an
+    employee with only "me" scope sees their own week in this shell
+    without needing a separate employee route.
+
+    Django's /schedule/home/ stays alive in parallel — nothing in the
+    Vue UI links to it. It will be deleted once the Vue schedule has
+    been verified on staging.
+    """
+    return render(request, "schedule/schedule_spa.html")
+
+
+@login_required
 @company_admin_required
 @permission_required("schedule.add_employee", raise_exception=True)
 @permission_required("schedule.view_shift", raise_exception=True)
@@ -719,7 +536,9 @@ def add_employee(request):
     - Plain POST → redirect to home (full page reload).
     - HTMX POST → swap the schedule table on success; swap just the
       form back into the modal on validation failure so the dialog
-      stays open with errors and the user's input preserved.
+      stays open with errors and the user's input preserved. When the
+      HTMX request comes from the settings page there is no schedule
+      table to swap, so success replies 204 + HX-Refresh instead.
 
     The user's viewed week is preserved across both response paths.
     The form carries a hidden `week` field seeded from the schedule
@@ -779,6 +598,16 @@ def add_employee(request):
                 messages.success(request, f"{employee} added.")
 
             if is_htmx:
+                # Added from the settings page: there is no schedule
+                # table to swap into, so tell htmx to reload the page.
+                # Messages are left unconsumed so they show after the
+                # reload.
+                current_path = urlparse(request.headers.get("HX-Current-URL", "")).path
+                if current_path == reverse("settings_home"):
+                    response = HttpResponse(status=204)
+                    response["HX-Refresh"] = "true"
+                    return response
+
                 rows, day_headers = _build_schedule_rows(viewed_week, company)
 
                 # Render the table (primary swap target) and the
@@ -873,9 +702,6 @@ def _employee_page_context(request, employee):
     "Oct 19 through Oct 19"). Both derive from effective_to, which is
     exclusive.
     """
-    this_week_start = _week_start(timezone.localdate())
-    current = _pattern_for_week(employee, this_week_start)
-
     all_patterns = list(
         employee.patterns.order_by("effective_from").prefetch_related("shifts")
     )
@@ -894,24 +720,9 @@ def _employee_page_context(request, employee):
             }
         )
 
-    current_weeks = _pattern_summary(current) if current else []
-    current_cycle_label = None
-    if current is not None and current.cycle_weeks > 1:
-        offset = _week_offset_for(this_week_start, current)
-        current_cycle_label = WEEK_LABELS[offset]
-
-    current_last_week = _last_week_of(current)
-    current_last_week_end = (
-        current_last_week + timedelta(days=6) if current_last_week else None
-    )
-
     return {
         "employee": employee,
-        "current_pattern": current,
-        "current_weeks": current_weeks,
-        "current_last_week": current_last_week,
-        "current_last_week_end": current_last_week_end,
-        "current_cycle_label": current_cycle_label,
+        **current_pattern_context(employee.company, employee),
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
         "can_change": (
@@ -2130,27 +1941,19 @@ def delete_pattern(request, pk):
 def set_override(request, employee_pk, date_iso):
     """Create, update, or clear a per-day shift override.
 
-    The POST body's `action` field selects the operation:
+    Delegates the mutation to services.apply_override (shared with the
+    Ninja API endpoint); this view keeps the HTMX/redirect response
+    shapes and the authz preamble.
 
-    - "save": set start_time/end_time for that specific date
-    - "off": mark the day off entirely
-    - "reset": delete the override, falling back to the default pattern
+    Authz:
+    - view_shift (decorator)
+    - is_company_admin (in-body; matches the sibling override views)
+    - per-action shift perm: delete for "off"/"reset", add for "save"
 
-    If `notify` is set and the cell actually changed, sends a shift
-    change email to the employee — subject to eligibility rules.
-
-    Gated on Management AND the matching shift permission (delete for
-    "off"/"reset", add for "save"). Both layers are checked in-body:
-    the management check runs first, then the action-dependent perm
-    check. Keeps the per-action permission gate in one place.
-
-    Responds two ways:
-
-    - Plain POST → redirect back to the schedule (full page reload).
-    - HTMX POST (HX-Request header) → return just the updated row so
-      HTMX can swap it in place. On validation errors, retarget the
-      response into the modal's `#override-error` element so the user
-      sees the message without losing their input.
+    Responds:
+    - HTMX save success → updated row + oob messages
+    - HTMX validation error → retarget into #override-error
+    - Plain POST → flash + redirect back to the week view
     """
     if not getattr(request, "is_company_admin", False):
         raise PermissionDenied
@@ -2184,101 +1987,54 @@ def set_override(request, employee_pk, date_iso):
         raise Http404
 
     back = _home_url_for(override_date)
-    old_display = _cell_display(employee, override_date)
 
-    def _respond_error(message):
-        """Return the correct shape for a validation error.
-
-        HTMX: retarget into the modal's error slot, leave the row and
-        the modal's inputs alone.
-        Plain POST: flash the message and redirect, as before.
-        """
+    try:
+        result = apply_override(
+            employee=employee,
+            override_date=override_date,
+            action=action,
+            start_str=request.POST.get("start_time"),
+            end_str=request.POST.get("end_time"),
+            notify=bool(request.POST.get("notify")),
+        )
+    except OverrideError as exc:
         if is_htmx:
-            response = HttpResponse(message)
+            response = HttpResponse(str(exc))
             response["HX-Retarget"] = "#override-error"
             response["HX-Reswap"] = "innerHTML"
             return response
-        messages.error(request, message)
+        messages.error(request, str(exc))
         return redirect(back)
 
-    def _respond_success():
-        """Return the correct shape for a successful save.
+    # Notify outcome messages. Only surface when the caller asked to
+    # notify AND the service returned a result — a no-op save with
+    # notify=True produces neither, matching the pre-refactor behavior.
+    if result.notification_sent:
+        messages.success(request, f"Notification sent to {employee.email}.")
+    elif result.notification_error:
+        messages.warning(request, result.notification_error)
 
-        HTMX: return the updated row partial for outerHTML swap, plus
-        the messages container as an out-of-band swap so any flash
-        message set during the save (e.g. notification-send failures)
-        surfaces without a page reload.
-        Plain POST: redirect back to the schedule.
-        """
-        if is_htmx:
-            week_start = _week_start(override_date)
-            rows, _ = _build_schedule_rows(week_start, company, employee_pk=employee.pk)
-            if rows:
-                row_html = render_to_string(
-                    "schedule/partials/_schedule_row.html",
-                    {
-                        "row": rows[0],
-                        "is_company_admin": getattr(request, "is_company_admin", False),
-                    },
-                    request=request,
-                )
-                messages_html = render_to_string(
-                    "partials/_messages.html",
-                    {"hx_oob": True},
-                    request=request,
-                )
-                return HttpResponse(row_html + messages_html)
-            return HttpResponse(status=204)
-        return redirect(back)
-
-    if action == "reset":
-        ShiftOverride.objects.filter(employee=employee, date=override_date).delete()
-    elif action == "off":
-        ShiftOverride.objects.update_or_create(
-            employee=employee,
-            date=override_date,
-            defaults={"is_off": True, "start_time": None, "end_time": None},
-        )
-    else:
-        try:
-            start = _parse_time(request.POST.get("start_time"))
-            end = _parse_time(request.POST.get("end_time"))
-        except ValueError as exc:
-            return _respond_error(str(exc))
-        if start is None or end is None:
-            return _respond_error("Set both start and end time.")
-        if end <= start:
-            return _respond_error("End time must be after start time.")
-        ShiftOverride.objects.update_or_create(
-            employee=employee,
-            date=override_date,
-            defaults={"is_off": False, "start_time": start, "end_time": end},
-        )
-
-    if request.POST.get("notify"):
-        new_display = _cell_display(employee, override_date)
-        if old_display != new_display:
-            ok, error = notifications.send_shift_changes_email(
-                employee,
-                [
-                    {
-                        "label": override_date.strftime("%A, %B ")
-                        + _ordinal(override_date.day),
-                        "old": old_display,
-                        "new": new_display,
-                    }
-                ],
-                kind="override",
+    if is_htmx:
+        week_start = _week_start(override_date)
+        rows, _ = _build_schedule_rows(week_start, company, employee_pk=employee.pk)
+        if rows:
+            row_html = render_to_string(
+                "schedule/partials/_schedule_row.html",
+                {
+                    "row": rows[0],
+                    "is_company_admin": getattr(request, "is_company_admin", False),
+                },
+                request=request,
             )
-            # Set the message regardless of HTMX. On HTMX responses
-            # the message rides back on an out-of-band swap of the
-            # messages container (see _respond_success).
-            if ok:
-                messages.success(request, f"Notification sent to {employee.email}.")
-            else:
-                messages.warning(request, error or "Notification not sent.")
+            messages_html = render_to_string(
+                "partials/_messages.html",
+                {"hx_oob": True},
+                request=request,
+            )
+            return HttpResponse(row_html + messages_html)
+        return HttpResponse(status=204)
 
-    return _respond_success()
+    return redirect(back)
 
 
 @login_required
@@ -2359,6 +2115,11 @@ def settings_home(request):
         "roles": Role.objects.filter(company=company),
         "today": today,
     }
+
+    if request.is_company_admin and request.user.has_perm("schedule.add_employee"):
+        context["employee_form"] = EmployeeForm(company=company)
+        context["week_start"] = _week_start(timezone.localdate())
+
     return render(request, "schedule/settings.html", context)
 
 

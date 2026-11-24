@@ -7,6 +7,7 @@ endpoints where Ninja's session/CSRF model is exactly right.
 """
 
 import json
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth import authenticate
@@ -19,15 +20,19 @@ from django.views.decorators.http import require_GET, require_POST
 from ninja import Router
 
 from work_schedule.api.auth import session_auth
+from work_schedule.auth import is_company_admin, is_team_admin
 
 from .schemas import (
     CompaniesResponse,
+    MeResponse,
     SelectCompanyRequest,
     SelectCompanyResponse,
+    SelectTeamRequest,
+    SelectTeamResponse,
 )
 
 router = Router(tags=["accounts"])
-
+teams_router = Router(tags=["accounts"])
 
 # ---------------------------------------------------------------------------
 # Password login (plain Django view)
@@ -51,7 +56,7 @@ def login_view(request):
     """
     try:
         payload = json.loads(request.body)
-    except json.JSONDecodeError, UnicodeDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({"ok": False, "error": "Malformed request."}, status=400)
 
     if not isinstance(payload, dict):
@@ -141,12 +146,6 @@ def list_companies(request):
 
 @router.post("/select/", auth=session_auth, response=SelectCompanyResponse)
 def select_company(request, payload: SelectCompanyRequest):
-    """Set the session company after validating membership.
-
-    Uses viable_memberships so a user cannot switch to a company
-    they've been removed from or that has ended employment. Session
-    is written only on success.
-    """
     from work_schedule.auth import viable_memberships
 
     company_id = payload.company_id.strip()
@@ -155,7 +154,129 @@ def select_company(request, payload: SelectCompanyRequest):
 
     for m in viable_memberships(request.user):
         if str(m.company_id) == company_id:
+            if request.session.get("company_id") != company_id:
+                request.session.pop("team_id", None)
             request.session["company_id"] = company_id
             return {"ok": True}
 
     return {"ok": False, "error": "No access to that company."}
+
+
+@teams_router.post("/select/", auth=session_auth, response=SelectTeamResponse)
+def select_team(request, payload: SelectTeamRequest):
+    """Set or clear the session team.
+
+    Team must be viewable as team scope: admin role in TeamMembership,
+    or member of a team whose allow_member_view_all is true (with the
+    user's Employee row showing show_team_schedules). None/empty
+    clears the selection and the roster falls back to the union of all
+    viewable teams.
+
+    Reads request.company from TenantMiddleware — team must belong to
+    the currently-selected company.
+    """
+    from schedule.selectors import viewable_team_ids
+
+    if payload.team_id is None or payload.team_id == "":
+        request.session.pop("team_id", None)
+        return {"ok": True}
+
+    company = request.company
+    if company is None:
+        return {"ok": False, "error": "No company in context."}
+
+    try:
+        team_uuid = UUID(payload.team_id)
+    except (ValueError, TypeError):
+        return {"ok": False, "error": "Invalid team ID."}
+
+    if team_uuid not in viewable_team_ids(company, request.user):
+        return {"ok": False, "error": "No access to that team."}
+
+    request.session["team_id"] = str(team_uuid)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Me (Ninja — post-auth)
+# ---------------------------------------------------------------------------
+
+
+me_router = Router(tags=["accounts"])
+
+
+@me_router.get("/", auth=session_auth, response=MeResponse)
+def me(request):
+    from schedule.models import Team
+    from schedule.selectors import (
+        available_scopes_for,
+        managed_team_ids,
+        viewable_team_ids,
+    )
+    from work_schedule.auth import is_platform_admin, viable_memberships
+
+    memberships = viable_memberships(request.user)
+
+    if request.company is not None:
+        allowed_ids = viewable_team_ids(request.company, request.user)
+        admin_ids = managed_team_ids(request.company, request.user)
+        visible_teams = list(
+            Team.objects.filter(company=request.company, pk__in=allowed_ids).order_by(
+                "name"
+            )
+        )
+    else:
+        admin_ids, visible_teams = set(), []
+    viable_team_ids = {str(t.id) for t in visible_teams}
+
+    session_team = request.session.get("team_id")
+
+    first_name = request.user.first_name or request.user.get_username()
+
+    return {
+        "id": str(request.user.id),
+        "first_name": first_name,
+        "last_name": request.user.last_name,
+        "is_platform_admin": is_platform_admin(request.user),
+        "is_company_admin": [
+            {
+                "status": is_company_admin(request.user, m.company.id),
+                "company_id": str(m.company.id),
+            }
+            for m in memberships
+        ],
+        "is_team_admin": [
+            {
+                "status": is_team_admin(request.user, t.id, t.company_id),
+                "company_id": str(t.company_id),
+                "team_id": str(t.id),
+            }
+            for t in visible_teams
+        ],
+        "permissions": sorted(request.user.get_all_permissions()),
+        "current_company_id": (str(request.company.id) if request.company else None),
+        "current_team_id": (session_team if session_team in viable_team_ids else None),
+        "companies": [
+            {
+                "id": str(m.company.id),
+                "name": m.company.name,
+                "slug": m.company.slug,
+                "role": m.role,
+            }
+            for m in memberships
+        ],
+        "teams": [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "company_id": str(t.company_id),
+                "role": "admin" if t.id in admin_ids else "member",
+            }
+            for t in visible_teams
+        ],
+        "available_scopes": (
+            available_scopes_for(request.company, request.user)
+            if request.company
+            else []
+        ),
+    }

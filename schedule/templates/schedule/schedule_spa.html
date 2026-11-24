@@ -1,0 +1,23 @@
+{% load static django_vite %}<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="{% static 'favicon.svg' %}"
+        />
+        <meta name="csrf-token" content="{{ csrf_token }}" />
+        <title>Schedule — {{ app_name }}</title>
+        <script>
+            const t = localStorage.getItem("theme");
+            if (t === "light" || t === "dark")
+                document.documentElement.classList.add(t);
+        </script>
+        {% vite_asset 'src/main.ts' %}
+    </head>
+    <body class="min-h-screen bg-brand-offwhite font-sans">
+        <div id="app"></div>
+    </body>
+</html>
