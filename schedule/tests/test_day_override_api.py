@@ -18,7 +18,11 @@ DAY = date(2026, 11, 24)
 DAY_URL = f"/api/v1/schedule/overrides/days/{DAY.isoformat()}/"
 
 
-def make_company_admin(username, company, perms=("change_shift", "view_shift")):
+def make_company_admin(
+    username,
+    company,
+    perms=("change_dayoverride", "view_shift"),  # was "change_shift"
+):
     """Company admin WITHOUT the Platform Admin group, so is_company_admin
     is decided purely by the membership row. (make_management_user adds
     the group, which bypasses per-company checks.)"""
@@ -169,9 +173,9 @@ class OverrideAuthzOrderTests(TestCase):
     def test_admin_gets_404_for_other_companys_employee(self):
         other_employee = make_employee(email="x@example.com", company=make_company("B"))
         admin = make_company_admin(
-    "admin",
-    self.company,
-    perms=("delete_shift", "view_shift"),
-)
+            "admin",
+            self.company,
+            perms=("delete_shift", "view_shift"),
+        )
         login_as(self.client, admin, company=self.company)
         self.assertEqual(self.post_override(other_employee.pk).status_code, 404)

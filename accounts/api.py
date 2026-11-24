@@ -56,7 +56,7 @@ def login_view(request):
     """
     try:
         payload = json.loads(request.body)
-    except json.JSONDecodeError, UnicodeDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({"ok": False, "error": "Malformed request."}, status=400)
 
     if not isinstance(payload, dict):
@@ -154,16 +154,6 @@ def select_company(request, payload: SelectCompanyRequest):
 
     for m in viable_memberships(request.user):
         if str(m.company_id) == company_id:
-            # Only clear team_id when switching to a DIFFERENT company.
-            # Re-selecting the same company preserves the team selection.
-
-            print(
-                f"[select_company] session_company={request.session.get('company_id')!r} "
-                f"payload_company={company_id!r} "
-                f"equal={request.session.get('company_id') == company_id} "
-                f"session_team={request.session.get('team_id')!r}"
-            )
-
             if request.session.get("company_id") != company_id:
                 request.session.pop("team_id", None)
             request.session["company_id"] = company_id
@@ -197,10 +187,10 @@ def select_team(request, payload: SelectTeamRequest):
 
     try:
         team_uuid = UUID(payload.team_id)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return {"ok": False, "error": "Invalid team ID."}
 
-    if team_uuid not in viewable_team_ids(request.user, company):
+    if team_uuid not in viewable_team_ids(company, request.user):
         return {"ok": False, "error": "No access to that team."}
 
     request.session["team_id"] = str(team_uuid)
@@ -228,8 +218,8 @@ def me(request):
     memberships = viable_memberships(request.user)
 
     if request.company is not None:
-        allowed_ids = viewable_team_ids(request.user, request.company)
-        admin_ids = managed_team_ids(request.user, request.company)
+        allowed_ids = viewable_team_ids(request.company, request.user)
+        admin_ids = managed_team_ids(request.company, request.user)
         visible_teams = list(
             Team.objects.filter(company=request.company, pk__in=allowed_ids).order_by(
                 "name"

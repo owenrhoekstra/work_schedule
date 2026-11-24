@@ -722,7 +722,7 @@ def _employee_page_context(request, employee):
 
     return {
         "employee": employee,
-        **current_pattern_context(employee),
+        **current_pattern_context(employee.company, employee),
         "patterns": patterns,
         "has_any_patterns": bool(all_patterns),
         "can_change": (
@@ -1124,7 +1124,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return _render_pattern_form(
             request,
             employee,
@@ -1147,7 +1147,7 @@ def _handle_pattern_form_post(request, employee, mode):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1515,7 +1515,7 @@ def pattern_form_preview(request, pk):
 
     try:
         cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1600,7 +1600,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         cycle_weeks = pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -2470,7 +2470,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 

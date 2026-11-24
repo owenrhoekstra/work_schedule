@@ -8,14 +8,18 @@ from ninja.errors import HttpError
 
 from schedule.selectors import available_scopes_for, week_schedule_for_scope
 from work_schedule.api.auth import session_auth
+from work_schedule.api.permissions import MemberWithPerm
 
-from .authz import authorize  # at the top
 from .schemas import WeekResponse
 
 router = Router(tags=["schedule"], auth=session_auth)
 
 
-@router.get("/week/", response=WeekResponse)
+@router.get(
+    "/week/",
+    auth=MemberWithPerm("schedule.view_shift"),
+    response=WeekResponse,
+)
 def week(request, week: str | None = None, scope: str = "me"):
     """Return one week's schedule for the requested scope.
 
@@ -26,10 +30,12 @@ def week(request, week: str | None = None, scope: str = "me"):
 
     `week` is an ISO date; any date within the target week is accepted
     and resolved to that week's Monday. Omitted → current week.
+
+    MemberWithPerm guarantees request.company is set (400 otherwise) and
+    that the caller holds schedule.view_shift — matching the old
+    authorize(admin=False) behavior.
     """
-    company = authorize(request, "schedule.view_shift", admin=False)
-    if company is None:
-        raise HttpError(400, "No company in context.")
+    company = request.company
 
     if scope not in ("me", "team", "company"):
         raise HttpError(400, f"Unknown scope: {scope!r}")

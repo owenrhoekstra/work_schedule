@@ -13,8 +13,8 @@ from schedule.scheduling import _employed_dates, _week_start
 from schedule.selectors import DAY_OVERRIDE_PERMS, week_row_for
 from schedule.services import OverrideError, apply_override
 from work_schedule.api.auth import session_auth
+from work_schedule.api.permissions import HasPerm
 
-from .authz import authorize
 from .schemas import (
     DayOverrideIn,
     DayOverrideOut,
@@ -29,21 +29,20 @@ router = Router(tags=["overrides"], auth=session_auth)
 # {employee_id} as a plain string before validating it as a UUID. If
 # this route moves below override(), "/days/..." would hit that one and
 # fail with a 422. Keep this one first.
-@router.post("/days/{target_date}/", response=DayOverrideOut)
+@router.post(
+    "/days/{target_date}/",
+    auth=HasPerm(*DAY_OVERRIDE_PERMS),
+    response=DayOverrideOut,
+)
 def set_day_override(request, target_date: date, payload: DayOverrideIn):
     """Mark a whole date as Closed or Holiday, or clear that status.
 
-    Authz: company admin plus change_dayoverride and view_shift (the
-    DAY_OVERRIDE_PERMS pair, shared with the viewer_can flag). Returns
-    the resulting status; the client invalidates its week query to pick
-    up the new column state.
-
-    Validation (authz runs first):
-    - 400: no company in context
-    - 403: not company admin, or missing change_dayoverride/view_shift
-    - 422: malformed date or unknown action (schema validation)
+    Authz: HasPerm(*DAY_OVERRIDE_PERMS) = company admin +
+    change_dayoverride + view_shift, matching the HTML set_day_override
+    view's decorator stack. Returns the resulting status; the client
+    invalidates its week query to pick up the new column state.
     """
-    company = authorize(request, *DAY_OVERRIDE_PERMS)
+    company = request.company
 
     # team=None limits this to company-wide rows, matching override().
     # Team-scoped DayOverrides are reserved for the teams UI and must
@@ -62,33 +61,42 @@ def set_day_override(request, target_date: date, payload: DayOverrideIn):
     return {"date": target_date, "status": status}
 
 
-@router.post("/{employee_id}/{override_date}/", response=OverrideResponse)
+@router.post(
+    "/{employee_id}/{override_date}/",
+    auth=HasPerm("schedule.view_shift"),
+    response=OverrideResponse,
+)
 def override(request, employee_id: UUID, override_date: date, payload: OverrideRequest):
     """Create, update, or clear a per-day shift override.
 
-    Authz: company admin + per-action perm (delete_shift for off/reset,
-    add_shift for save). Returns the updated employee row in the same
-    shape as /week/'s employees[] so the client replaces its cached
-    copy in one round trip.
+    Authz: HasPerm("schedule.view_shift") gives company admin +
+    view_shift up front. The action-specific perm (delete_shift for
+    off/reset, add_shift for save) depends on the payload and can't be
+    a class — checked below. Matches the HTML set_override view's
+    structure (view_shift decorator + is_company_admin + per-action
+    perm in body).
+
+    Returns the updated employee row in the same shape as /week/'s
+    employees[] so the client replaces its cached copy in one round trip.
 
     Validation:
     - 422: malformed date in the path, or unknown action / bad payload
-      shape. Ninja validates these before the function body runs, so
-      they take precedence over the authz checks below.
-    - 400: no company in context
-    - 403: not company admin, or missing the per-action shift perm
-      (authz runs before any lookup, so real and fake employee IDs
-      get the same response)
+      shape. Ninja validates these before the function body runs.
+    - 400: no company in context (from HasPerm)
+    - 403: not company admin or missing view_shift (from HasPerm), or
+      missing the per-action shift perm (from body)
     - 404: employee not in this company, or no longer employed
-    - 422: day is marked Closed/Holiday, employee not employed on
-      that date, or invalid times (bad format, missing one, end<=start)
+    - 422: day marked Closed/Holiday, employee not employed on the
+      date, or invalid times (bad format, missing one, end<=start)
     """
-    perm = (
-        "schedule.delete_shift"
-        if payload.action in ("off", "reset")
-        else "schedule.add_shift"
-    )
-    company = authorize(request, perm, "schedule.view_shift")
+    if payload.action in ("off", "reset"):
+        if not request.user.has_perm("schedule.delete_shift"):
+            raise HttpError(403, "Forbidden.")
+    else:
+        if not request.user.has_perm("schedule.add_shift"):
+            raise HttpError(403, "Forbidden.")
+
+    company = request.company
 
     today = timezone.localdate()
     try:
@@ -100,9 +108,6 @@ def override(request, employee_id: UUID, override_date: date, payload: OverrideR
     except Employee.DoesNotExist:
         raise HttpError(404, "Employee not found.")
 
-    # Day-level closed/holiday blocks the mutation. team__isnull=True
-    # today: team-scoped DayOverrides are reserved for the teams UI
-    # and don't yet affect individual overrides.
     day_override = DayOverride.objects.filter(
         date=override_date, company=company, team__isnull=True
     ).first()

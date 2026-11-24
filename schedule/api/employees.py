@@ -14,8 +14,8 @@ from schedule.selectors import (
     is_team_admin_of_employee,
 )
 from work_schedule.api.auth import session_auth
+from work_schedule.api.permissions import HasPerm, MemberWithPerm
 
-from .authz import authorize
 from .schemas import EmployeeDetailOut, EmployeeFlagOut, FlagIn, WelcomeOut
 
 router = Router(tags=["employees"], auth=session_auth)
@@ -26,7 +26,7 @@ def _get_employee(request, company, employee_id):
     team admin can't probe for employees outside their teams."""
     try:
         return (
-            employees_visible_to(request.user, company)
+            employees_visible_to(company, request.user)
             .select_related("role")
             .get(pk=employee_id)
         )
@@ -38,7 +38,7 @@ def _access(request, company, employee):
     """'company', 'team' or None: how this viewer may manage this employee."""
     if getattr(request, "is_company_admin", False):
         return "company"
-    if is_team_admin_of_employee(request.user, company, employee):
+    if is_team_admin_of_employee(company, request.user, employee):
         return "team"
     return None
 
@@ -95,7 +95,11 @@ def _summarize_pattern(ctx: dict) -> dict | None:
     }
 
 
-@router.get("/{employee_id}/", response=EmployeeDetailOut)
+@router.get(
+    "/{employee_id}/",
+    auth=MemberWithPerm("schedule.view_shift"),
+    response=EmployeeDetailOut,
+)
 def employee_detail(request, employee_id: UUID):
     """Drawer payload for anyone the viewer can see in some scope.
 
@@ -103,7 +107,7 @@ def employee_detail(request, employee_id: UUID):
     additionally get email and the flag list. Plain viewers get the
     schedule only.
     """
-    company = authorize(request, "schedule.view_shift", admin=False)
+    company = request.company
     employee = _get_employee(request, company, employee_id)
     access = _access(request, company, employee)
 
@@ -115,7 +119,7 @@ def employee_detail(request, employee_id: UUID):
         "flags": [_flag_out(request, f, employee, access) for f in FLAGS]
         if access
         else [],
-        "pattern": _summarize_pattern(current_pattern_context(employee)),
+        "pattern": _summarize_pattern(current_pattern_context(company, employee)),
         "can": {
             "send_welcome": access == "company"
             and request.user.has_perm("schedule.add_employee"),
@@ -123,10 +127,14 @@ def employee_detail(request, employee_id: UUID):
     }
 
 
-@router.post("/{employee_id}/flags/", response=EmployeeFlagOut)
+@router.post(
+    "/{employee_id}/flags/",
+    auth=MemberWithPerm("schedule.view_shift"),
+    response=EmployeeFlagOut,
+)
 def set_flag(request, employee_id: UUID, payload: FlagIn):
     flag = FLAGS_BY_KEY.get(payload.key)
-    company = authorize(request, "schedule.view_shift", admin=False)
+    company = request.company
     employee = _get_employee(request, company, employee_id)
     access = _access(request, company, employee)
 
@@ -139,9 +147,13 @@ def set_flag(request, employee_id: UUID, payload: FlagIn):
     return _flag_out(request, flag, employee, access)
 
 
-@router.post("/{employee_id}/welcome/", response=WelcomeOut)
+@router.post(
+    "/{employee_id}/welcome/",
+    auth=HasPerm("schedule.add_employee"),
+    response=WelcomeOut,
+)
 def send_welcome(request, employee_id: UUID):
-    company = authorize(request, "schedule.add_employee")  # company admin only
+    company = request.company
     employee = _get_employee(request, company, employee_id)
     if employee.last_day:
         raise HttpError(422, "Employee has a last day set.")

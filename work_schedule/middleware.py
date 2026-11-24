@@ -85,7 +85,7 @@ class TenantMiddleware:
             if session_id:
                 try:
                     return Company.objects.get(pk=session_id)
-                except Company.DoesNotExist, ValueError:
+                except (Company.DoesNotExist, ValueError):
                     request.session.pop("company_id", None)
             return Company.objects.order_by("id").first()
 
@@ -130,7 +130,7 @@ class TenantMiddleware:
 
         try:
             return Team.objects.get(pk=session_id, company=company)
-        except Team.DoesNotExist, ValueError:
+        except (Team.DoesNotExist, ValueError):
             request.session.pop("team_id", None)
             return None
 

@@ -92,7 +92,7 @@ def _viewer_team_ids(viewer, employee, company):
     return ids
 
 
-def viewable_team_ids(user, company):
+def viewable_team_ids(company, user):
     """Team IDs the user can view as team scope.
 
     Public wrapper around _viewer_team_ids that resolves the user's
@@ -159,7 +159,7 @@ def available_scopes_for(company, user):
 # ---------------------------------------------------------------------------
 
 
-def current_pattern_context(employee):
+def current_pattern_context(company, employee):
     """Current-week pattern pieces. Shared by the HTML defaults page
     and the employee drawer API so the two can't drift."""
     this_week_start = _week_start(timezone.localdate())
@@ -183,7 +183,7 @@ def current_pattern_context(employee):
     }
 
 
-def managed_team_ids(user, company):
+def managed_team_ids(company, user):
     """Teams the user administers at this company."""
     if not user.is_authenticated:
         return set()
@@ -197,7 +197,7 @@ def managed_team_ids(user, company):
     )
 
 
-def employees_visible_to(viewer, company):
+def employees_visible_to(company, viewer):
     """Every employee the viewer may open, across all of their scopes.
 
     Same rules as week_schedule_for_scope (me / team / company), minus
@@ -223,9 +223,9 @@ def employees_visible_to(viewer, company):
     return base.filter(q).distinct()
 
 
-def is_team_admin_of_employee(viewer, company, employee):
+def is_team_admin_of_employee(company, viewer, employee):
     """True if the viewer administers a team this employee is currently on."""
-    team_ids = managed_team_ids(viewer, company)
+    team_ids = managed_team_ids(company, viewer)
     if not team_ids:
         return False
     return EmployeeTeam.objects.filter(

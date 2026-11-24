@@ -14,6 +14,7 @@ const router = useRouter();
 
 const { data: me } = useQuery(meQueryOptions());
 const companyId = computed<string | null>(() => me.value?.current_company_id ?? null);
+const teamId = computed<string | null>(() => me.value?.current_team_id ?? null);
 
 const weekParam = computed<string | null>(() => {
   const w = route.query.week;
@@ -49,17 +50,20 @@ const {
   isPlaceholderData,
   isError,
   error,
-} = useQuery(weekQueryOptions(companyId, weekParam, scope, enabled));
+} = useQuery(weekQueryOptions(companyId, teamId, weekParam, scope, enabled));
 
 const queryClient = useQueryClient();
 
 // Prefetch adjacent weeks whenever the current week changes (initial
 // load, week nav, or scope switch). Reacts to both dependencies so a
 // scope change warms the new scope's neighbourhood too.
-watch([() => week.value?.week, scope, companyId], ([currentWeek, currentScope, currentCompany]) => {
-  if (!currentWeek || !currentCompany) return;
-  void prefetchAdjacentWeeks(queryClient, currentCompany, currentWeek, currentScope);
-});
+watch(
+  [() => week.value?.week, scope, companyId, teamId],
+  ([currentWeek, currentScope, currentCompany, currentTeam]) => {
+    if (!currentWeek || !currentCompany) return;
+    void prefetchAdjacentWeeks(queryClient, currentCompany, currentTeam, currentWeek, currentScope);
+  },
+);
 
 function setWeek(newWeek: string) {
   router.push({ query: { ...route.query, week: newWeek } });
