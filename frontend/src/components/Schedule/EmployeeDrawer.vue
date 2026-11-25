@@ -63,7 +63,10 @@ const profileUrl = computed(() => `/schedule/employees/${id.value}/defaults/`);
     <SheetContent class="flex w-full flex-col gap-0 overflow-y-auto sm:max-w-md">
       <SheetHeader class="border-b pb-4">
         <SheetTitle class="font-display text-xl">{{ employee?.display_name }}</SheetTitle>
-        <SheetDescription>{{ employee?.role_name }}</SheetDescription>
+        <SheetDescription v-if="employee?.team_name">
+          {{ employee.team_name
+          }}<template v-if="employee.team_role_name"> — {{ employee.team_role_name }}</template>
+        </SheetDescription>
         <div class="flex flex-wrap gap-1 pt-1">
           <Badge v-if="employee?.cycle" variant="secondary">Week {{ employee.cycle.label }}</Badge>
           <Badge v-if="employee?.last_day" variant="destructive">

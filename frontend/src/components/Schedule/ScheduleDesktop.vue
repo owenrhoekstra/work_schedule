@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { Badge } from "@/components/ui/badge";
 import { format12, formatDateMedium, formatDuration } from "@/lib/format";
-import type { Cell, CellKind, DayHeader, WeekResponse } from "@/types/week";
+import type { Cell, CellKind, DayHeader, WeekEmployee, WeekResponse } from "@/types/week";
 import { Button } from "../ui/button";
 import DayStatusMenu from "./DayStatusMenu.vue";
 import EmployeeDrawer from "./EmployeeDrawer.vue";
@@ -65,6 +65,17 @@ function dayStatusLabel(status: string | null | undefined): string {
   if (status === "closed") return "Closed";
   if (status === "holiday") return "Holiday";
   return status ?? "";
+}
+
+// Subtext under the employee name: "Kitchen — Head Chef" when both
+// are present, just "Kitchen" when the role is unset, empty when the
+// employee has no team assignment. Employees without a team fall back
+// to no subtext — honest reflection of the model; settings will make
+// assignment easy.
+function teamRoleLine(emp: WeekEmployee): string {
+  if (!emp.team_name) return "";
+  if (emp.team_role_name) return `${emp.team_name} — ${emp.team_role_name}`;
+  return emp.team_name;
 }
 
 // Cell is editable when the viewer holds either shift perm AND the
@@ -148,11 +159,11 @@ function employeeDefaultsUrl(id: string): string {
               <span class="truncate">{{ emp.display_name }}</span>
             </Button>
             <div
-              v-if="emp.role_name"
+              v-if="teamRoleLine(emp)"
               class="truncate text-sm text-muted-foreground"
-              :title="emp.role_name"
+              :title="teamRoleLine(emp)"
             >
-              {{ emp.role_name }}
+              {{ teamRoleLine(emp) }}
             </div>
             <Badge v-if="emp.cycle" variant="secondary" class="mt-1">
               Week {{ emp.cycle.label }}
