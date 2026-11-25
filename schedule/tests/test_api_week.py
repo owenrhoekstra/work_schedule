@@ -1,5 +1,7 @@
 """Tests for GET /api/v1/schedule/week/."""
 
+from datetime import date, timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -14,7 +16,6 @@ from schedule.tests.factories import (
     make_company,
     make_employee,
     make_management_user,
-    make_member_user,
     make_viewer_user,
 )
 
@@ -31,7 +32,9 @@ def _make_employee_on_team(
         show_team_schedules=show_team_schedules,
         user=user,
     )
-    EmployeeTeam.objects.create(employee=emp, team=team, valid_from=timezone.localdate())
+    EmployeeTeam.objects.create(
+        employee=emp, team=team, valid_from=timezone.localdate()
+    )
     return emp
 
 
@@ -45,6 +48,7 @@ class WeekEndpointTests(TestCase):
             with_pattern=True,
             email="admin@x.com",
         )
+        self.today = date.today()
 
     # ---- Auth ----------------------------------------------------------
 
@@ -167,6 +171,34 @@ class WeekEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = {e["id"] for e in response.json()["employees"]}
         self.assertIn(str(member_emp.id), ids)
+
+    def test_employee_row_includes_team_and_role(self):
+        from schedule.models import EmployeeTeam, Team, TeamRole
+
+        team = Team.objects.create(company=self.company, name="Kitchen")
+        role = TeamRole.objects.create(team=team, name="Head Chef")
+        EmployeeTeam.objects.create(
+            employee=self.admin_emp,
+            team=team,
+            role=role,
+            is_default=True,
+            valid_from=self.today,
+        )
+
+        login_as(self.client, self.admin, self.company)
+        data = self.client.get("/api/v1/schedule/week/?scope=me").json()
+
+        row = data["employees"][0]
+        self.assertEqual(row["team_name"], "Kitchen")
+        self.assertEqual(row["team_role_name"], "Head Chef")
+
+    def test_employee_without_team_has_null_team_fields(self):
+        # self.admin_emp has no EmployeeTeam assignment.
+        login_as(self.client, self.admin, self.company)
+        data = self.client.get("/api/v1/schedule/week/?scope=me").json()
+        row = data["employees"][0]
+        self.assertIsNone(row["team_name"])
+        self.assertIsNone(row["team_role_name"])
 
     # ---- shape ---------------------------------------------------------
 
@@ -313,3 +345,26 @@ class WeekEndpointTests(TestCase):
         ids = {e["id"] for e in data["employees"]}
         self.assertIn(str(member_a.id), ids)
         self.assertIn(str(member_b.id), ids)
+
+    # sorting --------------------------------------
+
+    def test_employees_sorted_by_start_date(self):
+        # Two employees with distinct start dates; the earlier-started
+        # employee sorts first, regardless of team/role. (Role-based
+        # ordering is gone; Branch B replaces this with team grouping.)
+        later = make_employee(
+            company=self.company,
+            with_pattern=True,
+            email="later@x.com",
+            start_date=self.today - timedelta(days=30),
+        )
+        earlier = make_employee(
+            company=self.company,
+            with_pattern=True,
+            email="earlier@x.com",
+            start_date=self.today - timedelta(days=90),
+        )
+        login_as(self.client, self.admin, self.company)
+        data = self.client.get("/api/v1/schedule/week/?scope=company").json()
+        ids = [e["id"] for e in data["employees"]]
+        self.assertLess(ids.index(str(earlier.id)), ids.index(str(later.id)))

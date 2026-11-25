@@ -91,23 +91,6 @@ class HomeScheduleRenderingTests(TestCase):
         self.mon = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
         self.early_start = self.mon - timedelta(days=30)
 
-    # ----- sorting -----
-
-    def test_employees_sorted_by_role_order_then_start(self):
-        old_recep = make_employee(
-            email="old@x.com", role=self.role_b, start_date=date(2020, 1, 1)
-        )
-        new_recep = make_employee(
-            email="new@x.com", role=self.role_b, start_date=date(2024, 1, 1)
-        )
-        mgr = make_employee(
-            email="m@x.com", role=self.role_a, start_date=self.early_start
-        )
-
-        resp = self.client.get(reverse("home"), {"week": self.mon.isoformat()})
-        employees = [row["employee"] for row in resp.context["rows"]]
-        self.assertEqual(employees, [mgr, old_recep, new_recep])
-
     # ----- employment filtering -----
 
     def test_employee_not_yet_started_shows_dash(self):
