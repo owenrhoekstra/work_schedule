@@ -168,6 +168,33 @@ class TeamMembership(models.Model):
         return f"{self.user} on {self.team} ({self.valid_from} → {end})"
 
 
+class TeamRole(models.Model):
+    """A cosmetic job label, scoped to one team.
+
+    Replaces the company-level `Role` model. A team admin defines their
+    own team's roles; a company admin defines all of them. Purely
+    cosmetic — no authz, no schedule logic. Multi-team employees have a
+    separate role per team (via EmployeeTeam.role).
+    """
+
+    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="team_roles")
+    name = models.CharField(max_length=100)
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                name="unique_team_role_per_team",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.team.name} / {self.name}"
+
+
 class Title(models.Model):
     """A name prefix (Dr., Mr., Mrs.), scoped per company or per team."""
 
@@ -316,6 +343,18 @@ class EmployeeTeam(models.Model):
         Team, on_delete=models.CASCADE, related_name="employee_links"
     )
     is_default = models.BooleanField(default=False)
+    role = models.ForeignKey(
+        "TeamRole",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="employee_team_assignments",
+        help_text=(
+            "Cosmetic role for this employee on this team. "
+            "Independent per team — Alice can be Head Chef on Kitchen "
+            "and Server on Front."
+        ),
+    )
     valid_from = models.DateField()
     valid_to = models.DateField(
         null=True,
