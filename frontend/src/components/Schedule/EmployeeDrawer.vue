@@ -19,9 +19,9 @@ import {
   employeeQueryOptions,
   useEmployeeFlagMutation,
   useSendWelcomeMutation,
-} from "@/queries/employee";
+} from "@/queries/Schedule/employee.ts";
 import { meQueryOptions } from "@/queries/me";
-import type { WeekEmployee } from "@/types/week";
+import type { WeekEmployee } from "@/types/Schedule/week.ts";
 
 const showDialog = ref(false);
 

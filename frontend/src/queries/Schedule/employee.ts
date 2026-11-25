@@ -1,8 +1,8 @@
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/vue-query";
 import { computed, type Ref } from "vue";
 import { toast } from "vue-sonner";
-import { useApi } from "@/composables/useApi";
-import type { EmployeeDetail } from "@/types/employee";
+import { useApi } from "@/composables/useApi.ts";
+import type { EmployeeDetail } from "@/types/Schedule/employee.ts";
 
 export const employeeQueryOptions = (id: Ref<string | null>) =>
   queryOptions({

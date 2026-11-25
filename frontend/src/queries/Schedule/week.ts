@@ -1,7 +1,7 @@
 import { keepPreviousData, type QueryClient, queryOptions } from "@tanstack/vue-query";
 import { computed, type Ref } from "vue";
-import { useApi } from "@/composables/useApi";
-import type { WeekRef, WeekResponse } from "@/types/week";
+import { useApi } from "@/composables/useApi.ts";
+import type { WeekRef, WeekResponse } from "@/types/Schedule/week.ts";
 
 // queryKey includes companyId AND teamId so any tenant/team switch
 // produces a fresh cache entry (not a refetch-in-place of stale data

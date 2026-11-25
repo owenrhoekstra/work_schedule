@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PhArrowLeft, PhArrowRight, PhCalendarBlank } from "@phosphor-icons/vue";
-import type { WeekRef } from "@/types/week";
+import type { WeekRef } from "@/types/Schedule/week.ts";
 import WeekSelector from "./WeekSelector.vue";
 
 // Week nav only. Back-to-current lives in ScheduleToolbar above this,

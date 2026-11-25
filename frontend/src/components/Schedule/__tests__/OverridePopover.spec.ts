@@ -49,7 +49,7 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 import OverridePopover from "@/components/Schedule/OverridePopover.vue";
-import type { Cell } from "@/types/week";
+import type { Cell } from "@/types/Schedule/week.ts";
 
 function makeCell(overrides: Partial<Cell> = {}): Cell {
   return {

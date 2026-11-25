@@ -3,7 +3,7 @@ import { PhDotsThreeVertical } from "@phosphor-icons/vue";
 import { ref } from "vue";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { type DayOverrideVars, useDayOverrideMutation } from "@/queries/overrides";
+import { type DayOverrideVars, useDayOverrideMutation } from "@/queries/Schedule/overrides.ts";
 
 const props = defineProps<{
   date: string;

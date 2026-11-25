@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { Badge } from "@/components/ui/badge";
 import { format12, formatDateMedium, formatDuration } from "@/lib/format";
-import type { Cell, CellKind, DayHeader, WeekEmployee, WeekResponse } from "@/types/week";
+import type { Cell, CellKind, DayHeader, WeekEmployee, WeekResponse } from "@/types/Schedule/week.ts";
 import { Button } from "../ui/button";
 import DayStatusMenu from "./DayStatusMenu.vue";
 import EmployeeDrawer from "./EmployeeDrawer.vue";

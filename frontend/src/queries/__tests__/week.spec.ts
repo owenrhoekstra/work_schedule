@@ -8,8 +8,8 @@ vi.mock("@/composables/useApi", () => ({
   useApi: () => ({ get: mockGet }),
 }));
 
-import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/week";
-import type { WeekRef } from "@/types/week";
+import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/Schedule/week.ts";
+import type { WeekRef } from "@/types/Schedule/week.ts";
 
 const sampleWeekRef: WeekRef = {
   start: "2026-11-16",

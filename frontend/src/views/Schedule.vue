@@ -7,7 +7,7 @@ import ScheduleSkeleton from "@/components/Schedule/ScheduleSkeleton.vue";
 import ScheduleToolbar from "@/components/Schedule/ScheduleToolbar.vue";
 import ScopeContextPicker from "@/components/Schedule/ScopeContextPicker.vue";
 import { meQueryOptions } from "@/queries/me";
-import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/week";
+import { prefetchAdjacentWeeks, weekQueryOptions } from "@/queries/Schedule/week.ts";
 
 const route = useRoute();
 const router = useRouter();

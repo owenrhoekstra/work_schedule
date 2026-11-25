@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
 import { toast } from "vue-sonner";
-import { useApi } from "@/composables/useApi";
-import type { Cell, OverrideResponse, WeekEmployee, WeekResponse } from "@/types/week";
+import { useApi } from "@/composables/useApi.ts";
+import type { Cell, OverrideResponse, WeekEmployee, WeekResponse } from "@/types/Schedule/week.ts";
 
 // Wire shape mirrors schedule/api/schemas.py's OverrideRequest.
 // `start` / `end` are user-entered strings; the server's _parse_time
