@@ -25,7 +25,7 @@ vi.mock("@tanstack/vue-query", async (orig) => {
   };
 });
 
-vi.mock("@/queries/selects", () => ({
+vi.mock("@/queries/Schedule/selects", () => ({
   useSelectCompanyMutation: () => ({ mutate: mockSelectCompany.mutate }),
   useSelectTeamMutation: () => ({ mutate: mockSelectTeam.mutate }),
 }));

@@ -231,36 +231,6 @@ class Title(models.Model):
         return self.name
 
 
-class Role(models.Model):
-    """A job function (Manager, Receptionist), scoped per company or team."""
-
-    id = models.UUIDField(primary_key=True, db_default=UUID7(), editable=False)
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="roles")
-    team = models.ForeignKey(
-        Team,
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE,
-        related_name="roles",
-        help_text="Null = company-wide default. Set = team-scoped fork.",
-    )
-    name = models.CharField(max_length=100)
-    display_order = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ["display_order", "name"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["company", "team", "name"],
-                name="unique_role_per_company_or_team",
-                nulls_distinct=False,
-            )
-        ]
-
-    def __str__(self):
-        return self.name
-
-
 class Employee(models.Model):
     """A person on the schedule. Scheduling-only — no authz here.
 
@@ -282,7 +252,6 @@ class Employee(models.Model):
     )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="employees")
     email = models.EmailField()
     user = models.ForeignKey(
         User,

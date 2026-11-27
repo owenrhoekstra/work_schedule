@@ -10,7 +10,7 @@ from .factories import (
     make_employee,
     make_management_user,
     make_member_user,
-    make_role,
+    make_team_role,
     make_staff_user,
 )
 
@@ -37,7 +37,7 @@ def _first_monday_of_june(year):
 class PrintScheduleTests(TestCase):
     def setUp(self):
         self.client.force_login(_make_manager())
-        role = make_role("Receptionist", order=20)
+        role = make_team_role("Receptionist", order=20)
         make_employee(role=role)
 
     def test_anonymous_redirected_to_login(self):

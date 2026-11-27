@@ -8,8 +8,8 @@ from schedule.models import Company, DayOverride, Shift, ShiftOverride
 
 from .factories import (
     make_employee,
+    make_management_user,
     make_member_user,
-    make_role,
     make_staff_user,
     make_superuser,
 )
@@ -86,8 +86,6 @@ class HomeScheduleRenderingTests(TestCase):
     def setUp(self):
         self.user = make_superuser()
         self.client.force_login(self.user)
-        self.role_a = make_role("Manager", order=10)
-        self.role_b = make_role("Receptionist", order=20)
         self.mon = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
         self.early_start = self.mon - timedelta(days=30)
 

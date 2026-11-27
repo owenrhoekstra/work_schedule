@@ -181,7 +181,7 @@ def _employees_for_week(week_start, company):
             & (Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
         )
         .distinct()
-        .select_related("title", "role")
+        .select_related("title")
         .prefetch_related(
             "periods",
             "patterns__shifts",

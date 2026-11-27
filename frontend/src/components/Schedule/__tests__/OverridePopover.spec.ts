@@ -15,7 +15,7 @@ const { mockState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/queries/overrides", () => ({
+vi.mock("@/queries/Schedule/overrides", () => ({
   useOverrideMutation: () => ({
     isPending: mockState.isPending,
     error: mockState.error,

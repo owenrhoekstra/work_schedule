@@ -9,13 +9,12 @@ Session 8: make_employee no longer creates a ShiftPattern
 automatically (the app no longer does either). Tests opt in with
 with_pattern=True or cycle_weeks=N.
 
-Branch 1: make_employee auto-creates a fresh Company per call unless
-`company=` is passed. Existing single-employee tests keep working;
-tests that need two employees in the same company pass `company=`
-explicitly. Role/Title creates are company-scoped for the same reason.
+Branch A: roles moved from Employee.role to EmployeeTeam.role (per-team
+TeamRole). make_employee still accepts role=<TeamRole> as a convenience
+and creates the EmployeeTeam link for you.
 """
 
-import uuid  # add at top of file, above `from datetime import`
+import uuid
 from datetime import date, timedelta
 
 from django.contrib.auth.models import Group, Permission, User
@@ -25,8 +24,10 @@ from schedule.models import (
     Company,
     CompanyMembership,
     Employee,
-    Role,
+    EmployeeTeam,
     ShiftPattern,
+    Team,
+    TeamRole,
     Title,
 )
 
@@ -44,18 +45,16 @@ def make_company(name="Test Company", slug=None):
     )
 
 
-def make_role(name="Staff", order=10, company=None, team=None):
-    """Return a Role, creating it if needed.
-
-    Company defaults to the first existing company (so all test data in
-    one test lands in the same tenant) or a fresh one if none exists.
-    """
+def make_team(company=None, name="Test Team"):
     company = company or Company.objects.first() or make_company()
-    role, _ = Role.objects.get_or_create(
-        name=name,
-        company=company,
-        team=team,
-        defaults={"display_order": order},
+    team, _ = Team.objects.get_or_create(company=company, name=name)
+    return team
+
+
+def make_team_role(name="Receptionist", order=0, team=None, company=None):
+    team = team or make_team(company=company)
+    role, _ = TeamRole.objects.get_or_create(
+        team=team, name=name, defaults={"display_order": order}
     )
     return role
 
@@ -69,12 +68,12 @@ def make_title(name="Dr.", company=None, team=None):
 
 def make_employee(
     email="test@example.com",
-    role=None,
     company=None,
     start_date=None,
     with_pattern=False,
     **kwargs,
 ):
+    role = kwargs.pop("role", None)
     cycle_weeks = kwargs.pop("cycle_weeks", None)
     if cycle_weeks is not None:
         with_pattern = True
@@ -92,16 +91,21 @@ def make_employee(
             start_date -= timedelta(days=1)
 
     company = company or Company.objects.first() or make_company()
-    role = role or make_role(company=company)
     employee = Employee.objects.create(
         first_name=kwargs.pop("first_name", "Test"),
         last_name=kwargs.pop("last_name", "User"),
         email=email,
-        role=role,
         company=company,
         start_date=start_date,
         **kwargs,
     )
+
+    if role is not None:
+        EmployeeTeam.objects.update_or_create(
+            employee=employee,
+            team=role.team,
+            defaults={"role": role, "is_default": True, "valid_from": start_date},
+        )
 
     if with_pattern:
         anchor = employee.start_date - timedelta(days=employee.start_date.weekday())
@@ -116,7 +120,6 @@ def make_employee(
 
 def make_superuser(username="admin", company=None):
     """Superuser. Auto-joins the test's company (creating one if none)."""
-
     user = User.objects.create_superuser(
         username=username, password="pass", email=f"{username}@example.com"
     )
@@ -129,7 +132,6 @@ def make_superuser(username="admin", company=None):
 
 def make_staff_user(username="staff", company=None):
     """view_shift only. Member role — NOT a company admin."""
-
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
@@ -142,19 +144,10 @@ def make_staff_user(username="staff", company=None):
 
 
 def make_member_user(username="member", company=None):
-    """A plain authed user with an active membership but NO schedule perms.
-
-    Counterpart to `make_staff_user` (which grants view_shift). Use
-    this to test "logged in, has a company, lacks the permission" —
-    the case where a view's @permission_required must fire 403 rather
-    than the middleware redirecting to the picker.
-    """
-    from schedule.models import CompanyMembership
-
+    """A plain authed user with an active membership but NO schedule perms."""
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
-
     company = company or Company.objects.order_by("id").first() or make_company()
     CompanyMembership.objects.create(
         user=user, company=company, role="member", status="active"
@@ -164,22 +157,17 @@ def make_member_user(username="member", company=None):
 
 def make_viewer_user(username="viewer", company=None):
     """Authenticated company member with view_shift but no write permissions."""
-    from schedule.models import CompanyMembership
-
     user = User.objects.create_user(
         username=username,
         password="pass",
         email=f"{username}@example.com",
     )
-
     perm = Permission.objects.get(
         codename="view_shift",
         content_type__app_label="schedule",
     )
     user.user_permissions.add(perm)
-
     company = company or Company.objects.order_by("id").first() or make_company()
-
     CompanyMembership.objects.create(
         user=user,
         company=company,
@@ -192,7 +180,6 @@ def make_viewer_user(username="viewer", company=None):
 def make_manager_user(username="manager", company=None):
     """All schedule perms, member role. Perm-only user — fails
     company_admin_required. Use make_management_user for admin."""
-
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
@@ -208,7 +195,6 @@ def make_manager_user(username="manager", company=None):
 
 def make_management_user(username="management", company=None):
     """All schedule perms + admin membership + Platform Admin group."""
-
     user = User.objects.create_user(
         username=username, password="pass", email=f"{username}@example.com"
     )
