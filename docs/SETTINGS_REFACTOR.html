@@ -1,0 +1,1036 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Branch C — Settings Refactor</title>
+        <style>
+            :root {
+                --bg: #fafaf9;
+                --fg: #1f2937;
+                --muted: #6b7280;
+                --accent: #ff5a5f;
+                --accent-soft: #fff1f1;
+                --border: #e5e7eb;
+                --code-bg: #f3f4f6;
+                --note-bg: #fef9e7;
+                --note-border: #f59e0b;
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    "Helvetica Neue", system-ui, sans-serif;
+                font-size: 15px;
+                line-height: 1.6;
+                color: var(--fg);
+                background: var(--bg);
+            }
+
+            .layout {
+                max-width: 820px;
+                margin: 0 auto;
+                padding: 3rem 2rem 6rem;
+            }
+
+            header {
+                border-bottom: 2px solid var(--fg);
+                padding-bottom: 1.5rem;
+                margin-bottom: 2rem;
+            }
+
+            header h1 {
+                font-size: 2rem;
+                margin: 0 0 0.5rem;
+                letter-spacing: -0.02em;
+            }
+
+            header .meta {
+                font-size: 0.9rem;
+                color: var(--muted);
+            }
+
+            header .meta strong {
+                color: var(--fg);
+            }
+
+            nav.toc {
+                background: white;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 1.25rem 1.5rem;
+                margin-bottom: 3rem;
+                font-size: 0.9rem;
+            }
+
+            nav.toc h2 {
+                margin: 0 0 0.75rem;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--muted);
+                font-weight: 600;
+            }
+
+            nav.toc ol {
+                margin: 0;
+                padding-left: 1.25rem;
+                columns: 2;
+                column-gap: 2rem;
+            }
+
+            nav.toc li {
+                margin-bottom: 0.25rem;
+                break-inside: avoid;
+            }
+
+            nav.toc a {
+                color: var(--fg);
+                text-decoration: none;
+            }
+
+            nav.toc a:hover {
+                color: var(--accent);
+                text-decoration: underline;
+            }
+
+            section {
+                margin-bottom: 3rem;
+            }
+
+            h2 {
+                font-size: 1.4rem;
+                margin: 0 0 1rem;
+                padding-top: 0.5rem;
+                border-top: 1px solid var(--border);
+                letter-spacing: -0.01em;
+            }
+
+            h2 .num {
+                display: inline-block;
+                font-size: 0.9rem;
+                color: var(--muted);
+                font-weight: 500;
+                margin-right: 0.5rem;
+                font-variant-numeric: tabular-nums;
+            }
+
+            h3 {
+                font-size: 1.1rem;
+                margin: 1.75rem 0 0.5rem;
+            }
+
+            h4 {
+                font-size: 0.95rem;
+                margin: 1.25rem 0 0.4rem;
+                color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                font-weight: 600;
+            }
+
+            p {
+                margin: 0 0 1rem;
+            }
+
+            ul,
+            ol {
+                margin: 0 0 1rem;
+                padding-left: 1.5rem;
+            }
+            li {
+                margin-bottom: 0.35rem;
+            }
+
+            strong {
+                color: var(--fg);
+            }
+
+            code {
+                font-family: "SF Mono", Monaco, Menlo, Consolas, monospace;
+                font-size: 0.85em;
+                background: var(--code-bg);
+                padding: 0.1em 0.35em;
+                border-radius: 4px;
+            }
+
+            pre {
+                background: var(--code-bg);
+                padding: 1rem 1.25rem;
+                border-radius: 6px;
+                overflow-x: auto;
+                font-size: 0.85rem;
+                line-height: 1.5;
+                margin: 0 0 1.25rem;
+            }
+
+            pre code {
+                background: none;
+                padding: 0;
+                font-size: inherit;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 0.75rem 0 1.5rem;
+                font-size: 0.9rem;
+            }
+
+            th,
+            td {
+                text-align: left;
+                padding: 0.5rem 0.75rem;
+                border-bottom: 1px solid var(--border);
+                vertical-align: top;
+            }
+
+            th {
+                font-weight: 600;
+                background: white;
+                border-bottom: 2px solid var(--border);
+                font-size: 0.85rem;
+            }
+
+            tbody tr:hover {
+                background: white;
+            }
+
+            .decision {
+                background: var(--accent-soft);
+                border-left: 3px solid var(--accent);
+                padding: 0.75rem 1rem;
+                margin: 1rem 0;
+                border-radius: 0 4px 4px 0;
+            }
+
+            .decision .label {
+                font-size: 0.7rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--accent);
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+            }
+
+            .note {
+                background: var(--note-bg);
+                border-left: 3px solid var(--note-border);
+                padding: 0.75rem 1rem;
+                margin: 1rem 0;
+                border-radius: 0 4px 4px 0;
+                font-size: 0.9rem;
+            }
+
+            .note .label {
+                font-size: 0.7rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--note-border);
+                font-weight: 700;
+                margin-bottom: 0.25rem;
+            }
+
+            .grid-2 {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 1.5rem;
+            }
+
+            @media (max-width: 640px) {
+                .layout {
+                    padding: 2rem 1.25rem 4rem;
+                }
+                nav.toc ol {
+                    columns: 1;
+                }
+                .grid-2 {
+                    grid-template-columns: 1fr;
+                }
+                table {
+                    font-size: 0.85rem;
+                }
+            }
+
+            .commit-seq {
+                font-variant-numeric: tabular-nums;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="layout">
+            <header>
+                <h1>Branch C — Settings Refactor</h1>
+                <p class="meta">
+                    <strong>Status:</strong> Design phase — not started
+                    &nbsp;·&nbsp; <strong>Branches from:</strong> staging (post
+                    Branch A) &nbsp;·&nbsp; <strong>Predecessor:</strong> Branch
+                    A (team-as-primary schema)
+                </p>
+            </header>
+
+            <nav class="toc">
+                <h2>Contents</h2>
+                <ol>
+                    <li><a href="#why">Why this branch exists</a></li>
+                    <li><a href="#scope">Scope</a></li>
+                    <li><a href="#decisions">Decisions</a></li>
+                    <li><a href="#surfaces">Settings surface</a></li>
+                    <li><a href="#schedule">Schedule surface delta</a></li>
+                    <li><a href="#authz">Authz matrix</a></li>
+                    <li><a href="#api">API surface</a></li>
+                    <li><a href="#flows">Data flow examples</a></li>
+                    <li><a href="#commits">Commit sequence</a></li>
+                    <li><a href="#deferred">Deferred</a></li>
+                    <li><a href="#open">Open questions</a></li>
+                </ol>
+            </nav>
+
+            <section id="why">
+                <h2><span class="num">1.</span>Why this branch exists</h2>
+                <p>
+                    The Django settings page (<code>/schedule/settings/</code>)
+                    still carries the pre-multi-tenancy surface — a grab bag of
+                    employee lists, Titles, and Roles with no navigation
+                    structure. The <code>Role</code> model is gone (Branch A),
+                    but the surface hasn't been rewritten. Team and membership
+                    models exist but have no UI. Meanwhile the schedule has
+                    moved to Vue, creating an inconsistency: the primary app is
+                    Vue, but settings is still Django templates.
+                </p>
+                <p>
+                    This branch rewrites settings as a Vue surface with proper
+                    navigation, exposes the company/team/membership models
+                    through the UI for the first time, and settles the question
+                    of where employees are managed.
+                </p>
+            </section>
+
+            <section id="scope">
+                <h2><span class="num">2.</span>Scope</h2>
+
+                <h4>In scope</h4>
+                <ul>
+                    <li>
+                        Restructure the Vue router so schedule and settings are
+                        siblings under one mount
+                    </li>
+                    <li>
+                        Build <code>/settings/*</code> as a proper Vue surface
+                        with sidebar navigation
+                    </li>
+                    <li>
+                        Expose Team CRUD, TeamRole management, TeamMembership
+                        admin grants, EmployeeTeam assignments
+                    </li>
+                    <li>
+                        Surface the pending-membership queue and
+                        CompanyMembership admin grants
+                    </li>
+                    <li>Move "Add Employee" from schedule into settings</li>
+                    <li>Retire the Django settings surface</li>
+                </ul>
+
+                <h4>Not in scope</h4>
+                <ul>
+                    <li>
+                        Retiring
+                        <code>/schedule/employees/&lt;uuid&gt;/defaults/</code>
+                        (Django reading page). This page remains the
+                        <strong>per-employee edit surface</strong> — clicked
+                        from the schedule row, not from settings.
+                    </li>
+                    <li>
+                        Team-scoped day override UI (deferred to a dedicated
+                        branch)
+                    </li>
+                    <li>
+                        Combining the settings bulk view with the Django
+                        per-employee view into one surface (future; different
+                        needs for now)
+                    </li>
+                </ul>
+            </section>
+
+            <section id="decisions">
+                <h2><span class="num">3.</span>Decisions</h2>
+
+                <h3>3.1 Route mount: single Vue mount at <code>/</code></h3>
+                <p>
+                    Currently <code>router/app.ts</code> bases at
+                    <code>/schedule/</code>, so every Vue route lives under
+                    <code>/schedule/*</code>. Settings at
+                    <code>/settings/*</code> would need either a third router
+                    branch (adds complexity) or the restructure.
+                </p>
+                <div class="decision">
+                    <div class="label">Decision</div>
+                    Restructure. Base the app router at <code>/</code> and mount
+                    <code>/schedule/*</code> and <code>/settings/*</code> as
+                    sibling route trees. MenuBar becomes a shared shell with
+                    Schedule / Settings as equal-weight destinations.
+                </div>
+
+                <h3>3.2 Landing page: permission-based redirect</h3>
+                <p>
+                    <code>/settings/</code> redirects based on the user's
+                    highest available scope:
+                </p>
+                <ul>
+                    <li>
+                        Platform admin or company admin →
+                        <code>/settings/company/</code>
+                    </li>
+                    <li>
+                        Team admin (any team) → <code>/settings/teams/</code>
+                    </li>
+                    <li>Member → <code>/settings/profile/</code></li>
+                </ul>
+                <div class="decision">
+                    <div class="label">Decision</div>
+                    One line of routing logic. First-impression per role.
+                </div>
+
+                <h3>3.3 Employee management split</h3>
+                <p>
+                    <strong
+                        >Schedule click-through → Django reading page.</strong
+                    >
+                    Clicking an employee's name on the schedule continues to
+                    navigate to
+                    <code>/schedule/employees/&lt;uuid&gt;/defaults/</code>
+                    (Django template). This page stays for now. It shows the
+                    employee's current pattern, full pattern history, and offers
+                    the entry points for pattern editing and identity editing
+                    (via
+                    <code>/schedule/employees/&lt;uuid&gt;/details/</code>).
+                </p>
+                <p>
+                    <strong>Settings Employees tab → bulk view only.</strong>
+                    The settings Employees tab is for bulk operations: list with
+                    filter/search, active/former toggle, row selection, bulk
+                    actions. Clicking a row navigates to the same Django reading
+                    page. Settings does not duplicate per-employee edits.
+                </p>
+                <div class="decision">
+                    <div class="label">Decision</div>
+                    The Django reading page was built for individual employee
+                    inspection and editing. It's been verified through QA and
+                    iteration (Sessions 6–9). Rebuilding it in Vue is a large
+                    lift with no user-facing benefit — the page already works.
+                    Settings is a different lens: bulk view for cross-employee
+                    work (who's on which team, who's been deactivated, who has
+                    no schedule). The two serve different needs.
+                </div>
+                <div class="note">
+                    <div class="label">Reversal from earlier sketch</div>
+                    The earlier design pass proposed retiring the Django reading
+                    page in this branch. <strong>Reverted.</strong> The reading
+                    page stays — it's the per-employee edit surface, not a
+                    sub-view of settings.
+                </div>
+
+                <h3>3.4 Role display in settings</h3>
+                <p>
+                    The settings Employees list shows the employee's default
+                    team's role as the "Role" column. Matches the schedule row's
+                    subtext display (<code>Kitchen — Head Chef</code>). Clicking
+                    through to the Django reading page (or the drawer) reveals
+                    every team assignment.
+                </p>
+
+                <h3>3.5 Team-scoped day overrides: deferred</h3>
+                <p>
+                    <code>DayOverride.team</code> exists but no UI surfaces it.
+                    The schedule currently renders company-wide day overrides
+                    only. Deferring the settings UI for team-scoped overrides to
+                    a dedicated branch, after the schedule also renders
+                    team-scoped statuses.
+                </p>
+            </section>
+
+            <section id="surfaces">
+                <h2><span class="num">4.</span>Settings surface</h2>
+
+                <h4>Route tree</h4>
+                <pre><code>/settings/
+  ├── company/              Company profile
+  ├── employees/            Bulk employee view
+  ├── teams/                Team list + CRUD
+  ├── teams/:id/            Team detail
+  ├── titles/               Company-wide title labels
+  ├── members/              Pending approvals + admin grants
+  └── profile/              Personal settings (own user)</code></pre>
+
+                <p>
+                    Navigation: left sidebar on desktop (<code>md+</code>),
+                    drawer or stacked on mobile.
+                </p>
+
+                <h3>4.1 Company profile</h3>
+                <p>Editable by company admin (and platform admin).</p>
+                <p>
+                    Fields: <code>name</code>, <code>slug</code>,
+                    <code>site_url</code>, <code>app_name</code>,
+                    <code>allow_member_view_all</code>.
+                </p>
+                <p>
+                    Danger zone: no delete UI. Deleting a company is
+                    platform-admin scope via Django admin.
+                </p>
+
+                <h3>4.2 Employees (bulk)</h3>
+                <p>Editable by company admin.</p>
+                <ul>
+                    <li>Search by name/email</li>
+                    <li>Active / Former toggle (default: active)</li>
+                    <li>
+                        Sortable columns: name, team, role, start_date, last_day
+                    </li>
+                    <li>
+                        Bulk selection with actions:
+                        <ul>
+                            <li>
+                                Deactivate selected (opens a "last day" input,
+                                applies to all selected)
+                            </li>
+                            <li>
+                                Assign selected to team (dropdown, applies to
+                                all)
+                            </li>
+                            <li>
+                                <strong>Add Employee</strong> button → modal
+                                (name, email, start_date, title — no team
+                                assignment on create; team assigned separately)
+                            </li>
+                        </ul>
+                    </li>
+                    <li>
+                        Click a row →
+                        <code>/schedule/employees/&lt;uuid&gt;/defaults/</code>
+                        (full-page Django nav)
+                    </li>
+                </ul>
+                <div class="note">
+                    <div class="label">Deferred if complexity is high</div>
+                    Bulk actions beyond search/filter can ship in a follow-up.
+                    Minimum viable: search + active/former toggle +
+                    click-through + Add Employee button.
+                </div>
+
+                <h3>4.3 Teams</h3>
+                <p>
+                    Editable by company admin (all teams) or team admin (own
+                    teams only).
+                </p>
+                <p><strong>List view:</strong></p>
+                <ul>
+                    <li>Add team button (company admin only)</li>
+                    <li>
+                        Each row: name, member count,
+                        <code>allow_member_view_all</code> toggle
+                    </li>
+                    <li>Click a row → team detail</li>
+                </ul>
+                <p><strong>Team detail:</strong></p>
+                <ul>
+                    <li>
+                        Edit name + <code>allow_member_view_all</code> (team
+                        admin or company admin)
+                    </li>
+                    <li>
+                        Delete team (company admin only — guard against existing
+                        members)
+                    </li>
+                    <li>
+                        <strong>Members section:</strong> current EmployeeTeam
+                        assignments + add/remove
+                    </li>
+                    <li>
+                        <strong>Admins section:</strong> current TeamMembership
+                        admins + grant/revoke (company admin only)
+                    </li>
+                    <li>
+                        <strong>Roles section:</strong> TeamRole list +
+                        add/reorder/delete
+                    </li>
+                </ul>
+
+                <h3>4.4 Titles</h3>
+                <p>Editable by company admin.</p>
+                <p>
+                    Company-wide title labels (<code>Dr.</code>,
+                    <code>Ms.</code>, <code>Mr.</code> etc.). Fork-per-team
+                    deferred — titles stay company-wide.
+                </p>
+
+                <h3>4.5 Members</h3>
+                <p>Editable by company admin.</p>
+                <ul>
+                    <li>Pending membership queue (approve / reject)</li>
+                    <li>
+                        Current company admins list with grant/revoke controls
+                    </li>
+                    <li>
+                        Current active members list (read-only, link to their
+                        Employee row if one exists)
+                    </li>
+                </ul>
+
+                <h3>4.6 Profile</h3>
+                <p>Any authenticated user.</p>
+                <ul>
+                    <li>First name, last name</li>
+                    <li>Email</li>
+                    <li>Password change (link to existing OTP-gated flow)</li>
+                    <li>OIDC identity management (link to accounts surface)</li>
+                </ul>
+                <div class="note">
+                    <div class="label">Note on name sync</div>
+                    Today <code>User.first_name</code>/<code>last_name</code>
+                    and <code>Employee.first_name</code>/<code>last_name</code>
+                    are separate. Profile edits the User row. Employee rows are
+                    edited via the Django employee page. The relationship is
+                    intentional — a user can display differently per company.
+                    Profile shows the User-level name; per-company Employee
+                    names are managed elsewhere.
+                </div>
+            </section>
+
+            <section id="schedule">
+                <h2><span class="num">5.</span>Schedule surface delta</h2>
+                <p>
+                    Schedule itself doesn't change in this branch. Two deltas:
+                </p>
+                <ol>
+                    <li>
+                        <strong>MenuBar restructure.</strong> Schedule and
+                        Settings become equal-weight destinations. Profile moves
+                        into settings sidebar — it's no longer a top-level
+                        destination.
+                    </li>
+                    <li>
+                        <strong
+                            >Add Employee removed from schedule toolbar.</strong
+                        >
+                        Moves to Settings → Employees.
+                    </li>
+                </ol>
+            </section>
+
+            <section id="authz">
+                <h2><span class="num">6.</span>Authz matrix</h2>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Action</th>
+                            <th>Platform</th>
+                            <th>Company admin</th>
+                            <th>Team admin</th>
+                            <th>Member</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Edit company profile</td>
+                            <td>any</td>
+                            <td>own</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>
+                                Toggle
+                                <code>Company.allow_member_view_all</code>
+                            </td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Create / delete team</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Rename team</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓ own</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>
+                                Toggle <code>Team.allow_member_view_all</code>
+                            </td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓ own</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Grant / revoke TeamMembership admin</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Assign / unassign EmployeeTeam</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓ own</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Manage TeamRole</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓ own</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>
+                                Edit TeamRole assignment
+                                (<code>EmployeeTeam.role</code>)
+                            </td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓ own</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Edit Titles</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Add employee</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Bulk deactivate</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Approve pending membership</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Grant / revoke CompanyMembership admin</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>—</td>
+                            <td>—</td>
+                        </tr>
+                        <tr>
+                            <td>Edit own profile</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="api">
+                <h2><span class="num">7.</span>API surface</h2>
+                <p>
+                    Per-resource endpoints. Ninja routers under
+                    <code>/api/v1/</code>. Authz uses permission classes from
+                    <code>work_schedule/api/permissions.py</code>
+                    (<code>HasPerm</code>, <code>CompanyAdmin</code>,
+                    <code>TeamAdmin</code>, etc.).
+                </p>
+
+                <pre><code>GET    /api/v1/companies/&lt;id&gt;/                                 Read profile
+PATCH  /api/v1/companies/&lt;id&gt;/                                 Update profile
+
+GET    /api/v1/companies/&lt;id&gt;/teams/                           List teams
+POST   /api/v1/companies/&lt;id&gt;/teams/                           Create team
+GET    /api/v1/teams/&lt;id&gt;/                                     Read team detail
+PATCH  /api/v1/teams/&lt;id&gt;/                                     Update team
+DELETE /api/v1/teams/&lt;id&gt;/                                     Delete team
+
+GET    /api/v1/teams/&lt;id&gt;/memberships/                         List TeamMemberships
+POST   /api/v1/teams/&lt;id&gt;/memberships/                         Grant admin
+DELETE /api/v1/teams/&lt;id&gt;/memberships/&lt;uid&gt;/                   Revoke admin
+
+GET    /api/v1/teams/&lt;id&gt;/employees/                           List EmployeeTeam
+POST   /api/v1/teams/&lt;id&gt;/employees/                           Assign employee
+DELETE /api/v1/teams/&lt;id&gt;/employees/&lt;eid&gt;/                     Unassign
+PATCH  /api/v1/teams/&lt;id&gt;/employees/&lt;eid&gt;/                     Update role assignment
+
+GET    /api/v1/teams/&lt;id&gt;/roles/                               List TeamRoles
+POST   /api/v1/teams/&lt;id&gt;/roles/                               Create TeamRole
+PATCH  /api/v1/teams/&lt;id&gt;/roles/&lt;rid&gt;/                         Update TeamRole
+DELETE /api/v1/teams/&lt;id&gt;/roles/&lt;rid&gt;/                         Delete TeamRole
+
+GET    /api/v1/companies/&lt;id&gt;/titles/                          List titles
+POST   /api/v1/companies/&lt;id&gt;/titles/                          Create title
+PATCH  /api/v1/companies/&lt;id&gt;/titles/&lt;tid&gt;/                    Update title
+DELETE /api/v1/companies/&lt;id&gt;/titles/&lt;tid&gt;/                    Delete title
+
+GET    /api/v1/employees/                                      Bulk list (filters via query params)
+POST   /api/v1/employees/                                      Add employee
+
+GET    /api/v1/companies/&lt;id&gt;/memberships/                     List memberships (active + pending)
+POST   /api/v1/companies/&lt;id&gt;/memberships/&lt;uid&gt;/approve/        Approve
+POST   /api/v1/companies/&lt;id&gt;/memberships/&lt;uid&gt;/reject/         Reject
+POST   /api/v1/companies/&lt;id&gt;/memberships/&lt;uid&gt;/grant-admin/    Grant
+POST   /api/v1/companies/&lt;id&gt;/memberships/&lt;uid&gt;/revoke-admin/   Revoke</code></pre>
+            </section>
+
+            <section id="flows">
+                <h2><span class="num">8.</span>Data flow examples</h2>
+
+                <h3>8.1 Bulk deactivate</h3>
+                <ol>
+                    <li>
+                        User selects 3 rows in
+                        <code>/settings/employees/</code>, clicks "Deactivate
+                        selected"
+                    </li>
+                    <li>Modal opens, asks for a last-day date</li>
+                    <li>
+                        Submit →
+                        <code>POST /api/v1/employees/bulk-deactivate/</code>
+                        with
+                        <code>{employee_ids: [...], last_day: "..."}</code>
+                    </li>
+                    <li>
+                        Server applies the same deactivation logic as individual
+                        deactivate
+                    </li>
+                    <li>
+                        Response: success count + list of any failures (e.g.,
+                        "already deactivated")
+                    </li>
+                    <li>
+                        Client invalidates <code>["employees"]</code> query,
+                        refreshes table
+                    </li>
+                </ol>
+
+                <h3>8.2 Grant team admin</h3>
+                <ol>
+                    <li>
+                        Company admin navigates to
+                        <code>/settings/teams/:id/</code>
+                    </li>
+                    <li>"Admins" section shows current admins</li>
+                    <li>Click "Grant admin" → user picker modal</li>
+                    <li>
+                        Submit →
+                        <code>POST /api/v1/teams/&lt;id&gt;/memberships/</code>
+                        with
+                        <code>{user_id}</code>
+                    </li>
+                    <li>Response: created TeamMembership</li>
+                    <li>
+                        Client invalidates <code>["team", id]</code>, refreshes
+                    </li>
+                </ol>
+
+                <h3>8.3 Assign employee to team</h3>
+                <ol>
+                    <li>
+                        Team admin navigates to
+                        <code>/settings/teams/:id/</code>
+                    </li>
+                    <li>"Members" section shows current assignments</li>
+                    <li>Click "Assign employee" → employee picker modal</li>
+                    <li>
+                        Submit →
+                        <code>POST /api/v1/teams/&lt;id&gt;/employees/</code>
+                        with
+                        <code>{employee_id, is_default, valid_from}</code>
+                    </li>
+                    <li>Response: created EmployeeTeam</li>
+                    <li>
+                        Client invalidates <code>["team", id]</code> and
+                        <code>["week"]</code>
+                        (roster changes)
+                    </li>
+                </ol>
+            </section>
+
+            <section id="commits">
+                <h2><span class="num">9.</span>Commit sequence</h2>
+
+                <table class="commit-seq">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Contents</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>C1</strong></td>
+                            <td>
+                                Router restructure to base <code>/</code>. Mount
+                                <code>/schedule/*</code> and
+                                <code>/settings/*</code> as siblings. MenuBar
+                                restructure (Schedule + Settings equal weight,
+                                Profile → settings sidebar).
+                                <code>/settings/</code> shell with sidebar
+                                navigation +
+                                <code>/settings/company/</code> profile form.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C2</strong></td>
+                            <td>
+                                Employees bulk tab. Search, active/former
+                                toggle, click-through to Django reading page.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C3</strong></td>
+                            <td>
+                                Add Employee modal (moved from schedule).
+                                <code>POST /api/v1/employees/</code>.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C4</strong></td>
+                            <td>
+                                Teams list + CRUD.
+                                <code>/settings/teams/</code> and
+                                <code>/settings/teams/:id/</code>. Team edit
+                                form. Delete with member-count guard.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C5</strong></td>
+                            <td>
+                                Team detail — members + admins sections.
+                                EmployeeTeam assign/remove, TeamMembership
+                                grant/revoke.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C6</strong></td>
+                            <td>
+                                TeamRole management. Roles section on
+                                <code>/settings/teams/:id/</code>.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C7</strong></td>
+                            <td>Titles tab. <code>/settings/titles/</code>.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>C8</strong></td>
+                            <td>
+                                Members tab. Pending approvals +
+                                CompanyMembership grants.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C9</strong></td>
+                            <td>
+                                Profile tab. <code>/settings/profile/</code>.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>C10</strong></td>
+                            <td>
+                                Cleanup: retire Django settings template +
+                                remove
+                                <code>/schedule/settings/</code> from Vite
+                                proxy. Delete Django
+                                <code>settings_*</code> views and role stubs
+                                (from Branch A).
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p>
+                    Could compress C2+C3 (employees + add), C4+C5 (teams +
+                    members), C6 as part of C5. Realistic minimum: 7–8 commits.
+                </p>
+            </section>
+
+            <section id="deferred">
+                <h2><span class="num">10.</span>Deferred</h2>
+                <ul>
+                    <li>
+                        <strong>Team-scoped day override UI</strong> — dedicated
+                        branch after schedule renders team-scoped statuses
+                    </li>
+                    <li>
+                        <strong>Bulk actions</strong> beyond search/filter —
+                        deferred until specific need surfaces
+                    </li>
+                    <li>
+                        <strong>Vue rewrite of employee reading page</strong> —
+                        remains Django; reconsidered if a Vue drawer can fully
+                        replace it later
+                    </li>
+                    <li>
+                        <strong>Cross-team role overview</strong> — TeamRole
+                        lives on team detail now; a cross-team view could come
+                        later
+                    </li>
+                    <li>
+                        <strong>Notification preferences per employee</strong> —
+                        future settings surface
+                    </li>
+                    <li>
+                        <strong>Company logo / branding assets</strong> —
+                        cosmetic, deferred
+                    </li>
+                </ul>
+            </section>
+
+            <section id="open">
+                <h2><span class="num">11.</span>Open questions</h2>
+                <p>
+                    None blocking C1. Future decisions pending as commits
+                    approach:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Bulk deactivate vs individual</strong> — should
+                        bulk deactivate exist at all, or is it always safer one
+                        at a time? Defer to C2 design time.
+                    </li>
+                    <li>
+                        <strong>Employee picker UX</strong> — autocomplete vs
+                        full list in modals? Defer to C5.
+                    </li>
+                    <li>
+                        <strong>Profile edit scope</strong> — should
+                        <code>/settings/profile/</code> include notification
+                        preferences when those exist, or is it identity-only?
+                        Defer to C9.
+                    </li>
+                </ul>
+            </section>
+        </div>
+    </body>
+</html>
