@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
-import { useApi } from "@/composables/useApi";
+import { useApi } from "@/composables/useApi.ts";
 
 interface SelectResponse {
   ok: boolean;

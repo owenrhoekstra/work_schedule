@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format12 } from "@/lib/format";
-import { useOverrideMutation } from "@/queries/overrides";
-import type { Cell } from "@/types/week";
+import { useOverrideMutation } from "@/queries/Schedule/overrides.ts";
+import type { Cell } from "@/types/Schedule/week.ts";
 
 // Anchored editor for a single cell. One instance per cell in
 // ScheduleDesktop — reka-ui lazily portals PopoverContent, so 120

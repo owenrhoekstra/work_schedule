@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { meQueryOptions } from "@/queries/me";
-import { useSelectCompanyMutation, useSelectTeamMutation } from "@/queries/selects";
+import { useSelectCompanyMutation, useSelectTeamMutation } from "@/queries/Schedule/selects.ts";
 
 // Company + team pickers that sit beside the scope selector.
 //

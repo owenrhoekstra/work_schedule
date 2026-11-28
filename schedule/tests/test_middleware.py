@@ -10,7 +10,7 @@ from .factories import (
     make_company,
     make_employee,
     make_management_user,
-    make_role,
+    make_team_role,
     make_staff_user,
 )
 
@@ -93,7 +93,7 @@ class HTMXLoginRedirectMiddlewareTests(TestCase):
     """
 
     def setUp(self):
-        self.role = make_role()
+        self.role = make_team_role()
         self.emp = make_employee(role=self.role, with_pattern=True)
 
     # ----- expired session (anonymous) -----

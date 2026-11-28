@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import Employee, Role, Title
+from .models import Employee, Title
 
 _INPUT_CLASS = (
     "w-full border border-gray-300 rounded-lg px-3 py-2 "
@@ -12,20 +12,19 @@ _INPUT_CLASS = (
 class EmployeeForm(forms.ModelForm):
     """Create/edit an Employee.
 
-    `company=` scopes the `title` and `role` querysets to the current
-    tenant. Without it, a manager of company A could assign a role
-    belonging to company B. The caller passes `company=` for new
-    employees; edits auto-detect from `instance.company_id`.
+    `company=` scopes the `title` queryset to the current tenant.
+    Without it, a manager of company A could assign a title belonging
+    to company B. The caller passes `company=` for new employees;
+    edits auto-detect from `instance.company_id`.
     """
 
     class Meta:
         model = Employee
-        fields = ["title", "first_name", "last_name", "role", "email", "start_date"]
+        fields = ["title", "first_name", "last_name", "email", "start_date"]
         widgets = {
             "title": forms.Select(attrs={"class": _INPUT_CLASS}),
             "first_name": forms.TextInput(attrs={"class": _INPUT_CLASS}),
             "last_name": forms.TextInput(attrs={"class": _INPUT_CLASS}),
-            "role": forms.Select(attrs={"class": _INPUT_CLASS}),
             "email": forms.EmailInput(attrs={"class": _INPUT_CLASS}),
             "start_date": forms.DateInput(
                 attrs={"class": _INPUT_CLASS, "type": "date"}
@@ -39,10 +38,8 @@ class EmployeeForm(forms.ModelForm):
         self.company = company
         if company:
             self.fields["title"].queryset = Title.objects.filter(company=company)
-            self.fields["role"].queryset = Role.objects.filter(company=company)
         else:
             self.fields["title"].queryset = Title.objects.none()
-            self.fields["role"].queryset = Role.objects.none()
         self.fields["title"].required = False
         self.fields["title"].empty_label = "—"
 

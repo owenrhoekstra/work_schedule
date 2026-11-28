@@ -59,7 +59,6 @@ from .models import (
     DayOverride,
     Employee,
     EmploymentPeriod,
-    Role,
     Shift,
     ShiftOverride,
     ShiftPattern,
@@ -1124,7 +1123,7 @@ def _handle_pattern_form_post(request, employee, mode):
     raw_effective = request.POST.get("effective_from", "").strip()
     try:
         effective_from = _week_start(date.fromisoformat(raw_effective))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _render_pattern_form(
             request,
             employee,
@@ -1147,7 +1146,7 @@ def _handle_pattern_form_post(request, employee, mode):
 
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1515,7 +1514,7 @@ def pattern_form_preview(request, pk):
 
     try:
         cycle_weeks = int(request.GET.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = 1
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -1600,7 +1599,7 @@ def _handle_pattern_edit_post(request, employee, pattern, is_earliest):
     """
     try:
         cycle_weeks = int(request.POST.get("cycle_weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         cycle_weeks = pattern.cycle_weeks
     cycle_weeks = max(1, min(MAX_CYCLE_WEEKS, cycle_weeks))
 
@@ -2097,13 +2096,13 @@ def settings_home(request):
     active_employees = (
         Employee.objects.filter(company=company)
         .filter(Q(last_day__isnull=True) | Q(last_day__gte=today))
-        .select_related("title", "role")
-        .order_by("role__display_order", "role__name", "created_at")
+        .select_related("title")
+        .order_by("created_at")
     )
 
     former_employees = (
         Employee.objects.filter(company=company, last_day__lt=today)
-        .select_related("title", "role")
+        .select_related("title")
         .order_by("-last_day")
     )
 
@@ -2112,7 +2111,6 @@ def settings_home(request):
         "former_employees": former_employees,
         "former_count": former_employees.count(),
         "titles": Title.objects.filter(company=company),
-        "roles": Role.objects.filter(company=company),
         "today": today,
     }
 
@@ -2383,56 +2381,27 @@ def settings_delete_title(request, pk):
 
 @login_required
 @company_admin_required
-@permission_required("schedule.add_role", raise_exception=True)
 @require_POST
 def settings_add_role(request):
-    """Create a new role, placing it last in the display order."""
-    company = _current_company(request)
-    name = request.POST.get("name", "").strip()
-    if name:
-        last = Role.objects.filter(company=company).order_by("-display_order").first()
-        next_order = (last.display_order + 10) if last else 10
-        Role.objects.get_or_create(
-            name=name, company=company, defaults={"display_order": next_order}
-        )
+    """Stub — Role model removed in Branch A. URL kept so the
+    deprecated settings template renders; real management moves to
+    the Vue settings surface (Branch C)."""
     return redirect("settings_home")
 
 
 @login_required
 @company_admin_required
-@permission_required("schedule.delete_role", raise_exception=True)
 @require_POST
 def settings_delete_role(request, pk):
-    """Delete a role, unless any employees are still assigned to it."""
-    company = _current_company(request)
-    role = get_object_or_404(Role, pk=pk, company=company)
-    if role.employees.exists():
-        messages.error(
-            request,
-            f"Can't delete {role.name} — employees are still assigned to it.",
-        )
-    else:
-        role.delete()
+    """Stub — see settings_add_role."""
     return redirect("settings_home")
 
 
 @login_required
 @company_admin_required
-@permission_required("schedule.change_role", raise_exception=True)
 @require_POST
 def settings_move_role(request, pk, direction):
-    """Swap a role's position with its neighbor and renumber everything."""
-    company = _current_company(request)
-    role = get_object_or_404(Role, pk=pk, company=company)
-    roles = list(Role.objects.filter(company=company).order_by("display_order", "name"))
-    idx = roles.index(role)
-    swap_idx = idx - 1 if direction == "up" else idx + 1
-    if swap_idx < 0 or swap_idx >= len(roles):
-        return redirect("settings_home")
-    roles[idx], roles[swap_idx] = roles[swap_idx], roles[idx]
-    for i, r in enumerate(roles):
-        r.display_order = (i + 1) * 10
-        r.save(update_fields=["display_order"])
+    """Stub — see settings_add_role."""
     return redirect("settings_home")
 
 
@@ -2470,7 +2439,7 @@ def print_schedule(request):
 
     try:
         weeks_count = int(request.GET.get("weeks", "1"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         weeks_count = 1
     weeks_count = max(1, min(MAX_PRINT_WEEKS, weeks_count))
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhPrinter } from "@phosphor-icons/vue";
 import { Button } from "@/components/ui/button";
-import type { ViewerCan, WeekRef } from "@/types/week";
+import type { ViewerCan, WeekRef } from "@/types/Schedule/week.ts";
 import ScopeContextPicker from "./ScopeContextPicker.vue";
 import ScopeSelector from "./ScopeSelector.vue";
 import WeekHeader from "./WeekHeader.vue";

@@ -83,8 +83,8 @@ class WeekEmployee(Schema):
     first_name: str
     last_name: str
     display_name: str
-    role_id: str | None
-    role_name: str | None
+    team_name: str | None  # default team's name, None if unassigned
+    team_role_name: str | None  # role within that team, None if unset
     last_day: str | None
     cycle: CycleRef | None
     cells: list[Cell]

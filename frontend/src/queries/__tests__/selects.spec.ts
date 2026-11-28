@@ -9,7 +9,7 @@ vi.mock("@/composables/useApi", () => ({
   useApi: () => ({ post: mockPost }),
 }));
 
-import { useSelectCompanyMutation, useSelectTeamMutation } from "@/queries/selects";
+import { useSelectCompanyMutation, useSelectTeamMutation } from "@/queries/Schedule/selects.ts";
 
 const TestHarness = defineComponent({
   setup(_, { expose }) {

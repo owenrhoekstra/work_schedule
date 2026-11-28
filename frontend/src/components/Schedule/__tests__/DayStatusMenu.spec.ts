@@ -5,7 +5,7 @@ import { ref } from "vue";
 import DayStatusMenu from "../DayStatusMenu.vue";
 
 const mutate = vi.fn();
-vi.mock("@/queries/overrides", () => ({
+vi.mock("@/queries/Schedule/overrides", () => ({
   useDayOverrideMutation: () => ({ mutate, isPending: ref(false) }),
 }));
 

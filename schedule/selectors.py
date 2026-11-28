@@ -352,6 +352,23 @@ def _build_cell(day, d, day_override, employed, defaults, overrides):
     }
 
 
+def _default_team_assignment(employee):
+    """The employee's default-team assignment, or None.
+
+    Prefers is_default=True; falls back to the most recent active
+    assignment by valid_from. Uses prefetched team_links on list paths;
+    the single-row override-response path lazy-loads (2-3 queries,
+    acceptable for a per-mutation call).
+    """
+    active = [tl for tl in employee.team_links.all() if tl.valid_to is None]
+    if not active:
+        return None
+    for tl in active:
+        if tl.is_default:
+            return tl
+    return max(active, key=lambda tl: tl.valid_from)
+
+
 def _employee_week_row(employee, week_start, overrides_by_employee, day_overrides):
     week_dates = [week_start + timedelta(days=d) for d in DAYS]
     pattern = _pattern_for_week(employee, week_start)
@@ -380,13 +397,17 @@ def _employee_week_row(employee, week_start, overrides_by_employee, day_override
             "total": pattern.cycle_weeks,
         }
 
+    default_team = _default_team_assignment(employee)
+
     return {
         "id": str(employee.id),
         "first_name": employee.first_name,
         "last_name": employee.last_name,
         "display_name": f"{employee.first_name} {employee.last_name}".strip(),
-        "role_id": str(employee.role_id) if employee.role_id else None,
-        "role_name": employee.role.name if employee.role_id else None,
+        "team_name": default_team.team.name if default_team else None,
+        "team_role_name": (
+            default_team.role.name if default_team and default_team.role else None
+        ),
         "last_day": employee.last_day.isoformat() if employee.last_day else None,
         "cycle": cycle,
         "cells": cells,

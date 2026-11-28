@@ -30,8 +30,8 @@ vi.mock("vue-sonner", () => ({
   toast: { error: mockToastError, success: vi.fn() },
 }));
 
-import { useOverrideMutation } from "@/queries/overrides";
-import type { Cell, WeekEmployee, WeekResponse } from "@/types/week";
+import { useOverrideMutation } from "@/queries/Schedule/overrides.ts";
+import type { Cell, WeekEmployee, WeekResponse } from "@/types/Schedule/week.ts";
 
 function makeCell(overrides: Partial<Cell> = {}): Cell {
   return {
@@ -74,8 +74,8 @@ function makeWeek(cells: Cell[] = [makeCell()]): WeekResponse {
         first_name: "Ada",
         last_name: "Lovelace",
         display_name: "Ada Lovelace",
-        role_id: null,
-        role_name: null,
+        team_name: null,
+        team_role_name: null,
         last_day: null,
         cycle: null,
         cells,

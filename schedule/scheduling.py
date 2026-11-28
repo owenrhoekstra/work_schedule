@@ -166,10 +166,12 @@ def _week_offset_for(week_start, pattern):
 def _employees_for_week(week_start, company):
     """Employees with any employment period overlapping this week.
 
-    Both halves of the overlap test live in a single filter() so they
-    apply to the same joined `periods` row — chaining would create
-    separate joins and let reactivated employees appear in the gap
-    between their two periods.
+    Ordering: start_date ascending. The old role-based ordering is gone
+    (roles now live per-team); Branch B replaces this with team grouping.
+    Between Branch A and Branch B, the roster is start-date-sorted.
+
+    Prefetches team_links + team + role so _employee_week_row can
+    derive the default team's name and role without N+1 queries.
     """
     week_end = week_start + timedelta(days=5)
     return (
@@ -179,9 +181,14 @@ def _employees_for_week(week_start, company):
             & (Q(periods__end_date__isnull=True) | Q(periods__end_date__gt=week_start))
         )
         .distinct()
-        .select_related("title", "role")
-        .prefetch_related("periods", "patterns__shifts")
-        .order_by("role__display_order", "role__name", "start_date")
+        .select_related("title")
+        .prefetch_related(
+            "periods",
+            "patterns__shifts",
+            "team_links__team",
+            "team_links__role",
+        )
+        .order_by("start_date")
     )
 
 

@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from schedule.models import Shift, ShiftPattern
 
-from .factories import make_employee, make_management_user, make_role
+from .factories import make_employee, make_management_user, make_team_role
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -20,7 +20,7 @@ def _make_manager(username="mgr_forms"):
 class PatternFormViewTests(TestCase):
     def setUp(self):
         self.client.force_login(_make_manager())
-        self.role = make_role("Receptionist", order=20)
+        self.role = make_team_role("Receptionist", order=20)
         self.emp = make_employee(role=self.role, start_date=date(2025, 1, 1))
         self.emp.patterns.all().delete()
 

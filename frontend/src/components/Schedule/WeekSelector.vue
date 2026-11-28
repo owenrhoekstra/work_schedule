@@ -4,7 +4,7 @@ import { computed, ref } from "vue";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { WeekRef } from "@/types/week";
+import type { WeekRef } from "@/types/Schedule/week.ts";
 
 const props = defineProps<{ week: WeekRef }>();
 const emit = defineEmits<{ navigate: [week: string] }>();

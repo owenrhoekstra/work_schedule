@@ -3,8 +3,8 @@
 Run once after `migrate` on a fresh DB. Idempotent — safe to re-run.
 
 Backfills three things:
-  1. `company` FK on every domain root that has NULL (Employee,
-     EmploymentPeriod, ShiftPattern, DayOverride, Role, Title)
+    1. `company` FK on every domain root that has NULL (Employee,
+       EmploymentPeriod, ShiftPattern, DayOverride, Title)
   2. Active member CompanyMemberships for every active Employee with
      a linked User who doesn't already have a membership at this
      company (mirrors migration 0007)
@@ -25,7 +25,6 @@ from schedule.models import (
     DayOverride,
     Employee,
     EmploymentPeriod,
-    Role,
     ShiftPattern,
     Title,
 )
@@ -35,7 +34,6 @@ _BACKFILL_MODELS = (
     EmploymentPeriod,
     ShiftPattern,
     DayOverride,
-    Role,
     Title,
 )
 

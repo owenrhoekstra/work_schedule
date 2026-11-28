@@ -5,7 +5,6 @@ from django.test import TestCase
 from django.utils import timezone
 
 from schedule.models import (
-    Role,
     Shift,
     ShiftOverride,
     Title,
@@ -76,14 +75,6 @@ class UniqueConstraintsTests(TestCase):
 
 
 class OrderingTests(TestCase):
-    def test_roles_ordered_by_display_then_name(self):
-        company = make_company()
-        Role.objects.create(name="B", display_order=20, company=company)
-        Role.objects.create(name="A", display_order=10, company=company)
-        Role.objects.create(name="C", display_order=10, company=company)
-        names = list(Role.objects.values_list("name", flat=True))
-        self.assertEqual(names, ["A", "C", "B"])
-
     def test_titles_ordered_by_display_then_name(self):
         company = make_company()
         Title.objects.create(name="Z", display_order=10, company=company)

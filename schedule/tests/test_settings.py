@@ -6,14 +6,14 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Role, Title
+from schedule.models import Title
 
 from .factories import (
     make_company,
     make_employee,
     make_management_user,
-    make_role,
     make_staff_user,
+    make_team_role,
 )
 
 _LOCMEM_CACHES = {
@@ -286,61 +286,6 @@ class ReactivationViewTests(TestCase):
             {"reactivation_date": "2026-09-01", "notify": "1"},
         )
         mock_send.assert_called_once()
-
-
-@override_settings(CACHES=_LOCMEM_CACHES)
-class RoleManagementTests(TestCase):
-    def setUp(self):
-        self.company = make_company()
-        self.client.force_login(make_manager())
-
-    def test_add_role(self):
-        self.client.post(reverse("settings_add_role"), {"name": "New Role"})
-        self.assertTrue(
-            Role.objects.filter(name="New Role", company=self.company).exists()
-        )
-
-    def test_move_role_up(self):
-        Role.objects.create(name="A", display_order=10, company=self.company)
-        b = Role.objects.create(name="B", display_order=20, company=self.company)
-        self.client.post(reverse("settings_move_role", args=[b.pk, "up"]))
-        roles = list(
-            Role.objects.filter(company=self.company).values_list("name", flat=True)
-        )
-        self.assertEqual(roles, ["B", "A"])
-
-    def test_move_role_down(self):
-        a = Role.objects.create(name="A", display_order=10, company=self.company)
-        Role.objects.create(name="B", display_order=20, company=self.company)
-        self.client.post(reverse("settings_move_role", args=[a.pk, "down"]))
-        roles = list(
-            Role.objects.filter(company=self.company).values_list("name", flat=True)
-        )
-        self.assertEqual(roles, ["B", "A"])
-
-    def test_move_first_up_is_noop(self):
-        a = Role.objects.create(name="A", display_order=10, company=self.company)
-        Role.objects.create(name="B", display_order=20, company=self.company)
-        self.client.post(reverse("settings_move_role", args=[a.pk, "up"]))
-        self.assertEqual(
-            list(
-                Role.objects.filter(company=self.company).values_list("name", flat=True)
-            ),
-            ["A", "B"],
-        )
-
-    def test_delete_role_in_use_blocked(self):
-        role = make_role("In Use", company=self.company)
-        make_employee(email="emp@x.com", role=role, company=self.company)
-        self.client.post(reverse("settings_delete_role", args=[role.pk]))
-        self.assertTrue(Role.objects.filter(pk=role.pk).exists())
-
-    def test_delete_empty_role(self):
-        role = Role.objects.create(
-            name="Unused", display_order=99, company=self.company
-        )
-        self.client.post(reverse("settings_delete_role", args=[role.pk]))
-        self.assertFalse(Role.objects.filter(pk=role.pk).exists())
 
 
 @override_settings(CACHES=_LOCMEM_CACHES)

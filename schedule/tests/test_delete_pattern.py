@@ -14,9 +14,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, Role, ShiftPattern
+from schedule.models import ShiftPattern
 
-from .factories import make_company
+from .factories import make_company, make_employee, make_team_role
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -36,17 +36,16 @@ class DeletePatternTests(TestCase):
         self.client.force_login(self.user)
 
         self.company = make_company()
-        self.role = Role.objects.create(name="Test Role", company=self.company)
-        self.employee = Employee.objects.create(
+        self.role = make_team_role(company=self.company)
+        self.employee = make_employee(
+            email="test@example.com",
+            company=self.company,
+            start_date=_monday(timezone.localdate()) - timedelta(weeks=8),
             first_name="Test",
             last_name="Employee",
             role=self.role,
-            company=self.company,
-            email="test@example.com",
-            start_date=_monday(timezone.localdate()) - timedelta(weeks=8),
         )
-        # ensure_employee_has_pattern created a starter pattern. Drop it
-        # so the three patterns below are the only ones in play.
+        # Defensive: make sure the three patterns below are the only ones.
         self.employee.patterns.all().delete()
 
         self.wk0 = _monday(timezone.localdate()) - timedelta(weeks=8)

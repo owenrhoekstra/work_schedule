@@ -11,6 +11,10 @@ States covered:
 - Receptionist who left 4 weeks ago (former employee)
 - New hire with no schedule (empty state)
 - One day-override (holiday) for a week in the near future
+
+Role seeding was removed with the `Role` model in Branch A. Employees
+created here have no team role; assign via EmployeeTeam + TeamRole in
+admin or a future settings flow.
 """
 
 from datetime import timedelta
@@ -23,7 +27,6 @@ from schedule.models import (
     DayOverride,
     Employee,
     EmploymentPeriod,
-    Role,
     Shift,
     ShiftOverride,
     ShiftPattern,
@@ -41,21 +44,9 @@ class Command(BaseCommand):
                 "command is for the staging environment only."
             )
 
-        self._seed_roles()
         self._seed_titles()
         self._seed_employees()
         self.stdout.write(self.style.SUCCESS("Staging data seeded."))
-
-    def _seed_roles(self):
-        for name, order in [
-            ("Manager", 10),
-            ("Veterinarian", 20),
-            ("Reception", 30),
-            ("Technician", 40),
-            ("Veterinary Assistant", 50),
-        ]:
-            Role.objects.get_or_create(name=name, defaults={"display_order": order})
-        self.stdout.write("  roles ready")
 
     def _seed_titles(self):
         Title.objects.get_or_create(name="Dr.", defaults={"display_order": 10})
@@ -65,18 +56,12 @@ class Command(BaseCommand):
         today = timezone.localdate()
         this_monday = today - timedelta(days=today.weekday())
 
-        manager_role = Role.objects.get(name="Manager")
-        reception_role = Role.objects.get(name="Reception")
-        tech_role = Role.objects.get(name="Technician")
-        vet_role = Role.objects.get(name="Veterinarian")
-
         # 1. Manager with 1-week pattern
         mgr, created = Employee.objects.get_or_create(
             email="manager@staging.example.com",
             defaults={
                 "first_name": "Morgan",
                 "last_name": "Manager",
-                "role": manager_role,
                 "start_date": this_monday - timedelta(weeks=52),
             },
         )
@@ -97,7 +82,6 @@ class Command(BaseCommand):
             defaults={
                 "first_name": "Riley",
                 "last_name": "Reception",
-                "role": reception_role,
                 "start_date": this_monday - timedelta(weeks=26),
             },
         )
@@ -126,7 +110,6 @@ class Command(BaseCommand):
             defaults={
                 "first_name": "Taylor",
                 "last_name": "Tech",
-                "role": tech_role,
                 "start_date": this_monday - timedelta(weeks=8),
             },
         )
@@ -147,7 +130,6 @@ class Command(BaseCommand):
             defaults={
                 "first_name": "Sam",
                 "last_name": "Leaving",
-                "role": vet_role,
                 "start_date": this_monday - timedelta(weeks=12),
                 "last_day": today + timedelta(days=14),
             },
@@ -171,7 +153,6 @@ class Command(BaseCommand):
             defaults={
                 "first_name": "Frances",
                 "last_name": "Former",
-                "role": reception_role,
                 "start_date": this_monday - timedelta(weeks=104),
                 "last_day": this_monday - timedelta(weeks=4),
                 "is_active": False,
@@ -190,7 +171,6 @@ class Command(BaseCommand):
             defaults={
                 "first_name": "Nora",
                 "last_name": "Newhire",
-                "role": reception_role,
                 "start_date": this_monday,
             },
         )

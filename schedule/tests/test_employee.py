@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from schedule.models import ShiftPattern
 
-from .factories import make_employee, make_management_user, make_role, make_staff_user
+from .factories import make_employee, make_management_user, make_team_role, make_staff_user
 
 _LOCMEM_CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
@@ -18,7 +18,7 @@ class EmployeePageGetTests(TestCase):
     def setUp(self):
         self.user = make_management_user()
         self.client.force_login(self.user)
-        self.role = make_role(name="Receptionist", order=20)
+        self.role = make_team_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role)
 
     def test_staff_without_view_employee_gets_403(self):

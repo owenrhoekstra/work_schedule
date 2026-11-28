@@ -6,16 +6,16 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from schedule.models import Employee, Role, ShiftOverride, ShiftPattern, Title
+from schedule.models import Employee, ShiftOverride, ShiftPattern, Title
 
 from .factories import (
     make_company,
     make_employee,
     make_management_user,
     make_manager_user,
-    make_role,
     make_staff_user,
     make_superuser,
+    make_team_role,
 )
 
 _LOCMEM_CACHES = {
@@ -28,7 +28,7 @@ class AddEmployeeViewTests(TestCase):
     def setUp(self):
         self.admin = make_superuser()
         self.client.force_login(self.admin)
-        self.role = make_role()
+        self.role = make_team_role()
         self.emp = make_employee(role=self.role)
 
     def form_data(self, **overrides):
@@ -70,17 +70,6 @@ class AddEmployeeViewTests(TestCase):
         )
         new_emp = Employee.objects.get(email="taken@example.com")
         self.assertIsNone(new_emp.user_id)
-
-    def test_role_queryset_scoped_to_company(self):
-        """A role from another company can't be selected via the form."""
-        other_company = make_company(name="Other Co")
-        other_role = make_role(name="Other Role", company=other_company)
-        resp = self.client.post(
-            reverse("add_employee"),
-            self.form_data(role=str(other_role.pk)),
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertFalse(Employee.objects.filter(email="newhire@example.com").exists())
 
     @patch("schedule.notifications.send_email")
     def test_post_with_notify_sends_welcome(self, mock_send):
@@ -244,16 +233,6 @@ class SettingsEdgeTests(TestCase):
         self.client.post(reverse("settings_add_title"), {"name": "   "})
         self.assertEqual(Title.objects.count(), count)
 
-    def test_add_role_empty_no_op(self):
-        count = Role.objects.count()
-        self.client.post(reverse("settings_add_role"), {"name": ""})
-        self.assertEqual(Role.objects.count(), count)
-
-    def test_move_role_out_of_bounds_no_op(self):
-        only = self.emp.role
-        resp = self.client.post(reverse("settings_move_role", args=[only.pk, "up"]))
-        self.assertEqual(resp.status_code, 302)
-
 
 @override_settings(CACHES=_LOCMEM_CACHES)
 class ManagementRequiredTests(TestCase):
@@ -291,7 +270,7 @@ class Sec006AccessMatrixTests(TestCase):
     """
 
     def setUp(self):
-        self.role = make_role()
+        self.role = make_team_role()
         self.emp = make_employee(role=self.role, with_pattern=True)
         self.pattern = self.emp.patterns.first()
         self.perm_user = make_manager_user("perm-only")
@@ -409,7 +388,7 @@ class Sec006AccessMatrixTests(TestCase):
         self._check(reverse("settings_add_role"), "post", data={"name": "Temp"})
 
     def test_settings_delete_role(self):
-        r = Role.objects.create(name="Unused", display_order=99, company=make_company())
+        r = make_team_role()
         self._check(reverse("settings_delete_role", args=[r.pk]), "post")
 
     def test_settings_move_role(self):
@@ -446,7 +425,7 @@ class WriteWithoutReadPermissionTests(TestCase):
     """
 
     def setUp(self):
-        self.role = make_role()
+        self.role = make_team_role()
         self.emp = make_employee(role=self.role, with_pattern=True)
 
     def _write_only_user(self, *write_codenames):

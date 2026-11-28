@@ -15,7 +15,7 @@ const { mockState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/queries/overrides", () => ({
+vi.mock("@/queries/Schedule/overrides", () => ({
   useOverrideMutation: () => ({
     isPending: mockState.isPending,
     error: mockState.error,
@@ -49,7 +49,7 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 import OverridePopover from "@/components/Schedule/OverridePopover.vue";
-import type { Cell } from "@/types/week";
+import type { Cell } from "@/types/Schedule/week.ts";
 
 function makeCell(overrides: Partial<Cell> = {}): Cell {
   return {

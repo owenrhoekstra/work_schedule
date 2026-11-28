@@ -7,12 +7,12 @@ from .models import (
     Employee,
     EmployeeTeam,
     EmploymentPeriod,
-    Role,
     Shift,
     ShiftOverride,
     ShiftPattern,
     Team,
     TeamMembership,
+    TeamRole,
     Title,
 )
 
@@ -26,19 +26,20 @@ class TitleAdmin(admin.ModelAdmin):
     ordering = ("display_order", "name")
 
 
-@admin.register(Role)
-class RoleAdmin(admin.ModelAdmin):
-    list_display = ("name", "company", "team", "display_order")
+@admin.register(TeamRole)
+class TeamRoleAdmin(admin.ModelAdmin):
+    list_display = ("name", "team", "display_order")
     list_editable = ("display_order",)
-    list_filter = ("company", "team")
+    list_filter = ("team__company",)
     ordering = ("display_order", "name")
-    search_fields = ("name",)
+    search_fields = ("name", "team__name")
+    raw_id_fields = ("team",)
 
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "company", "role", "email", "is_active")
-    list_filter = ("is_active", "company", "role")
+    list_display = ("__str__", "company", "email", "is_active")
+    list_filter = ("is_active", "company")
     search_fields = ("first_name", "last_name", "email")
 
 
@@ -113,7 +114,7 @@ class TeamMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(EmployeeTeam)
 class EmployeeTeamAdmin(admin.ModelAdmin):
-    list_display = ("employee", "team", "is_default", "valid_from", "valid_to")
+    list_display = ("employee", "team", "role", "is_default", "valid_from", "valid_to")
     list_filter = ("is_default", "team__company")
     search_fields = (
         "employee__first_name",
@@ -121,7 +122,7 @@ class EmployeeTeamAdmin(admin.ModelAdmin):
         "employee__email",
         "team__name",
     )
-    raw_id_fields = ("employee", "team")
+    raw_id_fields = ("employee", "team", "role")
 
 
 @admin.register(DayOverride)

@@ -28,7 +28,7 @@ from schedule.models import ShiftPattern
 from .factories import (
     make_employee,
     make_management_user,
-    make_role,
+    make_team_role,
     make_staff_user,
 )
 
@@ -48,7 +48,7 @@ def _manager(client):
 class EmployeeDetailsGetTests(TestCase):
     def setUp(self):
         _manager(self.client)
-        self.role = make_role(name="Receptionist", order=20)
+        self.role = make_team_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role)
 
     def test_staff_without_management_gets_403(self):
@@ -77,7 +77,7 @@ class EmployeeDetailsGetTests(TestCase):
 class EmployeeDetailsPostTests(TestCase):
     def setUp(self):
         _manager(self.client)
-        self.role = make_role(name="Receptionist", order=20)
+        self.role = make_team_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role, with_pattern=True)
 
     def post_identity(self, **overrides):
@@ -335,7 +335,7 @@ class EmployeeDetailsWritePermissionTests(TestCase):
     """
 
     def setUp(self):
-        self.role = make_role(name="Receptionist", order=20)
+        self.role = make_team_role(name="Receptionist", order=20)
         self.emp = make_employee(role=self.role)
 
         # view_employee + Management group, but NOT change_employee.

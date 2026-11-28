@@ -37,11 +37,11 @@ export interface WeekEmployee {
   first_name: string;
   last_name: string;
   display_name: string;
-  role_id: string | null;
-  role_name: string | null;
+  team_name: string | null; // default team's name, null if unassigned
+  team_role_name: string | null; // role within that team, null if unset
   last_day: string | null;
   cycle: CycleRef | null;
-  cells: Cell[]; // len 6 (Mon–Sat)
+  cells: Cell[];
   total_minutes: number;
 }
 

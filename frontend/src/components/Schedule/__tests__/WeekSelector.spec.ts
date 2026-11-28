@@ -1,7 +1,7 @@
 // WeekSelector.test.ts
 import { mount } from "@vue/test-utils";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { WeekRef } from "@/types/week";
+import type { WeekRef } from "@/types/Schedule/week.ts";
 import WeekSelector from "../WeekSelector.vue";
 
 // Week of Mon 2026-11-23
